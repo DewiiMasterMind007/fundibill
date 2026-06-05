@@ -459,6 +459,9 @@ export default function Dashboard() {
         gap:                 isMobile ? 14 : 20,
         alignItems:          'start',
         marginBottom:        isMobile ? 14 : 20,
+        width:               '100%',
+        maxWidth:            '100%',
+        overflow:            'hidden',
       }}>
 
         {/* Revenue + Expenses chart */}
@@ -466,6 +469,9 @@ export default function Dashboard() {
           background: '#ffffff', borderRadius: 14,
           padding:    isMobile ? 12 : '24px 24px 16px',
           border: '1px solid #e2e8f0', boxShadow: '0 1px 4px rgba(0,0,0,0.05)',
+          overflow:   'hidden',
+          maxWidth:   '100%',
+          minWidth:   0,
         }}>
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: isMobile ? 12 : 20 }}>
             <div>
@@ -489,7 +495,7 @@ export default function Dashboard() {
               Loading chart…
             </div>
           ) : (
-            <ResponsiveContainer width="100%" height={220}>
+            <ResponsiveContainer width="100%" height={220} minWidth={0}>
               <BarChart
                 data={chartData}
                 barSize={chartMonthCount > 6 ? 14 : 22}
@@ -525,6 +531,9 @@ export default function Dashboard() {
           background: '#ffffff', borderRadius: 14,
           padding:    isMobile ? 12 : '24px',
           border: '1px solid #e2e8f0', boxShadow: '0 1px 4px rgba(0,0,0,0.05)',
+          overflow:   'hidden',
+          maxWidth:   '100%',
+          minWidth:   0,
         }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: isMobile ? 12 : 18 }}>
             <div>
