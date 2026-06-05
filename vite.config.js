@@ -3,11 +3,11 @@ import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 
 // Electron builds load files locally via file:// — they need a relative base.
-// Web/PWA builds are deployed to fundiai.co.za/fundibill/ — they need the subpath.
+// Vercel and local dev both serve from the root, so they use '/'.
 const isElectron = process.env.ELECTRON === 'true'
 
 export default defineConfig({
-  base: isElectron ? './' : '/fundibill/',
+  base: isElectron ? './' : '/',
 
   plugins: [
     react(),
@@ -22,8 +22,8 @@ export default defineConfig({
         background_color: '#ffffff',
         display: 'standalone',
         orientation: 'portrait',
-        scope: '/fundibill/',
-        start_url: '/fundibill/',
+        scope: '/',
+        start_url: '/',
         icons: [
           {
             src: 'icon-192.png',
@@ -45,7 +45,7 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
-        navigateFallback: '/fundibill/index.html',
+        navigateFallback: '/index.html',
         navigateFallbackDenylist: [/^\/api/],
       },
     }),
