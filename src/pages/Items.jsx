@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import { useTrialStatus } from '../context/TrialContext'
 import { useAppData } from '../context/AppDataContext'
 import HelpButton from '../components/HelpButton'
+import useIsMobile from '../hooks/useIsMobile'
 
 const READONLY_MSG = 'Your trial has ended. Upgrade to continue.'
 
@@ -11,9 +12,9 @@ const READONLY_MSG = 'Your trial has ended. Upgrade to continue.'
 
 function formatZAR(amount) {
   const n = parseFloat(amount)
-  if (isNaN(n)) return 'R\u00a00,00'
+  if (isNaN(n)) return 'R 0,00'
   const [int, dec = '00'] = n.toFixed(2).split('.')
-  return `R\u00a0${int.replace(/\B(?=(\d{3})+(?!\d))/g, '\u00a0')},${dec}`
+  return `R ${int.replace(/\B(?=(\d{3})+(?!\d))/g, ' ')},${dec}`
 }
 
 // ─── Empty state ──────────────────────────────────────────────────────────────
@@ -179,11 +180,15 @@ function ItemModal({ item, onSave, onDelete, onClose, isReadOnly }) {
   // ── Main form ─────────────────────────────────────────────────────────────
   return (
     <ModalShell onClose={onClose}>
-      {/* Header */}
+      {/* Header — sticky so title stays visible when body scrolls */}
       <div style={{
-        padding: '20px 24px 16px',
+        position:     'sticky',
+        top:          0,
+        zIndex:       2,
+        padding:      '20px 24px 16px',
         borderBottom: '1px solid #f1f5f9',
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        display:      'flex', alignItems: 'center', justifyContent: 'space-between',
+        background:   '#fff',
       }}>
         <div>
           <h2 style={{ fontSize: 17, fontWeight: 700, color: '#0f172a' }}>
@@ -261,11 +266,15 @@ function ItemModal({ item, onSave, onDelete, onClose, isReadOnly }) {
         </Field>
       </div>
 
-      {/* Footer */}
+      {/* Footer — sticky so it stays visible at the bottom whether the form is short or tall */}
       <div style={{
-        padding: '12px 24px 20px',
-        borderTop: '1px solid #f1f5f9',
-        display: 'flex', alignItems: 'center', gap: 10,
+        position:   'sticky',
+        bottom:     0,
+        zIndex:     1,
+        padding:    '12px 24px 20px',
+        borderTop:  '1px solid #f1f5f9',
+        display:    'flex', alignItems: 'center', gap: 10,
+        background: '#fff',
       }}>
         {isEdit && !isReadOnly && (
           <button onClick={() => setConfirmingDelete(true)} style={{
@@ -273,6 +282,7 @@ function ItemModal({ item, onSave, onDelete, onClose, isReadOnly }) {
             border: '1.5px solid #fca5a5', background: '#fff',
             fontSize: 13, fontWeight: 600, color: '#ef4444', cursor: 'pointer',
             display: 'flex', alignItems: 'center', gap: 6,
+            minHeight: 44,
           }}>
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
               stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -288,6 +298,7 @@ function ItemModal({ item, onSave, onDelete, onClose, isReadOnly }) {
           padding: '9px 18px', borderRadius: 8,
           border: '1.5px solid #e2e8f0', background: '#fff',
           fontSize: 14, fontWeight: 600, color: '#64748b', cursor: 'pointer',
+          minHeight: 44,
         }}>
           {isReadOnly ? 'Close' : 'Cancel'}
         </button>
@@ -300,6 +311,7 @@ function ItemModal({ item, onSave, onDelete, onClose, isReadOnly }) {
             cursor: saving ? 'default' : 'pointer',
             transition: 'background 0.15s',
             minWidth: 110,
+            minHeight: 44,
           }}>
             {saving ? 'Saving…' : isEdit ? 'Save Changes' : 'Add Item'}
           </button>
@@ -309,12 +321,14 @@ function ItemModal({ item, onSave, onDelete, onClose, isReadOnly }) {
   )
 }
 
+// ─── Modal shell — centered on desktop, bottom sheet on mobile ────────────────
+
 function ModalShell({ children, onClose }) {
-  // Close on backdrop click
+  const isMobile = useIsMobile()
+
   function handleBackdrop(e) {
     if (e.target === e.currentTarget) onClose()
   }
-  // Close on Escape
   useEffect(() => {
     const handler = e => { if (e.key === 'Escape') onClose() }
     window.addEventListener('keydown', handler)
@@ -325,18 +339,111 @@ function ModalShell({ children, onClose }) {
     <div
       onClick={handleBackdrop}
       style={{
-        position: 'fixed', inset: 0, zIndex: 100,
-        background: 'rgba(15,23,42,0.5)', backdropFilter: 'blur(3px)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        padding: 24,
+        position:       'fixed', inset: 0, zIndex: 500,
+        background:     'rgba(15,23,42,0.5)', backdropFilter: 'blur(3px)',
+        display:        'flex',
+        alignItems:     isMobile ? 'flex-end' : 'center',
+        justifyContent: 'center',
+        padding:        isMobile ? 0 : 24,
       }}
     >
       <div style={{
-        background: '#fff', borderRadius: 14, width: '100%', maxWidth: 480,
-        boxShadow: '0 20px 60px rgba(0,0,0,0.18)',
-        maxHeight: 'calc(100vh - 48px)', overflowY: 'auto',
+        background:   '#fff',
+        borderRadius: isMobile ? '20px 20px 0 0' : 14,
+        width:        '100%',
+        maxWidth:     isMobile ? 'none' : 480,
+        boxShadow:    '0 20px 60px rgba(0,0,0,0.18)',
+        // Auto-size to content on both mobile and desktop, capped at max-height.
+        // The sticky footer technique keeps buttons pinned without a fixed height,
+        // so short forms have no blank space and tall forms scroll correctly.
+        maxHeight:    isMobile ? '90vh' : 'calc(100vh - 48px)',
+        overflowY:    'auto',
       }}>
+        {/* Drag handle on mobile */}
+        {isMobile && (
+          <div style={{ width: 40, height: 4, background: '#e2e8f0', borderRadius: 2, margin: '12px auto 0' }} />
+        )}
         {children}
+      </div>
+    </div>
+  )
+}
+
+// ─── Mobile item card ─────────────────────────────────────────────────────────
+
+function MobileItemCard({ item, onEdit, onDelete, isReadOnly }) {
+  const [menuOpen, setMenuOpen] = useState(false)
+  const menuRef = useRef(null)
+
+  useEffect(() => {
+    const fn = (e) => { if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false) }
+    document.addEventListener('mousedown', fn)
+    return () => document.removeEventListener('mousedown', fn)
+  }, [])
+
+  return (
+    <div
+      onClick={() => onEdit(item)}
+      style={{
+        background:   '#fff',
+        borderRadius: 8,
+        boxShadow:    '0 1px 4px rgba(0,0,0,0.07)',
+        border:       '1px solid #f1f5f9',
+        padding:      16,
+        marginBottom: 10,
+        cursor:       'pointer',
+        position:     'relative',
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+        {/* Content */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 15, fontWeight: 700, color: '#0f172a', marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {item.name}
+          </div>
+          {item.description && (
+            <div style={{ fontSize: 13, color: '#64748b', marginBottom: 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {item.description}
+            </div>
+          )}
+          <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--primary, #14b8a6)' }}>
+            {formatZAR(item.unit_price)}
+          </div>
+        </div>
+
+        {/* Three-dot menu */}
+        <div ref={menuRef} onClick={e => e.stopPropagation()} style={{ flexShrink: 0, position: 'relative' }}>
+          <button
+            onClick={e => { e.stopPropagation(); setMenuOpen(o => !o) }}
+            aria-label="More actions"
+            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px 8px', color: '#94a3b8', fontSize: 20, lineHeight: 1, letterSpacing: 2, borderRadius: 6 }}
+          >···</button>
+
+          {menuOpen && (
+            <div style={{
+              position: 'absolute', right: 0, top: '100%', zIndex: 200,
+              background: '#fff', borderRadius: 10,
+              boxShadow: '0 4px 24px rgba(0,0,0,0.14)',
+              border: '1px solid #e2e8f0',
+              minWidth: 140, overflow: 'hidden', marginTop: 4,
+            }}>
+              <button
+                onClick={() => { setMenuOpen(false); onEdit(item) }}
+                style={{ display: 'block', width: '100%', padding: '12px 16px', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', fontSize: 14, fontWeight: 500, color: '#0f172a', fontFamily: 'inherit' }}
+                onMouseEnter={e => { e.currentTarget.style.background = '#f8fafc' }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'none' }}
+              >Edit</button>
+              {!isReadOnly && (
+                <button
+                  onClick={() => { setMenuOpen(false); onDelete(item) }}
+                  style={{ display: 'block', width: '100%', padding: '12px 16px', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', fontSize: 14, fontWeight: 500, color: '#dc2626', fontFamily: 'inherit' }}
+                  onMouseEnter={e => { e.currentTarget.style.background = '#fef2f2' }}
+                  onMouseLeave={e => { e.currentTarget.style.background = 'none' }}
+                >Delete</button>
+              )}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )
@@ -371,7 +478,8 @@ function Toast({ message }) {
 export default function Items() {
   const trialStatus = useTrialStatus()
   const isReadOnly  = trialStatus?.isReadOnly ?? false
-  const { user } = useAuth()
+  const { user }    = useAuth()
+  const isMobile    = useIsMobile()
 
   // catalog from global cache; refreshCatalog() re-fetches after writes
   const { catalog: items, loaded: appLoaded, refreshCatalog } = useAppData()
@@ -380,9 +488,10 @@ export default function Items() {
   const [opError,  setOpError]  = useState('')
   const [search,   setSearch]   = useState('')
 
-  const [modal, setModal]     = useState(null)
-  const [toast, setToast]     = useState(null)
-  const toastTimer            = useRef(null)
+  const [modal, setModal]           = useState(null)
+  const [toast, setToast]           = useState(null)
+  const [confirmDeleteItem, setConfirmDeleteItem] = useState(null)
+  const toastTimer                  = useRef(null)
 
   useEffect(() => { if (appLoaded) setLoading(false) }, [appLoaded])
 
@@ -421,7 +530,7 @@ export default function Items() {
     }
   }
 
-  // ── Delete ───────────────────────────────────────────────────────────────
+  // ── Delete (via modal) ───────────────────────────────────────────────────
 
   async function handleDelete() {
     if (!modal || typeof modal !== 'object') return
@@ -439,6 +548,23 @@ export default function Items() {
     }
   }
 
+  // ── Delete (direct from mobile card menu) ────────────────────────────────
+
+  async function handleDeleteDirect(item) {
+    const { error } = await supabase
+      .from('items')
+      .delete()
+      .eq('id', item.id)
+      .eq('user_id', user.id)
+    if (error) {
+      setOpError(error.message)
+    } else {
+      await refreshCatalog()
+      showToast('Item deleted')
+      setConfirmDeleteItem(null)
+    }
+  }
+
   // ── Filter ───────────────────────────────────────────────────────────────
 
   const q        = search.trim().toLowerCase()
@@ -452,46 +578,53 @@ export default function Items() {
   // ── Render ───────────────────────────────────────────────────────────────
 
   return (
-    <div style={{ padding: 32, height: '100%', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ padding: isMobile ? 16 : 32, height: '100%', display: 'flex', flexDirection: 'column' }}>
 
-      {/* Header */}
+      {/* ── Header ── */}
       <div style={{
         display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between',
-        marginBottom: 24, flexShrink: 0,
+        marginBottom: isMobile ? 12 : 24, flexShrink: 0,
       }}>
-        <div>
-          <h1 style={{ fontSize: 24, fontWeight: 700, color: '#0f172a', marginBottom: 4 }}>Items</h1>
-          <p style={{ fontSize: 14, color: '#64748b' }}>
-            {loading ? 'Loading…' : `${items.length} item${items.length !== 1 ? 's' : ''} in your catalog`}
-          </p>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <button
-            onClick={isReadOnly ? undefined : () => setModal(false)}
-            disabled={isReadOnly}
-            title={isReadOnly ? READONLY_MSG : undefined}
-            style={{
-              background: '#14b8a6', color: '#fff', border: 'none',
-              borderRadius: 8, padding: '10px 18px',
-              fontSize: 14, fontWeight: 600, cursor: isReadOnly ? 'not-allowed' : 'pointer',
-              opacity: isReadOnly ? 0.45 : 1,
-              display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0,
-              boxShadow: isReadOnly ? 'none' : '0 2px 8px rgba(20,184,166,0.3)',
-            }}
-          >
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
-              stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-              <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
-            </svg>
-            Add New Item
-          </button>
+        {/* Title — hidden on mobile (MobileHeader shows page name) */}
+        {!isMobile && (
+          <div>
+            <h1 style={{ fontSize: 24, fontWeight: 700, color: '#0f172a', marginBottom: 4 }}>Items</h1>
+            <p style={{ fontSize: 14, color: '#64748b' }}>
+              {loading ? 'Loading…' : `${items.length} item${items.length !== 1 ? 's' : ''} in your catalog`}
+            </p>
+          </div>
+        )}
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, width: isMobile ? '100%' : 'auto', justifyContent: isMobile ? 'flex-end' : 'flex-end' }}>
+          {/* Add New Item button — desktop only; mobile uses FAB */}
+          {!isMobile && (
+            <button
+              onClick={isReadOnly ? undefined : () => setModal(false)}
+              disabled={isReadOnly}
+              title={isReadOnly ? READONLY_MSG : undefined}
+              style={{
+                background: '#14b8a6', color: '#fff', border: 'none',
+                borderRadius: 8, padding: '10px 18px',
+                fontSize: 14, fontWeight: 600, cursor: isReadOnly ? 'not-allowed' : 'pointer',
+                opacity: isReadOnly ? 0.45 : 1,
+                display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0,
+                boxShadow: isReadOnly ? 'none' : '0 2px 8px rgba(20,184,166,0.3)',
+              }}
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
+              </svg>
+              Add New Item
+            </button>
+          )}
           <HelpButton page="items" />
         </div>
       </div>
 
-      {/* Search */}
+      {/* ── Search ── */}
       {items.length > 0 && (
-        <div style={{ position: 'relative', maxWidth: 360, marginBottom: 16, flexShrink: 0 }}>
+        <div style={{ position: 'relative', maxWidth: isMobile ? '100%' : 360, marginBottom: isMobile ? 12 : 16, flexShrink: 0 }}>
           <svg style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}
             width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2" strokeLinecap="round">
             <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
@@ -504,6 +637,7 @@ export default function Items() {
               ...INPUT_BASE,
               paddingLeft: 34, paddingRight: search ? 30 : 12,
               background: '#fff',
+              minHeight: isMobile ? 44 : undefined,
             }}
           />
           {search && (
@@ -520,7 +654,7 @@ export default function Items() {
         </div>
       )}
 
-      {/* Error banner */}
+      {/* ── Error banner ── */}
       {opError && (
         <div style={{
           background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: 8,
@@ -533,80 +667,116 @@ export default function Items() {
         </div>
       )}
 
-      {/* Table */}
-      <div style={{
-        background: '#fff', borderRadius: 12,
-        border: '1px solid #e2e8f0',
-        boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
-        overflow: 'hidden', flex: 1,
-      }}>
-        {/* Column headers */}
-        <div style={{
-          display: 'grid', gridTemplateColumns: '2fr 3fr 140px',
-          padding: '11px 20px',
-          background: '#f8fafc',
-          borderBottom: '1px solid #f1f5f9',
-        }}>
-          {['Item Name', 'Description', 'Unit Price'].map(h => (
-            <span key={h} style={{
-              fontSize: 11, fontWeight: 700, color: '#64748b',
-              textTransform: 'uppercase', letterSpacing: '0.06em',
-            }}>{h}</span>
-          ))}
+      {/* ── Item list ── */}
+      {isMobile ? (
+        /* Mobile: card list */
+        <div style={{ flex: 1, overflowY: 'auto', paddingBottom: 80 }}>
+          {loading ? (
+            <div style={{ padding: '56px 0', textAlign: 'center', color: '#94a3b8', fontSize: 14 }}>Loading…</div>
+          ) : filtered.length === 0 ? (
+            <EmptyState search={search} onAdd={() => setModal(false)} />
+          ) : (
+            filtered.map(item => (
+              <MobileItemCard
+                key={item.id}
+                item={item}
+                onEdit={() => setModal(item)}
+                onDelete={item => setConfirmDeleteItem(item)}
+                isReadOnly={isReadOnly}
+              />
+            ))
+          )}
         </div>
-
-        {/* Rows */}
-        {loading ? (
-          <div style={{ padding: '56px 0', textAlign: 'center', color: '#94a3b8', fontSize: 14 }}>
-            Loading…
+      ) : (
+        /* Desktop: table (unchanged) */
+        <div className="items-table" style={{
+          background: '#fff', borderRadius: 12,
+          border: '1px solid #e2e8f0',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+          overflow: 'hidden', flex: 1,
+        }}>
+          {/* Column headers */}
+          <div style={{
+            display: 'grid', gridTemplateColumns: '2fr 3fr 140px',
+            padding: '11px 20px',
+            background: '#f8fafc',
+            borderBottom: '1px solid #f1f5f9',
+          }}>
+            {['Item Name', 'Description', 'Unit Price'].map(h => (
+              <span key={h} style={{
+                fontSize: 11, fontWeight: 700, color: '#64748b',
+                textTransform: 'uppercase', letterSpacing: '0.06em',
+              }}>{h}</span>
+            ))}
           </div>
-        ) : filtered.length === 0 ? (
-          <EmptyState search={search} onAdd={() => setModal(false)} />
-        ) : (
-          filtered.map((item, idx) => (
-            <div
-              key={item.id}
-              onClick={isReadOnly ? undefined : () => setModal(item)}
-              style={{
-                display: 'grid', gridTemplateColumns: '2fr 3fr 140px',
-                padding: '14px 20px', alignItems: 'center',
-                borderBottom: idx < filtered.length - 1 ? '1px solid #f8fafc' : 'none',
-                cursor: 'pointer', transition: 'background 0.1s',
-              }}
-              onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
-              onMouseLeave={e => e.currentTarget.style.background = ''}
-            >
-              {/* Name */}
-              <p style={{
-                fontSize: 14, fontWeight: 600, color: '#0f172a',
-                whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                paddingRight: 16,
-              }}>
-                {item.name}
-              </p>
 
-              {/* Description */}
-              <p style={{
-                fontSize: 13, color: '#64748b',
-                whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                paddingRight: 16,
-              }}>
-                {item.description || <span style={{ color: '#cbd5e1', fontStyle: 'italic' }}>No description</span>}
-              </p>
-
-              {/* Price */}
-              <p style={{
-                fontSize: 14, fontWeight: 600, color: '#0f172a',
-                fontVariantNumeric: 'tabular-nums',
-              }}>
-                {formatZAR(item.unit_price)}
-              </p>
+          {/* Rows */}
+          {loading ? (
+            <div style={{ padding: '56px 0', textAlign: 'center', color: '#94a3b8', fontSize: 14 }}>
+              Loading…
             </div>
-          ))
-        )}
-      </div>
+          ) : filtered.length === 0 ? (
+            <EmptyState search={search} onAdd={() => setModal(false)} />
+          ) : (
+            filtered.map((item, idx) => (
+              <div
+                key={item.id}
+                onClick={isReadOnly ? undefined : () => setModal(item)}
+                style={{
+                  display: 'grid', gridTemplateColumns: '2fr 3fr 140px',
+                  padding: '14px 20px', alignItems: 'center',
+                  borderBottom: idx < filtered.length - 1 ? '1px solid #f8fafc' : 'none',
+                  cursor: 'pointer', transition: 'background 0.1s',
+                }}
+                onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
+                onMouseLeave={e => e.currentTarget.style.background = ''}
+              >
+                <p style={{ fontSize: 14, fontWeight: 600, color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', paddingRight: 16 }}>
+                  {item.name}
+                </p>
+                <p style={{ fontSize: 13, color: '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', paddingRight: 16 }}>
+                  {item.description || <span style={{ color: '#cbd5e1', fontStyle: 'italic' }}>No description</span>}
+                </p>
+                <p style={{ fontSize: 14, fontWeight: 600, color: '#0f172a', fontVariantNumeric: 'tabular-nums' }}>
+                  {formatZAR(item.unit_price)}
+                </p>
+              </div>
+            ))
+          )}
+        </div>
+      )}
 
-      {/* Modal */}
+      {/* ── FAB — mobile only ── */}
+      {isMobile && !isReadOnly && (
+        <button
+          onClick={() => setModal(false)}
+          title="Add New Item"
+          style={{
+            position:       'fixed',
+            bottom:         80,
+            right:          16,
+            width:          56,
+            height:         56,
+            borderRadius:   '50%',
+            background:     'var(--primary, #14b8a6)',
+            color:          '#fff',
+            border:         'none',
+            boxShadow:      '0 4px 20px rgba(0,0,0,0.24)',
+            cursor:         'pointer',
+            display:        'flex',
+            alignItems:     'center',
+            justifyContent: 'center',
+            zIndex:         50,
+          }}
+        >
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="12" y1="5" x2="12" y2="19"/>
+            <line x1="5" y1="12" x2="19" y2="12"/>
+          </svg>
+        </button>
+      )}
+
+      {/* ── Item modal (add / edit) ── */}
       {modal !== null && (
         <ItemModal
           item={modal || null}
@@ -617,7 +787,29 @@ export default function Items() {
         />
       )}
 
-      {/* Toast */}
+      {/* ── Mobile: direct delete confirmation ── */}
+      {confirmDeleteItem && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 150 }}>
+          <div style={{ background: '#fff', borderRadius: 14, padding: 28, width: 340, maxWidth: '92vw', boxShadow: '0 20px 60px rgba(0,0,0,0.18)' }}>
+            <h3 style={{ margin: '0 0 10px', fontSize: 17, fontWeight: 700, color: '#0f172a' }}>Delete item?</h3>
+            <p style={{ color: '#64748b', fontSize: 14, marginBottom: 22 }}>
+              <strong>{confirmDeleteItem.name}</strong> will be permanently removed. This cannot be undone.
+            </p>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button onClick={() => setConfirmDeleteItem(null)}
+                style={{ padding: '9px 18px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', color: '#64748b', fontWeight: 600, fontSize: 14, cursor: 'pointer' }}>
+                Cancel
+              </button>
+              <button onClick={() => handleDeleteDirect(confirmDeleteItem)}
+                style={{ padding: '9px 18px', borderRadius: 8, border: 'none', background: '#ef4444', color: '#fff', fontWeight: 600, fontSize: 14, cursor: 'pointer' }}>
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Toast ── */}
       {toast && <Toast message={toast} />}
     </div>
   )

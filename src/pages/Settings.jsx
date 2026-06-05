@@ -5,6 +5,7 @@ import { useTrialStatus } from '../context/TrialContext'
 import { useAppData } from '../context/AppDataContext'
 import HelpButton from '../components/HelpButton'
 import { generateTestEmail, PLAIN_TEXT_FOOTER } from '../lib/emailTemplates'
+import useIsMobile from '../hooks/useIsMobile'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -42,8 +43,6 @@ const DEFAULTS = {
   payment_terms_days:      7,
 }
 
-// Maps form field names → Supabase profiles column names.
-// All settings are now persisted exclusively to the profiles table.
 const SUPABASE_COL = {
   business_name:            'business_name',
   business_address:         'address',
@@ -135,51 +134,113 @@ function Toast({ visible }) {
   )
 }
 
-// ─── Section card ─────────────────────────────────────────────────────────────
+// ─── Section card — desktop static card / mobile accordion ───────────────────
 
-function Section({ title, badge, description, children }) {
-  return (
-    <div style={{
-      background:   '#ffffff',
-      border:       '1px solid #e2e8f0',
-      borderRadius: 12,
-      overflow:     'hidden',
-      marginBottom: 20,
-      boxShadow:    '0 1px 3px rgba(0,0,0,0.04)',
-    }}>
+function Section({ id, icon, title, badge, description, children, isOpen, onToggle, isMobile }) {
+  if (!isMobile) {
+    // Desktop: original static card layout (unchanged)
+    return (
       <div style={{
-        padding:      '14px 24px',
-        borderBottom: '1px solid #f1f5f9',
-        background:   '#f8fafc',
-        display:      'flex',
-        alignItems:   'center',
-        gap:          10,
+        background:   '#ffffff',
+        border:       '1px solid #e2e8f0',
+        borderRadius: 12,
+        overflow:     'hidden',
+        marginBottom: 20,
+        boxShadow:    '0 1px 3px rgba(0,0,0,0.04)',
       }}>
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <h2 style={{ fontSize: 14, fontWeight: 700, color: '#0f172a', margin: 0 }}>{title}</h2>
-            {badge && (
-              <span style={{
-                background:    '#fef3c7',
-                color:         '#92400e',
-                fontSize:      10,
-                fontWeight:    700,
-                padding:       '2px 8px',
-                borderRadius:  999,
-                textTransform: 'uppercase',
-                letterSpacing: '0.06em',
-                border:        '1px solid #fde68a',
-              }}>
-                {badge}
-              </span>
+        <div style={{
+          padding:      '14px 24px',
+          borderBottom: '1px solid #f1f5f9',
+          background:   '#f8fafc',
+          display:      'flex',
+          alignItems:   'center',
+          gap:          10,
+        }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <h2 style={{ fontSize: 14, fontWeight: 700, color: '#0f172a', margin: 0 }}>{title}</h2>
+              {badge && (
+                <span style={{
+                  background:    '#fef3c7',
+                  color:         '#92400e',
+                  fontSize:      10,
+                  fontWeight:    700,
+                  padding:       '2px 8px',
+                  borderRadius:  999,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.06em',
+                  border:        '1px solid #fde68a',
+                }}>
+                  {badge}
+                </span>
+              )}
+            </div>
+            {description && (
+              <p style={{ fontSize: 12, color: '#94a3b8', margin: '2px 0 0' }}>{description}</p>
             )}
           </div>
-          {description && (
-            <p style={{ fontSize: 12, color: '#94a3b8', margin: '2px 0 0' }}>{description}</p>
+        </div>
+        <div style={{ padding: 24 }}>{children}</div>
+      </div>
+    )
+  }
+
+  // Mobile: collapsible accordion card
+  return (
+    <div style={{
+      background:     '#fff',
+      borderRadius:   10,
+      marginBottom:   10,
+      border:         '1px solid #e2e8f0',
+      borderLeft:     `3px solid ${isOpen ? 'var(--primary, #14b8a6)' : 'transparent'}`,
+      boxShadow:      isOpen ? '0 2px 10px rgba(0,0,0,0.08)' : '0 1px 3px rgba(0,0,0,0.04)',
+      overflow:       'hidden',
+      transition:     'box-shadow 0.2s',
+    }}>
+      {/* Accordion header — always visible */}
+      <div
+        onClick={onToggle}
+        style={{
+          padding:        '14px 16px',
+          display:        'flex',
+          alignItems:     'center',
+          justifyContent: 'space-between',
+          cursor:         'pointer',
+          userSelect:     'none',
+          WebkitTapHighlightColor: 'transparent',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ fontSize: 20, lineHeight: 1, flexShrink: 0 }}>{icon}</span>
+          <span style={{ fontSize: 15, fontWeight: 600, color: '#0f172a' }}>{title}</span>
+          {badge && (
+            <span style={{
+              background:    '#fef3c7', color: '#92400e',
+              fontSize:      10, fontWeight: 700,
+              padding:       '2px 8px', borderRadius: 999,
+              textTransform: 'uppercase', letterSpacing: '0.06em',
+              border:        '1px solid #fde68a',
+            }}>
+              {badge}
+            </span>
           )}
         </div>
+        <svg
+          width="18" height="18" viewBox="0 0 24 24" fill="none"
+          stroke={isOpen ? 'var(--primary, #14b8a6)' : '#94a3b8'}
+          strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+          style={{ transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s', flexShrink: 0 }}
+        >
+          <polyline points="6 9 12 15 18 9" />
+        </svg>
       </div>
-      <div style={{ padding: 24 }}>{children}</div>
+
+      {/* Accordion body — only when open */}
+      {isOpen && (
+        <div style={{ padding: '4px 16px 20px', borderTop: '1px solid #f1f5f9' }}>
+          {children}
+        </div>
+      )}
     </div>
   )
 }
@@ -211,14 +272,17 @@ function Field({ label, hint, children, style = {} }) {
 // ─── Color picker ─────────────────────────────────────────────────────────────
 
 function ColorPicker({ label, value, onChange, onBlur }) {
+  const isMobile = useIsMobile()
+  const swatchSize = isMobile ? 48 : 44
+
   return (
     <Field label={label}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         {/* Swatch — clicking it opens the native color picker */}
         <label style={{ position: 'relative', cursor: 'pointer', flexShrink: 0 }}>
           <div style={{
-            width:        44,
-            height:       44,
+            width:        swatchSize,
+            height:       swatchSize,
             borderRadius: 10,
             background:   value,
             border:       '2px solid #e2e8f0',
@@ -240,13 +304,15 @@ function ColorPicker({ label, value, onChange, onBlur }) {
         <div style={{
           ...INPUT,
           flex:       1,
+          fontSize:   isMobile ? 16 : 14,
           fontFamily: 'ui-monospace, Consolas, monospace',
           color:      '#334155',
           display:    'flex',
           alignItems: 'center',
           gap:        8,
           cursor:     'default',
-          padding:    '9px 12px',
+          padding:    isMobile ? '12px' : '9px 12px',
+          minHeight:  isMobile ? 48 : undefined,
         }}>
           <div style={{
             width: 14, height: 14, borderRadius: 3,
@@ -273,7 +339,7 @@ function InvoicePreview({ form }) {
   const total = sampleItems.reduce((s, i) => s + i.qty * i.rate, 0)
   const fmtR  = (n) => {
     const [int, dec] = n.toFixed(2).split('.')
-    return `R\u00a0${int.replace(/\B(?=(\d{3})+(?!\d))/g, '\u00a0')},${dec}`
+    return `R ${int.replace(/\B(?=(\d{3})+(?!\d))/g, ' ')},${dec}`
   }
 
   return (
@@ -285,7 +351,6 @@ function InvoicePreview({ form }) {
       boxShadow:    '0 2px 8px rgba(0,0,0,0.06)',
       fontFamily:   'inherit',
     }}>
-      {/* Preview label */}
       <div style={{
         padding: '7px 14px', background: '#f1f5f9', borderBottom: '1px solid #e2e8f0',
         fontSize: 11, color: '#64748b', fontWeight: 600,
@@ -295,48 +360,23 @@ function InvoicePreview({ form }) {
       </div>
 
       <div style={{ background: '#fff', padding: '20px 24px' }}>
-
-        {/* Header row: left = logo + biz info, right = INVOICE + number + dates */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
-          {/* Left */}
           <div style={{ flex: 1, maxWidth: 220 }}>
             {form.logo_path ? (
-              <img
-                src={form.logo_path}
-                alt="logo"
-                style={{ width: 48, height: 48, objectFit: 'contain', display: 'block', marginBottom: 8, borderRadius: 4, border: '1px solid #e2e8f0', background: '#f8fafc', padding: 3 }}
-              />
+              <img src={form.logo_path} alt="logo" style={{ width: 48, height: 48, objectFit: 'contain', display: 'block', marginBottom: 8, borderRadius: 4, border: '1px solid #e2e8f0', background: '#f8fafc', padding: 3 }} />
             ) : (
-              <div style={{
-                width: 48, height: 48, borderRadius: 6, background: primary + '22',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                marginBottom: 8, fontSize: 18, color: primary, fontWeight: 800,
-              }}>
+              <div style={{ width: 48, height: 48, borderRadius: 6, background: primary + '22', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 8, fontSize: 18, color: primary, fontWeight: 800 }}>
                 {(form.business_name || 'B').charAt(0).toUpperCase()}
               </div>
             )}
-            <div style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>
-              {form.business_name || 'Your Business'}
-            </div>
-            {form.business_address && (
-              <div style={{ fontSize: 11, color: '#64748b', marginTop: 2, whiteSpace: 'pre-line', lineHeight: 1.4 }}>
-                {form.business_address}
-              </div>
-            )}
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>{form.business_name || 'Your Business'}</div>
+            {form.business_address && <div style={{ fontSize: 11, color: '#64748b', marginTop: 2, whiteSpace: 'pre-line', lineHeight: 1.4 }}>{form.business_address}</div>}
             {form.email && <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>{form.email}</div>}
             {form.phone && <div style={{ fontSize: 11, color: '#64748b', marginTop: 1 }}>{form.phone}</div>}
           </div>
-
-          {/* Right */}
           <div style={{ textAlign: 'right' }}>
-            <div style={{ fontSize: 28, fontWeight: 800, color: primary, letterSpacing: '-0.5px', lineHeight: 1, marginBottom: 8 }}>
-              INVOICE
-            </div>
-            {[
-              ['Invoice #', `${prefix}${numStr}`],
-              ['Issue Date', new Date().toISOString().slice(0, 10)],
-              ['Due Date',   new Date(Date.now() + 7*86400000).toISOString().slice(0, 10)],
-            ].map(([label, val]) => (
+            <div style={{ fontSize: 28, fontWeight: 800, color: primary, letterSpacing: '-0.5px', lineHeight: 1, marginBottom: 8 }}>INVOICE</div>
+            {[['Invoice #', `${prefix}${numStr}`], ['Issue Date', new Date().toISOString().slice(0, 10)], ['Due Date', new Date(Date.now() + 7*86400000).toISOString().slice(0, 10)]].map(([label, val]) => (
               <div key={label} style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginBottom: 3, alignItems: 'baseline' }}>
                 <span style={{ fontSize: 10, color: '#94a3b8' }}>{label}</span>
                 <span style={{ fontSize: 11, fontWeight: 700, color: '#0f172a', minWidth: 90, textAlign: 'right' }}>{val}</span>
@@ -344,41 +384,20 @@ function InvoicePreview({ form }) {
             ))}
           </div>
         </div>
-
-        {/* Teal divider */}
         <div style={{ height: 2, background: primary, marginBottom: 14, borderRadius: 1 }} />
-
-        {/* Bill To */}
         <div style={{ marginBottom: 14 }}>
-          <div style={{ fontSize: 9, fontWeight: 700, color: primary, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 4 }}>
-            Bill To
-          </div>
+          <div style={{ fontSize: 9, fontWeight: 700, color: primary, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 4 }}>Bill To</div>
           <div style={{ fontSize: 12, fontWeight: 700, color: '#0f172a' }}>Client Name</div>
           <div style={{ fontSize: 11, color: '#64748b' }}>client@example.com</div>
         </div>
-
-        {/* Line items table */}
         <div style={{ borderRadius: 5, overflow: 'hidden', marginBottom: 12 }}>
-          {/* Header */}
-          <div style={{
-            display: 'grid', gridTemplateColumns: '1fr 40px 90px 90px',
-            background: primary, padding: '6px 10px', gap: 8,
-          }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 40px 90px 90px', background: primary, padding: '6px 10px', gap: 8 }}>
             {['Item Description', 'Qty', 'Rate', 'Amount'].map((h, i) => (
-              <span key={h} style={{
-                fontSize: 9, fontWeight: 700, color: '#fff', textTransform: 'uppercase',
-                letterSpacing: '0.05em', textAlign: i > 0 ? 'right' : 'left',
-              }}>{h}</span>
+              <span key={h} style={{ fontSize: 9, fontWeight: 700, color: '#fff', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: i > 0 ? 'right' : 'left' }}>{h}</span>
             ))}
           </div>
-          {/* Rows */}
           {sampleItems.map((item, i) => (
-            <div key={item.name} style={{
-              display: 'grid', gridTemplateColumns: '1fr 40px 90px 90px',
-              padding: '7px 10px', gap: 8, alignItems: 'start',
-              background: i % 2 === 1 ? '#f8fafc' : '#fff',
-              borderBottom: '1px solid #f1f5f9',
-            }}>
+            <div key={item.name} style={{ display: 'grid', gridTemplateColumns: '1fr 40px 90px 90px', padding: '7px 10px', gap: 8, alignItems: 'start', background: i % 2 === 1 ? '#f8fafc' : '#fff', borderBottom: '1px solid #f1f5f9' }}>
               <div>
                 <div style={{ fontSize: 11, fontWeight: 600, color: '#0f172a' }}>{item.name}</div>
                 <div style={{ fontSize: 10, color: '#64748b', marginTop: 1 }}>{item.desc}</div>
@@ -389,8 +408,6 @@ function InvoicePreview({ form }) {
             </div>
           ))}
         </div>
-
-        {/* Totals */}
         <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
           <div style={{ width: 200 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 8, borderTop: `2px solid ${primary}` }}>
@@ -409,8 +426,10 @@ function InvoicePreview({ form }) {
 export default function Settings() {
   const trialStatus = useTrialStatus()
   const isReadOnly  = trialStatus?.isReadOnly ?? false
-  const { user } = useAuth()
+  const { user, signOut } = useAuth()
   const { refreshProfile } = useAppData()
+  const isMobile = useIsMobile()
+
   const [form, setForm]                   = useState(DEFAULTS)
   const [toastVisible, setToast]          = useState(false)
   const [saveError, setSaveError]         = useState('')
@@ -419,10 +438,16 @@ export default function Settings() {
   const [newMethod, setNewMethod]         = useState('')
   const [expCategories, setExpCategories] = useState(BUILTIN_CATEGORIES)
   const [newCategory, setNewCategory]     = useState('')
-  const [testEmailStatus, setTestEmailStatus] = useState(null) // null | 'sending' | 'success' | 'error'
+  const [testEmailStatus, setTestEmailStatus] = useState(null)
   const [testEmailMsg, setTestEmailMsg]   = useState('')
   const toastTimer  = useRef(null)
   const logoRef     = useRef(null)
+
+  // Mobile accordion — which section is currently open
+  const [openSection, setOpenSection] = useState('business')
+  function toggleSection(id) {
+    setOpenSection(prev => prev === id ? null : id)
+  }
 
   // ── Load on mount: Supabase profile ──────────────────────────────────────
   useEffect(() => {
@@ -509,19 +534,15 @@ export default function Settings() {
         const profileData = { id: user.id }
         for (const [field, col] of Object.entries(SUPABASE_COL)) {
           const v = form[field]
-          // Send null for empty strings (avoids type errors on integer columns)
           profileData[col] = (v === '' || v === null || v === undefined) ? null : v
         }
-        // Include payment methods and expense categories (managed outside the form object)
         profileData.payment_methods    = JSON.stringify(payMethods)
         profileData.expense_categories = JSON.stringify(expCategories)
-        // Ensure integer columns receive actual integers, not strings from number inputs
         if (profileData.payment_terms_days != null) profileData.payment_terms_days = parseInt(profileData.payment_terms_days, 10) || 7
 
         const { error: profileError } = await supabase.from('profiles').upsert(profileData, { onConflict: 'id' })
         if (profileError) throw new Error(profileError.message)
 
-        // Keep AppDataContext in sync so UI colours + settings update immediately
         refreshProfile()
       }
 
@@ -573,29 +594,46 @@ export default function Settings() {
   const focusStyle = (e) => { e.currentTarget.style.borderColor = '#14b8a6' }
   const blurStyle  = (e) => { e.currentTarget.style.borderColor = '#e2e8f0' }
 
+  // ── Mobile-aware input style (fontSize:16 prevents iOS zoom; 44px touch target)
+  const inp = isMobile
+    ? { ...INPUT, fontSize: 16, minHeight: 44, padding: '10px 12px' }
+    : INPUT
+
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div style={{
-      padding:    '32px 32px 64px',
+      padding:    isMobile ? '16px 16px 160px' : '32px 32px 64px',
       maxWidth:   820,
       overflowY:  'auto',
       height:     '100%',
+      boxSizing:  'border-box',
     }}>
-      {/* Page header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-        <h1 style={{ fontSize: 24, fontWeight: 700, color: '#0f172a', margin: 0 }}>
-          Settings
-        </h1>
-        <HelpButton page="settings" />
-      </div>
-      <p style={{ color: '#64748b', fontSize: 14, marginBottom: saveError ? 16 : 28 }}>
-        Manage your business profile, branding, and document preferences.
-      </p>
+      <style>{`@keyframes testEmailSpin { to { transform: rotate(360deg); } }`}</style>
+
+      {/* ── Page header — hidden on mobile (MobileHeader shows "Settings") ── */}
+      {!isMobile && (
+        <>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+            <h1 style={{ fontSize: 24, fontWeight: 700, color: '#0f172a', margin: 0 }}>Settings</h1>
+            <HelpButton page="settings" />
+          </div>
+          <p style={{ color: '#64748b', fontSize: 14, marginBottom: saveError ? 16 : 28 }}>
+            Manage your business profile, branding, and document preferences.
+          </p>
+        </>
+      )}
+
+      {/* Mobile: compact header with help button */}
+      {isMobile && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+          <HelpButton page="settings" />
+        </div>
+      )}
 
       {saveError && (
         <div style={{
           background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: 8,
-          padding: '10px 14px', marginBottom: 24, fontSize: 13, color: '#dc2626',
+          padding: '10px 14px', marginBottom: isMobile ? 12 : 24, fontSize: 13, color: '#dc2626',
           display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
         }}>
           <span>⚠ {saveError}</span>
@@ -604,64 +642,66 @@ export default function Settings() {
       )}
 
       {/* ── BUSINESS PROFILE ─────────────────────────────────────────────── */}
-      <Section title="Business Profile" description="Appears on all invoices and estimates">
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+      <Section
+        id="business" icon="🏢"
+        title={isMobile ? 'Business Details' : 'Business Profile'}
+        description="Appears on all invoices and estimates"
+        isOpen={openSection === 'business'}
+        onToggle={() => toggleSection('business')}
+        isMobile={isMobile}
+      >
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: isMobile ? 14 : 16 }}>
 
           <Field label="Business Name">
             <input
-              style={INPUT} value={form.business_name} placeholder="Acme Studio"
+              style={inp} value={form.business_name} placeholder="Acme Studio"
               onChange={handleChange('business_name')}
-              onBlur={blurStyle}
-              onFocus={focusStyle}
+              onBlur={blurStyle} onFocus={focusStyle}
             />
           </Field>
 
           <Field label="Email Address">
             <input
-              style={INPUT} value={form.email} type="email" placeholder="billing@yourbusiness.com"
+              style={inp} value={form.email} type="email" placeholder="billing@yourbusiness.com"
               onChange={handleChange('email')}
-              onBlur={blurStyle}
-              onFocus={focusStyle}
+              onBlur={blurStyle} onFocus={focusStyle}
             />
           </Field>
 
-          <Field label="Business Address" style={{ gridColumn: '1 / -1' }}>
+          <Field label="Business Address" style={{ gridColumn: isMobile ? undefined : '1 / -1' }}>
             <textarea
-              style={{ ...INPUT, minHeight: 80, resize: 'vertical', lineHeight: 1.5 }}
+              style={{ ...inp, minHeight: 80, resize: 'vertical', lineHeight: 1.5 }}
               value={form.business_address}
-              placeholder="123 Main Street&#10;Cape Town, 8001&#10;South Africa"
+              placeholder={'123 Main Street\nCape Town, 8001\nSouth Africa'}
               onChange={handleChange('business_address')}
-              onBlur={blurStyle}
-              onFocus={focusStyle}
+              onBlur={blurStyle} onFocus={focusStyle}
             />
           </Field>
 
           <Field label="Contact Number">
             <input
-              style={INPUT} value={form.phone} placeholder="+27 21 000 0000"
+              style={inp} value={form.phone} placeholder="+27 21 000 0000"
               onChange={handleChange('phone')}
-              onBlur={blurStyle}
-              onFocus={focusStyle}
+              onBlur={blurStyle} onFocus={focusStyle}
             />
           </Field>
 
           <Field label="VAT Number" hint="optional">
             <input
-              style={INPUT} value={form.vat_number} placeholder="4010000000"
+              style={inp} value={form.vat_number} placeholder="4010000000"
               onChange={handleChange('vat_number')}
-              onBlur={blurStyle}
-              onFocus={focusStyle}
+              onBlur={blurStyle} onFocus={focusStyle}
             />
           </Field>
 
           {/* Logo upload */}
-          <Field label="Business Logo" hint="PNG or JPG, square recommended (e.g. 200 × 200 px)" style={{ gridColumn: '1 / -1' }}>
+          <Field label="Business Logo" hint="PNG or JPG, square recommended" style={{ gridColumn: isMobile ? undefined : '1 / -1' }}>
             <div
               onClick={() => logoRef.current?.click()}
               style={{
                 border:      '2px dashed #e2e8f0',
                 borderRadius: 10,
-                padding:     '16px 20px',
+                padding:     isMobile ? '20px 16px' : '16px 20px',
                 cursor:      'pointer',
                 display:     'flex',
                 alignItems:  'center',
@@ -669,33 +709,24 @@ export default function Settings() {
                 background:  '#f8fafc',
                 transition:  'border-color 0.15s, background 0.15s',
               }}
-              onMouseEnter={e => {
-                e.currentTarget.style.borderColor = '#14b8a6'
-                e.currentTarget.style.background  = '#f0fdfa'
-              }}
-              onMouseLeave={e => {
-                e.currentTarget.style.borderColor = '#e2e8f0'
-                e.currentTarget.style.background  = '#f8fafc'
-              }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor = '#14b8a6'; e.currentTarget.style.background = '#f0fdfa' }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.background = '#f8fafc' }}
             >
               {form.logo_path ? (
                 <>
                   <img
                     src={form.logo_path}
                     alt="Business logo"
-                    style={{ height: 52, maxWidth: 160, objectFit: 'contain', borderRadius: 6, border: '1px solid #e2e8f0', background: '#fff', padding: 4 }}
+                    style={{ height: isMobile ? 80 : 52, maxWidth: 160, objectFit: 'contain', borderRadius: 6, border: '1px solid #e2e8f0', background: '#fff', padding: 4 }}
                   />
                   <div>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>Logo uploaded</div>
-                    <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>Click to replace</div>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: '#374151' }}>Logo uploaded</div>
+                    <div style={{ fontSize: 13, color: '#64748b', marginTop: 2 }}>Tap to replace</div>
                   </div>
                 </>
               ) : (
                 <>
-                  <div style={{
-                    width: 48, height: 48, borderRadius: 10, background: '#e2e8f0',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-                  }}>
+                  <div style={{ width: 52, height: 52, borderRadius: 10, background: '#e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                       <rect x="3" y="3" width="18" height="18" rx="2" />
                       <circle cx="8.5" cy="8.5" r="1.5" />
@@ -703,8 +734,8 @@ export default function Settings() {
                     </svg>
                   </div>
                   <div>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>Upload your logo</div>
-                    <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>Click to select a PNG or JPG file</div>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: '#374151' }}>Upload your logo</div>
+                    <div style={{ fontSize: 13, color: '#94a3b8', marginTop: 2 }}>Tap to select a PNG or JPG file</div>
                   </div>
                 </>
               )}
@@ -719,32 +750,34 @@ export default function Settings() {
                   border:       '1px solid #fca5a5',
                   color:        '#ef4444',
                   borderRadius: 6,
-                  padding:      '4px 12px',
-                  fontSize:     12,
+                  padding:      isMobile ? '10px 16px' : '4px 12px',
+                  fontSize:     isMobile ? 14 : 12,
                   fontWeight:   500,
                   cursor:       'pointer',
+                  width:        isMobile ? '100%' : undefined,
                 }}
               >
                 Remove logo
               </button>
             )}
 
-            <input
-              ref={logoRef}
-              type="file"
-              accept="image/png,image/jpeg,image/jpg"
-              style={{ display: 'none' }}
-              onChange={handleLogoChange}
-            />
+            <input ref={logoRef} type="file" accept="image/png,image/jpeg,image/jpg" style={{ display: 'none' }} onChange={handleLogoChange} />
           </Field>
         </div>
       </Section>
 
       {/* ── APPEARANCE ───────────────────────────────────────────────────── */}
-      <Section title="Appearance" description="Controls the colour scheme of your generated documents">
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+      <Section
+        id="appearance" icon="🎨"
+        title="Appearance"
+        description="Controls the colour scheme of your generated documents"
+        isOpen={openSection === 'appearance'}
+        onToggle={() => toggleSection('appearance')}
+        isMobile={isMobile}
+      >
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: isMobile ? 14 : 16 }}>
           <ColorPicker
-            label="Primary Color"
+            label={isMobile ? 'App Theme Color' : 'Primary Color'}
             value={form.primary_color}
             onChange={handleColor('primary_color')}
           />
@@ -759,29 +792,31 @@ export default function Settings() {
       </Section>
 
       {/* ── DOCUMENT SETTINGS ────────────────────────────────────────────── */}
-      <Section title="Document Settings" description="Numbering, prefixes, and default terms">
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+      <Section
+        id="documents" icon="📄"
+        title={isMobile ? 'Invoice Settings' : 'Document Settings'}
+        description="Numbering, prefixes, and default terms"
+        isOpen={openSection === 'documents'}
+        onToggle={() => toggleSection('documents')}
+        isMobile={isMobile}
+      >
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: isMobile ? 14 : 16 }}>
 
           <Field label="Invoice Prefix">
             <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
               <input
-                style={{ ...INPUT, borderRadius: '8px 0 0 8px', flex: 1 }}
+                style={{ ...inp, borderRadius: '8px 0 0 8px', flex: 1 }}
                 value={form.invoice_prefix}
                 placeholder="INV-"
                 onChange={handleChange('invoice_prefix')}
-                onBlur={blurStyle}
-                onFocus={focusStyle}
+                onBlur={blurStyle} onFocus={focusStyle}
               />
               <div style={{
-                background:   '#f1f5f9',
-                border:       '1.5px solid #e2e8f0',
-                borderLeft:   'none',
-                borderRadius: '0 8px 8px 0',
-                padding:      '9px 12px',
-                fontSize:     13,
-                color:        '#64748b',
-                fontFamily:   'ui-monospace, Consolas, monospace',
-                whiteSpace:   'nowrap',
+                background:   '#f1f5f9', border: '1.5px solid #e2e8f0', borderLeft: 'none',
+                borderRadius: '0 8px 8px 0', padding: isMobile ? '10px 12px' : '9px 12px',
+                fontSize: 13, color: '#64748b',
+                fontFamily: 'ui-monospace, Consolas, monospace', whiteSpace: 'nowrap',
+                minHeight: isMobile ? 44 : undefined, display: 'flex', alignItems: 'center',
               }}>
                 {(form.invoice_prefix || 'INV-')}{String(form.starting_invoice_number || 1).padStart(4, '0')}
               </div>
@@ -791,23 +826,18 @@ export default function Settings() {
           <Field label="Estimate Prefix">
             <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
               <input
-                style={{ ...INPUT, borderRadius: '8px 0 0 8px', flex: 1 }}
+                style={{ ...inp, borderRadius: '8px 0 0 8px', flex: 1 }}
                 value={form.estimate_prefix}
                 placeholder="EST-"
                 onChange={handleChange('estimate_prefix')}
-                onBlur={blurStyle}
-                onFocus={focusStyle}
+                onBlur={blurStyle} onFocus={focusStyle}
               />
               <div style={{
-                background:   '#f1f5f9',
-                border:       '1.5px solid #e2e8f0',
-                borderLeft:   'none',
-                borderRadius: '0 8px 8px 0',
-                padding:      '9px 12px',
-                fontSize:     13,
-                color:        '#64748b',
-                fontFamily:   'ui-monospace, Consolas, monospace',
-                whiteSpace:   'nowrap',
+                background:   '#f1f5f9', border: '1.5px solid #e2e8f0', borderLeft: 'none',
+                borderRadius: '0 8px 8px 0', padding: isMobile ? '10px 12px' : '9px 12px',
+                fontSize: 13, color: '#64748b',
+                fontFamily: 'ui-monospace, Consolas, monospace', whiteSpace: 'nowrap',
+                minHeight: isMobile ? 44 : undefined, display: 'flex', alignItems: 'center',
               }}>
                 {(form.estimate_prefix || 'EST-')}{String(form.starting_estimate_number || 1).padStart(4, '0')}
               </div>
@@ -816,7 +846,7 @@ export default function Settings() {
 
           <Field label="Starting Invoice Number">
             <input
-              style={INPUT} type="number" min={1}
+              style={inp} type="number" min={1}
               value={form.starting_invoice_number}
               onChange={handleChange('starting_invoice_number')}
               onBlur={(e) => { const v = Math.max(1, parseInt(e.target.value, 10) || 1); setForm(p => ({ ...p, starting_invoice_number: v })); blurStyle(e) }}
@@ -826,7 +856,7 @@ export default function Settings() {
 
           <Field label="Starting Estimate Number">
             <input
-              style={INPUT} type="number" min={1}
+              style={inp} type="number" min={1}
               value={form.starting_estimate_number}
               onChange={handleChange('starting_estimate_number')}
               onBlur={(e) => { const v = Math.max(1, parseInt(e.target.value, 10) || 1); setForm(p => ({ ...p, starting_estimate_number: v })); blurStyle(e) }}
@@ -837,8 +867,135 @@ export default function Settings() {
         </div>
       </Section>
 
+      {/* ── BANKING DETAILS ──────────────────────────────────────────────── */}
+      <Section
+        id="banking" icon="💳"
+        title="Banking Details"
+        description="Displayed on invoices to help clients make payment"
+        isOpen={openSection === 'banking'}
+        onToggle={() => toggleSection('banking')}
+        isMobile={isMobile}
+      >
+        <textarea
+          style={{ ...inp, minHeight: isMobile ? 120 : 120, resize: 'vertical', lineHeight: 1.6 }}
+          value={form.banking_details}
+          placeholder={'Bank: First National Bank\nAccount Name: Acme Studio\nAccount Number: 62000000000\nBranch Code: 250655\nReference: Invoice number'}
+          onChange={handleChange('banking_details')}
+          onBlur={blurStyle} onFocus={focusStyle}
+        />
+      </Section>
+
+      {/* ── EMAIL / SMTP ─────────────────────────────────────────────────── */}
+      <Section
+        id="email" icon="📧"
+        title={isMobile ? 'Email / SMTP' : 'Email Settings'}
+        description="SMTP configuration for sending invoices by email"
+        isOpen={openSection === 'email'}
+        onToggle={() => toggleSection('email')}
+        isMobile={isMobile}
+      >
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: isMobile ? 14 : 16 }}>
+
+          <Field label="SMTP Host">
+            <input
+              style={inp} value={form.smtp_host} placeholder="smtp.gmail.com"
+              onChange={handleChange('smtp_host')}
+              onBlur={blurStyle} onFocus={focusStyle}
+            />
+          </Field>
+
+          <Field label="SMTP Port">
+            <input
+              style={inp} value={form.smtp_port} placeholder="587"
+              onChange={handleChange('smtp_port')}
+              onBlur={blurStyle} onFocus={focusStyle}
+            />
+          </Field>
+
+          <Field label="From Email" hint="also used as SMTP username">
+            <input
+              style={inp} value={form.smtp_user} placeholder="you@gmail.com" type="email"
+              onChange={handleChange('smtp_user')}
+              onBlur={blurStyle} onFocus={focusStyle}
+            />
+          </Field>
+
+          <Field label="SMTP Password">
+            <input
+              style={inp} type="password" value={form.smtp_password} placeholder="••••••••"
+              onChange={handleChange('smtp_password')}
+              onBlur={blurStyle} onFocus={focusStyle}
+            />
+            <p style={{ fontSize: 12, color: '#94a3b8', marginTop: 5, lineHeight: 1.5 }}>
+              Using Gmail? Use an <strong style={{ color: '#64748b' }}>App Password</strong> — not your regular password.
+            </p>
+          </Field>
+
+          <Field label="From Name" hint="shown as the sender" style={{ gridColumn: isMobile ? undefined : '1 / -1' }}>
+            <input
+              style={{ ...inp, maxWidth: isMobile ? undefined : 360 }}
+              value={form.smtp_from_name} placeholder="Acme Studio"
+              onChange={handleChange('smtp_from_name')}
+              onBlur={blurStyle} onFocus={focusStyle}
+            />
+          </Field>
+        </div>
+
+        {/* Test Email */}
+        <div style={{ marginTop: 20 }}>
+          <button
+            onClick={sendTestEmail}
+            disabled={testEmailStatus === 'sending'}
+            style={{
+              width:      isMobile ? '100%' : undefined,
+              padding:    isMobile ? '12px 18px' : '9px 18px',
+              minHeight:  isMobile ? 44 : undefined,
+              borderRadius: 8, border: '1.5px solid #14b8a6',
+              background: testEmailStatus === 'sending' ? '#f0fdfa' : '#fff',
+              color: '#14b8a6', fontWeight: 600, fontSize: isMobile ? 15 : 13,
+              cursor: testEmailStatus === 'sending' ? 'wait' : 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
+              transition: 'background 0.15s',
+            }}
+          >
+            {testEmailStatus === 'sending' ? (
+              <>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ animation: 'testEmailSpin 0.8s linear infinite' }}>
+                  <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+                </svg>
+                Sending…
+              </>
+            ) : (
+              <>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                  <polyline points="22,6 12,13 2,6"/>
+                </svg>
+                Send Test Email
+              </>
+            )}
+          </button>
+          {testEmailStatus === 'success' && (
+            <div style={{ marginTop: 10, fontSize: 13, color: '#16a34a', display: 'flex', alignItems: 'center', gap: 5, fontWeight: 500 }}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+              {testEmailMsg}
+            </div>
+          )}
+          {testEmailStatus === 'error' && (
+            <div style={{ marginTop: 10, fontSize: 13, color: '#dc2626', fontWeight: 500 }}>⚠ {testEmailMsg}</div>
+          )}
+        </div>
+      </Section>
+
       {/* ── PAYMENT & REMINDERS ─────────────────────────────────────────── */}
-      <Section title="Payment & Reminders" description="Default payment terms and reminder bell settings">
+      <Section
+        id="payment" icon="⏰"
+        title="Payment & Reminders"
+        description="Default payment terms and reminder bell settings"
+        isOpen={openSection === 'payment'}
+        onToggle={() => toggleSection('payment')}
+        isMobile={isMobile}
+      >
         <div>
           <label style={{ display: 'block', fontSize: 13, fontWeight: 500, color: '#374151', marginBottom: 6 }}>
             Default payment terms (days)
@@ -846,7 +1003,7 @@ export default function Settings() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <input
               type="number" min={1} max={365}
-              style={{ ...INPUT, width: 100 }}
+              style={{ ...inp, width: isMobile ? 120 : 100 }}
               value={form.payment_terms_days}
               onChange={handleChange('payment_terms_days')}
               onBlur={e => {
@@ -859,184 +1016,82 @@ export default function Settings() {
             <span style={{ fontSize: 13, color: '#64748b' }}>days</span>
           </div>
           <p style={{ fontSize: 12, color: '#94a3b8', margin: '5px 0 0' }}>
-            Invoices overdue by more than {form.payment_terms_days || 7} days will show a reminder bell icon
-            so you can send a manual reminder.
+            Invoices overdue by more than {form.payment_terms_days || 7} days will show a reminder bell icon.
           </p>
         </div>
       </Section>
 
       {/* ── TERMS & CONDITIONS ───────────────────────────────────────────── */}
       <Section
+        id="terms" icon="📝"
         title="Terms & Conditions"
         description="Printed at the bottom of every invoice and estimate"
+        isOpen={openSection === 'terms'}
+        onToggle={() => toggleSection('terms')}
+        isMobile={isMobile}
       >
         <textarea
-          style={{ ...INPUT, minHeight: 140, resize: 'vertical', lineHeight: 1.6 }}
+          style={{ ...inp, minHeight: 140, resize: 'vertical', lineHeight: 1.6 }}
           value={form.terms_conditions}
           placeholder="e.g. Payment is due within the specified period. Late payments may incur a fee of 2% per month..."
           onChange={handleChange('terms_conditions')}
-          onBlur={blurStyle}
-          onFocus={focusStyle}
+          onBlur={blurStyle} onFocus={focusStyle}
         />
         <p style={{ fontSize: 12, color: '#94a3b8', marginTop: 6 }}>
           Supports plain text. Keep it concise — it will appear in the footer of each document.
         </p>
       </Section>
 
-      {/* ── BANKING DETAILS ──────────────────────────────────────────────── */}
-      <Section
-        title="Banking Details"
-        description="Displayed on invoices to help clients make payment"
-      >
-        <textarea
-          style={{ ...INPUT, minHeight: 120, resize: 'vertical', lineHeight: 1.6 }}
-          value={form.banking_details}
-          placeholder={'Bank: First National Bank\nAccount Name: Acme Studio\nAccount Number: 62000000000\nBranch Code: 250655\nReference: Invoice number'}
-          onChange={handleChange('banking_details')}
-          onBlur={blurStyle}
-          onFocus={focusStyle}
-        />
-      </Section>
-
-      {/* ── EMAIL / SMTP ─────────────────────────────────────────────────── */}
-      <Section title="Email Settings" description="SMTP configuration for sending invoices by email">
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-
-          <Field label="SMTP Host">
-            <input
-              style={INPUT} value={form.smtp_host} placeholder="smtp.gmail.com"
-              onChange={handleChange('smtp_host')}
-              onBlur={blurStyle}
-              onFocus={focusStyle}
-            />
-          </Field>
-
-          <Field label="SMTP Port">
-            <input
-              style={INPUT} value={form.smtp_port} placeholder="587"
-              onChange={handleChange('smtp_port')}
-              onBlur={blurStyle}
-              onFocus={focusStyle}
-            />
-          </Field>
-
-          <Field label="From Email" hint="also used as SMTP username">
-            <input
-              style={INPUT} value={form.smtp_user} placeholder="you@gmail.com" type="email"
-              onChange={handleChange('smtp_user')}
-              onBlur={blurStyle}
-              onFocus={focusStyle}
-            />
-          </Field>
-
-          <Field label="SMTP Password">
-            <input
-              style={INPUT} type="password" value={form.smtp_password} placeholder="••••••••"
-              onChange={handleChange('smtp_password')}
-              onBlur={blurStyle}
-              onFocus={focusStyle}
-            />
-            <p style={{ fontSize: 12, color: '#94a3b8', marginTop: 5, lineHeight: 1.5 }}>
-              Using Gmail? Use an <strong style={{ color: '#64748b' }}>App Password</strong> — not your regular password.{' '}
-              Go to <em>Google Account → Security → App Passwords</em>.
-            </p>
-          </Field>
-
-          <Field label="From Name" hint="shown as the sender on outgoing emails" style={{ gridColumn: '1 / -1' }}>
-            <input
-              style={{ ...INPUT, maxWidth: 360 }} value={form.smtp_from_name} placeholder="Acme Studio"
-              onChange={handleChange('smtp_from_name')}
-              onBlur={blurStyle}
-              onFocus={focusStyle}
-            />
-          </Field>
-        </div>
-
-        {/* Test Email */}
-        <div style={{ marginTop: 20, display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+      {/* ── DESKTOP SAVE BUTTON (inline, above payment methods) ─────────── */}
+      {!isMobile && (
+        <div style={{ marginBottom: 28, display: 'flex', alignItems: 'center', gap: 16 }}>
           <button
-            onClick={sendTestEmail}
-            disabled={testEmailStatus === 'sending'}
+            onClick={isReadOnly ? undefined : handleSave}
+            disabled={saving || isReadOnly}
+            title={isReadOnly ? 'Your trial has ended. Upgrade to continue.' : undefined}
             style={{
-              padding: '9px 18px', borderRadius: 8, border: '1.5px solid #14b8a6',
-              background: testEmailStatus === 'sending' ? '#f0fdfa' : '#fff',
-              color: '#14b8a6', fontWeight: 600, fontSize: 13,
-              cursor: testEmailStatus === 'sending' ? 'wait' : 'pointer',
-              display: 'flex', alignItems: 'center', gap: 7, transition: 'background 0.15s',
+              background:  isReadOnly ? '#94a3b8' : saving ? '#5eead4' : '#14b8a6',
+              color:       '#fff',
+              border:      'none',
+              borderRadius: 8,
+              padding:     '11px 28px',
+              fontSize:    14,
+              fontWeight:  600,
+              cursor:      isReadOnly ? 'not-allowed' : saving ? 'wait' : 'pointer',
+              opacity:     isReadOnly ? 0.55 : 1,
+              boxShadow:   (saving || isReadOnly) ? 'none' : '0 2px 8px rgba(20,184,166,0.3)',
+              transition:  'background 0.15s',
             }}
           >
-            {testEmailStatus === 'sending' ? (
-              <>
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ animation: 'testEmailSpin 0.8s linear infinite' }}>
-                  <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
-                </svg>
-                Sending…
-              </>
-            ) : (
-              <>
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
-                  <polyline points="22,6 12,13 2,6"/>
-                </svg>
-                Send Test Email
-              </>
-            )}
+            {saving ? 'Saving…' : 'Save Settings'}
           </button>
-          {testEmailStatus === 'success' && (
-            <span style={{ fontSize: 13, color: '#16a34a', display: 'flex', alignItems: 'center', gap: 5, fontWeight: 500 }}>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-              {testEmailMsg}
+          {isReadOnly && (
+            <span style={{ fontSize: 13, color: '#94a3b8', fontWeight: 500 }}>
+              Settings are locked. Upgrade to make changes.
             </span>
           )}
-          {testEmailStatus === 'error' && (
-            <span style={{ fontSize: 13, color: '#dc2626', fontWeight: 500 }}>⚠ {testEmailMsg}</span>
-          )}
         </div>
-        <style>{`@keyframes testEmailSpin { to { transform: rotate(360deg); } }`}</style>
-      </Section>
-
-      {/* ── SAVE BUTTON ──────────────────────────────────────────────────── */}
-      <div style={{ marginBottom: 28, display: 'flex', alignItems: 'center', gap: 16 }}>
-        <button
-          onClick={isReadOnly ? undefined : handleSave}
-          disabled={saving || isReadOnly}
-          title={isReadOnly ? 'Your trial has ended. Upgrade to continue.' : undefined}
-          style={{
-            background:  isReadOnly ? '#94a3b8' : saving ? '#5eead4' : '#14b8a6',
-            color:       '#fff',
-            border:      'none',
-            borderRadius: 8,
-            padding:     '11px 28px',
-            fontSize:    14,
-            fontWeight:  600,
-            cursor:      isReadOnly ? 'not-allowed' : saving ? 'wait' : 'pointer',
-            opacity:     isReadOnly ? 0.55 : 1,
-            boxShadow:   (saving || isReadOnly) ? 'none' : '0 2px 8px rgba(20,184,166,0.3)',
-            transition:  'background 0.15s',
-          }}
-        >
-          {saving ? 'Saving…' : 'Save Settings'}
-        </button>
-        {isReadOnly && (
-          <span style={{ fontSize: 13, color: '#94a3b8', fontWeight: 500 }}>
-            Settings are locked. Upgrade to make changes.
-          </span>
-        )}
-      </div>
+      )}
 
       {/* ── PAYMENT METHODS ──────────────────────────────────────────────── */}
-      <Section title="Payment Methods" description="Payment options shown when marking invoices as paid">
+      <Section
+        id="methods" icon="💰"
+        title="Payment Methods"
+        description="Payment options shown when marking invoices as paid"
+        isOpen={openSection === 'methods'}
+        onToggle={() => toggleSection('methods')}
+        isMobile={isMobile}
+      >
         <p style={{ fontSize: 13, color: '#64748b', marginBottom: 16, lineHeight: 1.6 }}>
-          Configure the payment methods your clients can use. These appear as options when you mark an invoice as paid.
+          Configure the payment methods your clients can use.
         </p>
 
-        {/* Method list */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
           {payMethods.map((method) => (
             <div key={method} style={{
               display: 'flex', alignItems: 'center', justifyContent: 'space-between',
               background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: 8,
-              padding: '10px 14px',
+              padding: isMobile ? '12px 14px' : '10px 14px',
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <input
@@ -1050,7 +1105,7 @@ export default function Settings() {
                   }}
                   style={{ accentColor: '#14b8a6', width: 16, height: 16 }}
                 />
-                <span style={{ fontSize: 14, color: '#0f172a', fontWeight: 500 }}>{method}</span>
+                <span style={{ fontSize: isMobile ? 15 : 14, color: '#0f172a', fontWeight: 500 }}>{method}</span>
                 {form.default_payment_method === method && (
                   <span style={{ fontSize: 11, fontWeight: 600, color: '#14b8a6', background: '#f0fdfa', padding: '2px 7px', borderRadius: 999 }}>Default</span>
                 )}
@@ -1076,7 +1131,6 @@ export default function Settings() {
           ))}
         </div>
 
-        {/* Add new method */}
         <div style={{ display: 'flex', gap: 8 }}>
           <input
             value={newMethod}
@@ -1094,9 +1148,8 @@ export default function Settings() {
               showToast()
             }}
             placeholder="Type a payment method and press Enter…"
-            style={{ ...INPUT, flex: 1 }}
-            onFocus={focusStyle}
-            onBlur={blurStyle}
+            style={{ ...inp, flex: 1 }}
+            onFocus={focusStyle} onBlur={blurStyle}
           />
           <button
             onClick={async () => {
@@ -1110,8 +1163,8 @@ export default function Settings() {
               await supabase.from('profiles').update({ payment_methods: JSON.stringify(updated), default_payment_method: defaultM }).eq('id', user.id)
               showToast()
             }}
-            style={{ background: '#14b8a6', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap', boxShadow: '0 2px 6px rgba(20,184,166,0.3)' }}>
-            Add Method
+            style={{ background: '#14b8a6', color: '#fff', border: 'none', borderRadius: 8, padding: isMobile ? '12px 16px' : '9px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap', boxShadow: '0 2px 6px rgba(20,184,166,0.3)' }}>
+            Add
           </button>
         </div>
         <p style={{ fontSize: 12, color: '#94a3b8', marginTop: 8 }}>
@@ -1120,20 +1173,26 @@ export default function Settings() {
       </Section>
 
       {/* ── EXPENSE CATEGORIES ───────────────────────────────────────────── */}
-      <Section title="Expense Categories" description="Categories shown when recording expenses">
+      <Section
+        id="categories" icon="📊"
+        title="Expense Categories"
+        description="Categories shown when recording expenses"
+        isOpen={openSection === 'categories'}
+        onToggle={() => toggleSection('categories')}
+        isMobile={isMobile}
+      >
         <p style={{ fontSize: 13, color: '#64748b', marginBottom: 16, lineHeight: 1.6 }}>
-          Configure the categories available when adding expenses. These appear in the Expenses section.
+          Configure the categories available when adding expenses.
         </p>
 
-        {/* Category list */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
           {expCategories.map((cat) => (
             <div key={cat} style={{
               display: 'flex', alignItems: 'center', justifyContent: 'space-between',
               background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: 8,
-              padding: '10px 14px',
+              padding: isMobile ? '12px 14px' : '10px 14px',
             }}>
-              <span style={{ fontSize: 14, color: '#0f172a', fontWeight: 500 }}>{cat}</span>
+              <span style={{ fontSize: isMobile ? 15 : 14, color: '#0f172a', fontWeight: 500 }}>{cat}</span>
               {expCategories.length > 1 && (
                 <button
                   onClick={async () => {
@@ -1153,7 +1212,6 @@ export default function Settings() {
           ))}
         </div>
 
-        {/* Add new category */}
         <div style={{ display: 'flex', gap: 8 }}>
           <input
             value={newCategory}
@@ -1169,9 +1227,8 @@ export default function Settings() {
               showToast()
             }}
             placeholder="Type a category and press Enter…"
-            style={{ ...INPUT, flex: 1 }}
-            onFocus={focusStyle}
-            onBlur={blurStyle}
+            style={{ ...inp, flex: 1 }}
+            onFocus={focusStyle} onBlur={blurStyle}
           />
           <button
             onClick={async () => {
@@ -1183,14 +1240,93 @@ export default function Settings() {
               await supabase.from('profiles').update({ expense_categories: JSON.stringify(updated) }).eq('id', user.id)
               showToast()
             }}
-            style={{ background: '#14b8a6', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap', boxShadow: '0 2px 6px rgba(20,184,166,0.3)' }}>
-            Add Category
+            style={{ background: '#14b8a6', color: '#fff', border: 'none', borderRadius: 8, padding: isMobile ? '12px 16px' : '9px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap', boxShadow: '0 2px 6px rgba(20,184,166,0.3)' }}>
+            Add
           </button>
         </div>
         <p style={{ fontSize: 12, color: '#94a3b8', marginTop: 8 }}>
           Removing a category does not affect existing expenses that used it.
         </p>
       </Section>
+
+      {/* ── MOBILE: Sign Out button (at bottom of scrollable content) ────── */}
+      {isMobile && (
+        <div style={{ marginTop: 8, marginBottom: 24 }}>
+          <button
+            onClick={signOut}
+            style={{
+              width:        '100%',
+              height:       52,
+              border:       '2px solid #ef4444',
+              borderRadius: 8,
+              background:   'transparent',
+              color:        '#ef4444',
+              fontWeight:   600,
+              fontSize:     16,
+              cursor:       'pointer',
+              display:      'flex',
+              alignItems:   'center',
+              justifyContent: 'center',
+              gap:          8,
+              fontFamily:   'inherit',
+            }}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+              <polyline points="16 17 21 12 16 7"/>
+              <line x1="21" y1="12" x2="9" y2="12"/>
+            </svg>
+            Sign Out of FundiBill
+          </button>
+        </div>
+      )}
+
+      {/* ── MOBILE: Fixed Save button above BottomNav ─────────────────────── */}
+      {isMobile && (
+        <div style={{
+          position:   'fixed',
+          bottom:     'calc(64px + env(safe-area-inset-bottom))',
+          left:       0,
+          right:      0,
+          padding:    '0 16px',
+          zIndex:     110,
+        }}>
+          <button
+            onClick={isReadOnly ? undefined : handleSave}
+            disabled={saving || isReadOnly}
+            style={{
+              width:        '100%',
+              height:       52,
+              border:       'none',
+              borderRadius: 10,
+              background:   isReadOnly ? '#94a3b8' : saving ? '#5eead4' : 'var(--primary, #14b8a6)',
+              color:        '#fff',
+              fontWeight:   700,
+              fontSize:     16,
+              cursor:       isReadOnly ? 'not-allowed' : saving ? 'wait' : 'pointer',
+              opacity:      isReadOnly ? 0.55 : 1,
+              boxShadow:    (saving || isReadOnly) ? 'none' : '0 4px 16px rgba(20,184,166,0.35)',
+              transition:   'background 0.15s',
+              fontFamily:   'inherit',
+              display:      'flex',
+              alignItems:   'center',
+              justifyContent: 'center',
+              gap:          8,
+            }}
+          >
+            {saving ? (
+              <>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ animation: 'testEmailSpin 0.8s linear infinite' }}>
+                  <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+                </svg>
+                Saving…
+              </>
+            ) : (
+              'Save Settings'
+            )}
+          </button>
+        </div>
+      )}
 
       <Toast visible={toastVisible} />
     </div>

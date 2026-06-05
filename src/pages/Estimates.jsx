@@ -7,6 +7,7 @@ import { useAuth } from '../context/AuthContext'
 import { useTrialStatus } from '../context/TrialContext'
 import { useAppData } from '../context/AppDataContext'
 import HelpButton from '../components/HelpButton'
+import useIsMobile from '../hooks/useIsMobile'
 
 const READONLY_MSG = 'Your trial has ended. Upgrade to continue.'
 
@@ -41,6 +42,119 @@ function StatusBadge({ status }) {
       display: 'inline-block', padding: '3px 10px', borderRadius: 20,
       fontSize: 12, fontWeight: 600, background: m.bg, color: m.color,
     }}>{m.label}</span>
+  )
+}
+
+// ─── Mobile Estimate Card ─────────────────────────────────────────────────────
+
+function MobileEstimateCard({ est, onSelect, onApprove, onDelete, isReadOnly }) {
+  const [menuOpen, setMenuOpen] = useState(false)
+  const menuRef = useRef(null)
+
+  useEffect(() => {
+    const fn = (e) => { if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false) }
+    document.addEventListener('mousedown', fn)
+    return () => document.removeEventListener('mousedown', fn)
+  }, [])
+
+  const canApprove  = !['approved', 'converted', 'rejected'].includes(est.status)
+  const canConvert  = est.status !== 'converted'
+
+  const menuItems = [
+    { label: 'View / Edit',        fn: () => { setMenuOpen(false); onSelect(est) } },
+    {
+      label:    'Approve Estimate',
+      fn:       canApprove && !isReadOnly ? () => { setMenuOpen(false); onApprove(est) } : null,
+      disabled: !canApprove || isReadOnly,
+    },
+    {
+      label:    'Convert to Invoice',
+      fn:       canConvert && !isReadOnly ? () => { setMenuOpen(false); onSelect(est) } : null,
+      disabled: !canConvert || isReadOnly,
+      note:     'Opens form',
+    },
+    { label: 'Send Estimate',   fn: () => { setMenuOpen(false); onSelect(est) } },
+    { label: 'Download PDF',    fn: () => { setMenuOpen(false); onSelect(est) } },
+    !isReadOnly && { label: 'Delete', fn: () => { setMenuOpen(false); onDelete(est) }, danger: true },
+  ].filter(Boolean)
+
+  return (
+    <div
+      onClick={() => onSelect(est)}
+      style={{
+        background:   '#fff',
+        borderRadius: 8,
+        boxShadow:    '0 1px 4px rgba(0,0,0,0.07)',
+        border:       '1px solid #f1f5f9',
+        padding:      16,
+        marginBottom: 10,
+        position:     'relative',
+        cursor:       'pointer',
+      }}
+    >
+      {/* ── Top row: estimate # + three-dot menu ── */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+        <span style={{ fontSize: 14, fontWeight: 700, color: '#0f172a' }}>{est.estimate_number}</span>
+
+        <div ref={menuRef} style={{ position: 'relative' }} onClick={e => e.stopPropagation()}>
+          <button
+            onClick={e => { e.stopPropagation(); setMenuOpen(o => !o) }}
+            aria-label="More actions"
+            style={{
+              background:    'none', border: 'none', cursor: 'pointer',
+              padding:       '4px 8px', borderRadius: 6,
+              color:         '#94a3b8', fontSize: 20, lineHeight: 1, letterSpacing: 2,
+            }}
+          >···</button>
+
+          {menuOpen && (
+            <div style={{
+              position:  'absolute', right: 0, top: '100%', zIndex: 200,
+              background: '#fff', borderRadius: 10,
+              boxShadow: '0 4px 24px rgba(0,0,0,0.14)',
+              border:    '1px solid #e2e8f0',
+              minWidth:  180, overflow: 'hidden', marginTop: 4,
+            }}>
+              {menuItems.map(item => (
+                <button
+                  key={item.label}
+                  onClick={item.disabled ? undefined : item.fn}
+                  style={{
+                    display:    'block', width: '100%',
+                    padding:    '12px 16px',
+                    background: 'none', border: 'none',
+                    cursor:     item.disabled ? 'default' : 'pointer',
+                    textAlign:  'left',
+                    fontSize:   14, fontWeight: 500,
+                    color:      item.danger ? '#dc2626' : item.disabled ? '#cbd5e1' : '#0f172a',
+                    fontFamily: 'inherit',
+                    opacity:    item.disabled ? 0.5 : 1,
+                  }}
+                  onMouseEnter={e => { if (!item.disabled) e.currentTarget.style.background = item.danger ? '#fef2f2' : '#f8fafc' }}
+                  onMouseLeave={e => { e.currentTarget.style.background = 'none' }}
+                >{item.label}</button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── Client name ── */}
+      <div style={{ fontSize: 13, color: '#64748b', marginBottom: 8 }}>
+        {est.client_name || est.client_company || '—'}
+      </div>
+
+      {/* ── Amount + expiry date ── */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+        <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--primary, #14b8a6)' }}>{fmt(est.total)}</span>
+        {est.expiry_date && (
+          <span style={{ fontSize: 12, color: '#94a3b8' }}>Exp {est.expiry_date}</span>
+        )}
+      </div>
+
+      {/* ── Status badge ── */}
+      <StatusBadge status={est.status} />
+    </div>
   )
 }
 
@@ -649,6 +763,8 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
     }
   }
 
+  const isMobile = useIsMobile()
+
   const btnStyle = (bg, color = '#fff') => ({
     padding: '9px 18px', borderRadius: 8, border: 'none', background: bg,
     color, fontWeight: 600, fontSize: 13, cursor: saving ? 'not-allowed' : 'pointer',
@@ -663,88 +779,114 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#f8fafc' }}>
-      {/* Header bar */}
+
+      {/* ── Header bar ── */}
       <div style={{
-        background: '#fff', borderBottom: '1px solid #e2e8f0', padding: '14px 28px',
+        background: '#fff', borderBottom: '1px solid #e2e8f0',
+        padding: isMobile ? '12px 16px' : '14px 28px',
         display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0,
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 10 : 14, minWidth: 0, flex: 1 }}>
           <button
             onClick={onBack}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b', display: 'flex', alignItems: 'center', gap: 5, fontSize: 14, fontWeight: 600 }}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b', display: 'flex', alignItems: 'center', gap: 5, fontSize: 14, fontWeight: 600, flexShrink: 0 }}
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>
             Back
           </button>
           <span style={{ color: '#e2e8f0', fontWeight: 300 }}>|</span>
-          <h2 style={{ fontSize: 16, fontWeight: 700, color: '#0f172a', margin: 0 }}>
+          <h2 style={{ fontSize: isMobile ? 15 : 16, fontWeight: 700, color: '#0f172a', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {isNew ? 'New Estimate' : `Estimate ${form.estimate_number}`}
           </h2>
           {!isNew && <StatusBadge status={form.status} />}
         </div>
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-          {errors._global && <span style={{ color: '#ef4444', fontSize: 13 }}>{errors._global}</span>}
 
-          {isReadOnly && (
-            <span style={{ fontSize: 12, fontWeight: 600, color: '#94a3b8', background: '#f1f5f9', borderRadius: 6, padding: '4px 10px' }}>
-              View only
-            </span>
-          )}
+        {/* Desktop: full action buttons in header */}
+        {!isMobile && (
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+            {errors._global && <span style={{ color: '#ef4444', fontSize: 13 }}>{errors._global}</span>}
+            {isReadOnly && (
+              <span style={{ fontSize: 12, fontWeight: 600, color: '#94a3b8', background: '#f1f5f9', borderRadius: 6, padding: '4px 10px' }}>
+                View only
+              </span>
+            )}
+            {!isNew && (
+              <button onClick={() => setPdfOpen(true)}
+                style={{ padding: '9px 14px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontWeight: 600, fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                Preview PDF
+              </button>
+            )}
+            {!isNew && !isReadOnly && (
+              <button onClick={() => setShowEmailModal(true)}
+                style={{ padding: '9px 14px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontWeight: 600, fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                  <polyline points="22,6 12,13 2,6"/>
+                </svg>
+                Send by Email
+              </button>
+            )}
+            {!isReadOnly && (
+              <button onClick={() => handleSave()} disabled={saving} style={btnStyle('#14b8a6')}>
+                {saving ? 'Saving…' : 'Save Draft'}
+              </button>
+            )}
+            {!isReadOnly && !isNew && form.status !== 'converted' && (
+              <button onClick={handleConvert} disabled={saving} style={btnStyle('#7c3aed')}>
+                {saving ? 'Converting…' : 'Convert to Invoice'}
+              </button>
+            )}
+            {!isReadOnly && !isNew && (
+              <button onClick={() => setConfirmDelete(true)}
+                style={{ padding: '9px 12px', borderRadius: 8, border: '1px solid #fecaca', background: '#fff', color: '#dc2626', cursor: 'pointer', fontWeight: 600, fontSize: 13 }}>
+                Delete
+              </button>
+            )}
+          </div>
+        )}
 
-          {!isNew && (
-            <button
-              onClick={() => setPdfOpen(true)}
-              style={{ padding: '9px 14px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontWeight: 600, fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-              Preview PDF
-            </button>
-          )}
-
-          {/* Send by Email — only for saved estimates, not read-only */}
-          {!isNew && !isReadOnly && (
-            <button
-              onClick={() => setShowEmailModal(true)}
-              style={{ padding: '9px 14px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontWeight: 600, fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
-                <polyline points="22,6 12,13 2,6"/>
-              </svg>
-              Send by Email
-            </button>
-          )}
-
-          {/* Write actions — hidden in read-only mode */}
-          {!isReadOnly && (
-            <button onClick={() => handleSave()} disabled={saving} style={btnStyle('#14b8a6')}>
-              {saving ? 'Saving…' : 'Save Draft'}
-            </button>
-          )}
-          {!isReadOnly && !isNew && form.status !== 'converted' && (
-            <button onClick={handleConvert} disabled={saving} style={btnStyle('#7c3aed')}>
-              {saving ? 'Converting…' : 'Convert to Invoice'}
-            </button>
-          )}
-          {!isReadOnly && !isNew && (
-            <button
-              onClick={() => setConfirmDelete(true)}
-              style={{ padding: '9px 12px', borderRadius: 8, border: '1px solid #fecaca', background: '#fff', color: '#dc2626', cursor: 'pointer', fontWeight: 600, fontSize: 13 }}
-            >
-              Delete
-            </button>
-          )}
-        </div>
+        {/* Mobile: compact icon buttons for PDF / Email / Delete */}
+        {isMobile && (
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }}>
+            {!isNew && (
+              <button onClick={() => setPdfOpen(true)} title="Preview PDF"
+                style={{ padding: '7px', borderRadius: 7, border: '1px solid #e2e8f0', background: '#fff', color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+              </button>
+            )}
+            {!isNew && !isReadOnly && (
+              <button onClick={() => setShowEmailModal(true)} title="Send by Email"
+                style={{ padding: '7px', borderRadius: 7, border: '1px solid #e2e8f0', background: '#fff', color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                  <polyline points="22,6 12,13 2,6"/>
+                </svg>
+              </button>
+            )}
+            {!isReadOnly && !isNew && (
+              <button onClick={() => setConfirmDelete(true)} title="Delete"
+                style={{ padding: '7px', borderRadius: 7, border: '1px solid #fecaca', background: '#fff', color: '#dc2626', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* Body */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '28px 40px' }}>
-        <div style={{ maxWidth: 860, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 20 }}>
+      {/* ── Body ── */}
+      <div style={{
+        flex: 1, overflowY: 'auto',
+        padding: isMobile ? 16 : '28px 40px',
+        /* Two-row action bar (Convert + Cancel/Save) needs more clearance than Invoices */
+        paddingBottom: isMobile ? 'calc(148px + env(safe-area-inset-bottom))' : undefined,
+      }}>
+        <div style={{ maxWidth: 860, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: isMobile ? 14 : 20 }}>
 
-          {/* Client + Dates card */}
-          <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0', padding: 24 }}>
-            <h3 style={{ margin: '0 0 16px', fontSize: 14, fontWeight: 700, color: '#0f172a' }}>Details</h3>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+          {/* ── Details card ── */}
+          <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0', padding: isMobile ? 16 : 24 }}>
+            <h3 style={{ margin: `0 0 ${isMobile ? 12 : 16}px`, fontSize: 14, fontWeight: 700, color: '#0f172a' }}>Details</h3>
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: isMobile ? 14 : 20 }}>
               <div style={{ gridColumn: '1 / -1' }}>
                 <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 6 }}>Client *</label>
                 <ClientSelector
@@ -757,114 +899,140 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
               </div>
               <div>
                 <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 6 }}>Estimate #</label>
-                <input
-                  value={form.estimate_number}
-                  onChange={e => setField('estimate_number', e.target.value)}
-                  style={inputStyle(false)}
-                />
+                <input value={form.estimate_number} onChange={e => setField('estimate_number', e.target.value)} style={inputStyle(false)} />
               </div>
-              <div />
+              {/* Empty spacer — desktop only */}
+              {!isMobile && <div />}
               <div>
                 <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 6 }}>Issue Date *</label>
                 <input type="date" value={form.issue_date} onChange={e => setField('issue_date', e.target.value)} style={inputStyle(!!errors.issue_date)} />
                 {errors.issue_date && <p style={{ color: '#ef4444', fontSize: 12, marginTop: 4 }}>{errors.issue_date}</p>}
               </div>
               <div>
-                <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 6 }}>Due Date *</label>
+                <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 6 }}>Expiry Date *</label>
                 <input type="date" value={form.expiry_date} onChange={e => setField('expiry_date', e.target.value)} style={inputStyle(!!errors.expiry_date)} />
                 {errors.expiry_date && <p style={{ color: '#ef4444', fontSize: 12, marginTop: 4 }}>{errors.expiry_date}</p>}
               </div>
             </div>
           </div>
 
-          {/* Line Items */}
+          {/* ── Line Items ── */}
           <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0', overflow: 'hidden' }}>
-            <div style={{ padding: '16px 20px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ padding: isMobile ? '12px 16px' : '16px 20px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: '#0f172a' }}>Line Items</h3>
               {errors.items && <span style={{ color: '#ef4444', fontSize: 12 }}>{errors.items}</span>}
             </div>
 
-            {/* Column headers */}
-            <div style={{
-              display: 'grid', gridTemplateColumns: '2fr 2fr 80px 110px 24px',
-              gap: 8, padding: '8px 20px', background: '#f8fafc',
-              borderBottom: '1px solid #f1f5f9',
-            }}>
-              {['Item', 'Description', 'Qty', 'Unit Price', ''].map(h => (
-                <span key={h} style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</span>
-              ))}
-            </div>
+            {isMobile ? (
+              /* Mobile: stacked card per line item */
+              <div style={{ padding: '8px 12px' }}>
+                {lineItems.map((li, idx) => (
+                  <div key={li._key} style={{ border: '1px solid #e2e8f0', borderRadius: 8, padding: 12, marginBottom: 10, background: '#f8fafc', position: 'relative' }}>
+                    <button
+                      onClick={() => removeLine(li._key)}
+                      disabled={lineItems.length === 1}
+                      style={{ position: 'absolute', top: 8, right: 8, background: 'none', border: 'none', cursor: lineItems.length === 1 ? 'default' : 'pointer', color: '#94a3b8', padding: 4, display: 'flex' }}
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                    </button>
 
-            {/* Rows */}
-            {lineItems.map(li => (
-              <div key={li._key} style={{
-                display: 'grid', gridTemplateColumns: '2fr 2fr 80px 110px 24px',
-                gap: 8, padding: '8px 20px', borderBottom: '1px solid #f9fafb', alignItems: 'start',
-              }}>
-                <AutocompleteInput
-                  value={li.item_name}
-                  onChange={(val, item) => {
-                    if (item) selectCatalogItem(li._key, item)
-                    else updateLine(li._key, 'item_name', val)
-                  }}
-                  catalog={catalog}
-                  placeholder="Item name"
-                />
-                <textarea
-                  value={li.description}
-                  onChange={e => updateLine(li._key, 'description', e.target.value)}
-                  onBlur={e => handleDescriptionBlur(li._key, e.target.value)}
-                  placeholder="Description"
-                  rows={2}
-                  style={{ padding: '7px 10px', borderRadius: 7, fontSize: 13, border: '1px solid #e2e8f0', background: '#f8fafc', color: '#0f172a', outline: 'none', width: '100%', boxSizing: 'border-box', resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.4 }}
-                />
-                <input
-                  type="number" min="0" step="1"
-                  value={li.quantity}
-                  onChange={e => updateLine(li._key, 'quantity', e.target.value)}
-                  style={{ padding: '7px 8px', borderRadius: 7, fontSize: 13, border: '1px solid #e2e8f0', background: '#f8fafc', color: '#0f172a', outline: 'none', width: '100%', boxSizing: 'border-box', textAlign: 'right', marginTop: 1 }}
-                />
-                <input
-                  type="number" min="0" step="0.01"
-                  value={li.unit_price}
-                  onChange={e => updateLine(li._key, 'unit_price', e.target.value)}
-                  placeholder="0.00"
-                  style={{ padding: '7px 8px', borderRadius: 7, fontSize: 13, border: '1px solid #e2e8f0', background: '#f8fafc', color: '#0f172a', outline: 'none', width: '100%', boxSizing: 'border-box', textAlign: 'right', marginTop: 1 }}
-                />
-                <button
-                  onClick={() => removeLine(li._key)}
-                  disabled={lineItems.length === 1}
-                  style={{ background: 'none', border: 'none', cursor: lineItems.length === 1 ? 'default' : 'pointer', color: '#94a3b8', padding: 0, display: 'flex', alignItems: 'center', marginTop: 6 }}
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', marginBottom: 8 }}>Item {idx + 1}</div>
+
+                    <div style={{ marginBottom: 8 }}>
+                      <label style={{ fontSize: 11, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4 }}>Item Name</label>
+                      <AutocompleteInput
+                        value={li.item_name}
+                        onChange={(val, item) => { if (item) selectCatalogItem(li._key, item); else updateLine(li._key, 'item_name', val) }}
+                        catalog={catalog}
+                        placeholder="Item name"
+                      />
+                    </div>
+
+                    <div style={{ marginBottom: 8 }}>
+                      <label style={{ fontSize: 11, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4 }}>Description</label>
+                      <textarea
+                        value={li.description}
+                        onChange={e => updateLine(li._key, 'description', e.target.value)}
+                        onBlur={e => handleDescriptionBlur(li._key, e.target.value)}
+                        placeholder="Description" rows={2}
+                        style={{ padding: '7px 10px', borderRadius: 7, fontSize: 13, border: '1px solid #e2e8f0', background: '#fff', color: '#0f172a', outline: 'none', width: '100%', boxSizing: 'border-box', resize: 'vertical', fontFamily: 'inherit' }}
+                      />
+                    </div>
+
+                    <div style={{ display: 'flex', gap: 10 }}>
+                      <div style={{ flex: 1 }}>
+                        <label style={{ fontSize: 11, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4 }}>Qty</label>
+                        <input type="number" min="0" step="1" value={li.quantity} onChange={e => updateLine(li._key, 'quantity', e.target.value)}
+                          style={{ padding: '7px 8px', borderRadius: 7, fontSize: 13, border: '1px solid #e2e8f0', background: '#fff', color: '#0f172a', outline: 'none', width: '100%', boxSizing: 'border-box', textAlign: 'right' }} />
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <label style={{ fontSize: 11, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4 }}>Unit Price</label>
+                        <input type="number" min="0" step="0.01" value={li.unit_price} onChange={e => updateLine(li._key, 'unit_price', e.target.value)} placeholder="0.00"
+                          style={{ padding: '7px 8px', borderRadius: 7, fontSize: 13, border: '1px solid #e2e8f0', background: '#fff', color: '#0f172a', outline: 'none', width: '100%', boxSizing: 'border-box', textAlign: 'right' }} />
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <label style={{ fontSize: 11, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4 }}>Total</label>
+                        <div style={{ padding: '7px 8px', fontSize: 13, fontWeight: 600, color: '#0f172a', textAlign: 'right' }}>
+                          {fmt((Number(li.quantity) || 0) * (Number(li.unit_price) || 0))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+
+                <button onClick={addLine}
+                  style={{ display: 'block', width: '100%', padding: '11px', border: '1.5px dashed #14b8a6', borderRadius: 8, background: '#f0fdfa', color: '#14b8a6', fontWeight: 600, fontSize: 14, cursor: 'pointer', marginBottom: 4 }}>
+                  + Add Line Item
                 </button>
               </div>
-            ))}
+            ) : (
+              /* Desktop: existing grid layout (unchanged) */
+              <>
+                <div style={{ display: 'grid', gridTemplateColumns: '2fr 2fr 80px 110px 24px', gap: 8, padding: '8px 20px', background: '#f8fafc', borderBottom: '1px solid #f1f5f9' }}>
+                  {['Item', 'Description', 'Qty', 'Unit Price', ''].map(h => (
+                    <span key={h} style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</span>
+                  ))}
+                </div>
+                {lineItems.map(li => (
+                  <div key={li._key} style={{ display: 'grid', gridTemplateColumns: '2fr 2fr 80px 110px 24px', gap: 8, padding: '8px 20px', borderBottom: '1px solid #f9fafb', alignItems: 'start' }}>
+                    <AutocompleteInput
+                      value={li.item_name}
+                      onChange={(val, item) => { if (item) selectCatalogItem(li._key, item); else updateLine(li._key, 'item_name', val) }}
+                      catalog={catalog}
+                      placeholder="Item name"
+                    />
+                    <textarea value={li.description} onChange={e => updateLine(li._key, 'description', e.target.value)}
+                      onBlur={e => handleDescriptionBlur(li._key, e.target.value)}
+                      placeholder="Description" rows={2}
+                      style={{ padding: '7px 10px', borderRadius: 7, fontSize: 13, border: '1px solid #e2e8f0', background: '#f8fafc', color: '#0f172a', outline: 'none', width: '100%', boxSizing: 'border-box', resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.4 }} />
+                    <input type="number" min="0" step="1" value={li.quantity} onChange={e => updateLine(li._key, 'quantity', e.target.value)}
+                      style={{ padding: '7px 8px', borderRadius: 7, fontSize: 13, border: '1px solid #e2e8f0', background: '#f8fafc', color: '#0f172a', outline: 'none', width: '100%', boxSizing: 'border-box', textAlign: 'right', marginTop: 1 }} />
+                    <input type="number" min="0" step="0.01" value={li.unit_price} onChange={e => updateLine(li._key, 'unit_price', e.target.value)} placeholder="0.00"
+                      style={{ padding: '7px 8px', borderRadius: 7, fontSize: 13, border: '1px solid #e2e8f0', background: '#f8fafc', color: '#0f172a', outline: 'none', width: '100%', boxSizing: 'border-box', textAlign: 'right', marginTop: 1 }} />
+                    <button onClick={() => removeLine(li._key)} disabled={lineItems.length === 1}
+                      style={{ background: 'none', border: 'none', cursor: lineItems.length === 1 ? 'default' : 'pointer', color: '#94a3b8', padding: 0, display: 'flex', alignItems: 'center', marginTop: 6 }}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                    </button>
+                  </div>
+                ))}
+              </>
+            )}
 
-            <div style={{ padding: '12px 20px', borderTop: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <button
-                onClick={addLine}
-                style={{ background: 'none', border: 'none', color: '#14b8a6', fontWeight: 600, fontSize: 13, cursor: 'pointer', padding: 0 }}
-              >
-                + Add Line
-              </button>
-
-              {/* Totals */}
-              <div style={{ minWidth: 280 }}>
+            <div style={{ padding: isMobile ? '12px 16px' : '12px 20px', borderTop: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: isMobile ? 'flex-end' : 'space-between' }}>
+              {!isMobile && (
+                <button onClick={addLine} style={{ background: 'none', border: 'none', color: '#14b8a6', fontWeight: 600, fontSize: 13, cursor: 'pointer', padding: 0 }}>
+                  + Add Line
+                </button>
+              )}
+              <div style={{ minWidth: isMobile ? '100%' : 280 }}>
                 {form.vat_enabled && (
                   <>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, fontSize: 13, color: '#64748b' }}>
-                      <span>Subtotal (ex-VAT)</span>
-                      <span>{fmt(subtotal)}</span>
+                      <span>Subtotal (ex-VAT)</span><span>{fmt(subtotal)}</span>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                       <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13, color: '#64748b', cursor: 'pointer' }}>
-                        <input
-                          type="checkbox"
-                          checked={form.vat_enabled}
-                          onChange={e => setField('vat_enabled', e.target.checked)}
-                          style={{ accentColor: '#14b8a6', width: 14, height: 14 }}
-                        />
+                        <input type="checkbox" checked={form.vat_enabled} onChange={e => setField('vat_enabled', e.target.checked)} style={{ accentColor: '#14b8a6', width: 14, height: 14 }} />
                         VAT (15%)
                       </label>
                       <span style={{ fontSize: 13, color: '#64748b' }}>{fmt(vatAmount)}</span>
@@ -874,42 +1042,71 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
                 {!form.vat_enabled && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                     <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13, color: '#64748b', cursor: 'pointer' }}>
-                      <input
-                        type="checkbox"
-                        checked={form.vat_enabled}
-                        onChange={e => setField('vat_enabled', e.target.checked)}
-                        style={{ accentColor: '#14b8a6', width: 14, height: 14 }}
-                      />
+                      <input type="checkbox" checked={form.vat_enabled} onChange={e => setField('vat_enabled', e.target.checked)} style={{ accentColor: '#14b8a6', width: 14, height: 14 }} />
                       VAT (15%)
                     </label>
                   </div>
                 )}
                 <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 8, borderTop: '2px solid #e2e8f0', fontSize: 15, fontWeight: 700, color: '#0f172a' }}>
-                  <span>Total</span>
-                  <span>{fmt(total)}</span>
+                  <span>Total</span><span>{fmt(total)}</span>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Notes */}
-          <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0', padding: 24 }}>
-            <h3 style={{ margin: '0 0 12px', fontSize: 14, fontWeight: 700, color: '#0f172a' }}>Notes</h3>
+          {/* ── Notes ── */}
+          <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0', padding: isMobile ? 16 : 24 }}>
+            <h3 style={{ margin: `0 0 ${isMobile ? 10 : 12}px`, fontSize: 14, fontWeight: 700, color: '#0f172a' }}>Notes</h3>
             <textarea
               value={form.notes}
               onChange={e => setField('notes', e.target.value)}
               placeholder="Any additional notes for the client…"
               rows={4}
-              style={{
-                width: '100%', padding: '10px 12px', borderRadius: 8, fontSize: 14,
-                border: '1px solid #e2e8f0', background: '#f8fafc', color: '#0f172a',
-                outline: 'none', resize: 'vertical', boxSizing: 'border-box', fontFamily: 'inherit',
-              }}
+              style={{ width: '100%', padding: '10px 12px', borderRadius: 8, fontSize: 14, border: '1px solid #e2e8f0', background: '#f8fafc', color: '#0f172a', outline: 'none', resize: 'vertical', boxSizing: 'border-box', fontFamily: 'inherit' }}
             />
           </div>
 
         </div>
       </div>
+
+      {/* ── Mobile fixed bottom action bar ── */}
+      {isMobile && (
+        <div style={{
+          position:      'fixed',
+          bottom:        0, left: 0, right: 0,
+          background:    '#fff',
+          borderTop:     '1px solid #e2e8f0',
+          padding:       '12px 16px',
+          paddingBottom: 'calc(12px + env(safe-area-inset-bottom))',
+          boxShadow:     '0 -2px 16px rgba(0,0,0,0.08)',
+          zIndex:        110,  /* above BottomNav (100) */
+        }}>
+          {errors._global && <p style={{ color: '#ef4444', fontSize: 12, margin: '0 0 6px' }}>{errors._global}</p>}
+
+          {/* Convert to Invoice — full-width button above the main row */}
+          {!isReadOnly && !isNew && form.status !== 'converted' && (
+            <button
+              onClick={handleConvert}
+              disabled={saving}
+              style={{ display: 'block', width: '100%', padding: '11px', borderRadius: 8, border: 'none', background: '#7c3aed', color: '#fff', fontWeight: 600, fontSize: 14, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1, fontFamily: 'inherit', marginBottom: 8 }}>
+              {saving ? 'Converting…' : 'Convert to Invoice'}
+            </button>
+          )}
+
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button onClick={onBack}
+              style={{ flex: 1, padding: '11px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', color: '#64748b', fontWeight: 600, fontSize: 14, cursor: 'pointer', fontFamily: 'inherit' }}>
+              Cancel
+            </button>
+            {!isReadOnly && (
+              <button onClick={() => handleSave()} disabled={saving}
+                style={{ flex: 2, padding: '11px', borderRadius: 8, border: 'none', background: '#14b8a6', color: '#fff', fontWeight: 600, fontSize: 14, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1, fontFamily: 'inherit' }}>
+                {saving ? 'Saving…' : 'Save'}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Delete confirmation */}
       {confirmDelete && (
@@ -993,40 +1190,94 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
 
 const STATUS_TABS = ['all', 'draft', 'sent', 'approved', 'rejected', 'converted']
 
-function ListView({ estimates, onNew, onSelect, isReadOnly }) {
+function ListView({ estimates, onNew, onSelect, onApprove, onDelete, isReadOnly }) {
   const [tab, setTab] = useState('all')
+  const isMobile      = useIsMobile()
 
   const filtered = tab === 'all' ? estimates : estimates.filter(e => e.status === tab)
 
   const tabStyle = (active) => ({
-    padding: '6px 14px', borderRadius: 20, fontSize: 13, fontWeight: 600, cursor: 'pointer',
-    border: 'none', background: active ? '#14b8a6' : 'transparent',
-    color: active ? '#fff' : '#64748b',
+    padding:    isMobile ? '5px 12px' : '6px 14px',
+    borderRadius: 20,
+    fontSize:   isMobile ? 12 : 13,
+    fontWeight: 600,
+    cursor:     'pointer',
+    border:     'none',
+    background: active ? '#14b8a6' : 'transparent',
+    color:      active ? '#fff' : '#64748b',
+    whiteSpace: 'nowrap',
+    flexShrink: 0,
   })
 
+  const emptyState = (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '56px 0', color: '#94a3b8' }}>
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#cbd5e1" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginBottom: 12 }}>
+        <path d="M9 11l3 3L22 4" />
+        <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+      </svg>
+      <p style={{ fontSize: 14, margin: 0 }}>{tab === 'all' ? 'No estimates yet' : `No ${tab} estimates`}</p>
+      {tab === 'all' && <p style={{ fontSize: 12, marginTop: 4 }}>
+        {isMobile ? 'Tap the + button to create one.' : 'Click "New Estimate" to create one.'}
+      </p>}
+    </div>
+  )
+
   return (
-    <div style={{ padding: 32, height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column' }}>
-      {/* Page header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20, flexShrink: 0 }}>
-        <div>
-          <h1 style={{ fontSize: 24, fontWeight: 700, color: '#0f172a', marginBottom: 4 }}>Estimates</h1>
-          <p style={{ color: '#64748b', fontSize: 14, margin: 0 }}>Create and send estimates to your clients.</p>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <button
-            onClick={isReadOnly ? undefined : onNew}
-            disabled={isReadOnly}
-            title={isReadOnly ? READONLY_MSG : undefined}
-            style={{ background: '#14b8a6', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 18px', fontSize: 14, fontWeight: 600, cursor: isReadOnly ? 'not-allowed' : 'pointer', opacity: isReadOnly ? 0.45 : 1 }}
-          >
-            + New Estimate
-          </button>
+    <div style={{ padding: isMobile ? 16 : 32, height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column' }}>
+
+      {/* ── Page header ── */}
+      <div style={{
+        display:        'flex',
+        alignItems:     'center',
+        justifyContent: 'space-between',
+        marginBottom:   isMobile ? 12 : 20,
+        flexShrink:     0,
+      }}>
+        {/* Title — hidden on mobile (MobileHeader shows page name) */}
+        {!isMobile && (
+          <div>
+            <h1 style={{ fontSize: 24, fontWeight: 700, color: '#0f172a', marginBottom: 4 }}>Estimates</h1>
+            <p style={{ color: '#64748b', fontSize: 14, margin: 0 }}>Create and send estimates to your clients.</p>
+          </div>
+        )}
+
+        <div style={{
+          display:        'flex',
+          alignItems:     'center',
+          gap:            10,
+          width:          isMobile ? '100%' : 'auto',
+          justifyContent: isMobile ? 'flex-end' : 'flex-end',
+        }}>
+          {/* New Estimate button — desktop only; mobile uses FAB */}
+          {!isMobile && (
+            <button
+              onClick={isReadOnly ? undefined : onNew}
+              disabled={isReadOnly}
+              title={isReadOnly ? READONLY_MSG : undefined}
+              style={{ background: '#14b8a6', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 18px', fontSize: 14, fontWeight: 600, cursor: isReadOnly ? 'not-allowed' : 'pointer', opacity: isReadOnly ? 0.45 : 1 }}
+            >
+              + New Estimate
+            </button>
+          )}
           <HelpButton page="estimates" />
         </div>
       </div>
 
-      {/* Tabs */}
-      <div style={{ display: 'flex', gap: 4, marginBottom: 16, flexShrink: 0 }}>
+      {/* ── Status tabs — scrollable on mobile ── */}
+      <div
+        className={isMobile ? 'fb-filter-scroll' : undefined}
+        style={{
+          display:                 'flex',
+          gap:                     4,
+          marginBottom:            isMobile ? 12 : 16,
+          flexShrink:              0,
+          overflowX:               isMobile ? 'auto'  : 'visible',
+          WebkitOverflowScrolling: isMobile ? 'touch' : undefined,
+          scrollbarWidth:          isMobile ? 'none'  : undefined,
+          msOverflowStyle:         isMobile ? 'none'  : undefined,
+          paddingBottom:           isMobile ? 2 : 0,
+        }}
+      >
         {STATUS_TABS.map(t => (
           <button key={t} onClick={() => setTab(t)} style={tabStyle(tab === t)}>
             {t === 'all' ? 'All' : STATUS_META[t]?.label || t}
@@ -1034,59 +1285,94 @@ function ListView({ estimates, onNew, onSelect, isReadOnly }) {
         ))}
       </div>
 
-      {/* Table */}
-      <div style={{
-        background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0',
-        boxShadow: '0 1px 3px rgba(0,0,0,0.04)', overflow: 'hidden', flex: 1, display: 'flex', flexDirection: 'column',
-      }}>
-        {/* Header */}
-        <div style={{
-          display: 'grid', gridTemplateColumns: '140px 1fr 120px 120px 120px 110px',
-          padding: '12px 20px', borderBottom: '1px solid #f1f5f9', background: '#f8fafc', flexShrink: 0,
-        }}>
-          {['Estimate #', 'Client', 'Issue Date', 'Expiry Date', 'Total', 'Status'].map(h => (
-            <span key={h} style={{ fontSize: 12, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</span>
+      {/* ── Estimate list ── */}
+      {isMobile ? (
+        /* Mobile: card list */
+        <div style={{ flex: 1, overflowY: 'auto', paddingBottom: 80 }}>
+          {filtered.length === 0 ? emptyState : filtered.map(est => (
+            <MobileEstimateCard
+              key={est.id}
+              est={est}
+              onSelect={onSelect}
+              onApprove={onApprove}
+              onDelete={onDelete}
+              isReadOnly={isReadOnly}
+            />
           ))}
         </div>
-
-        {/* Rows */}
-        <div style={{ flex: 1, overflowY: 'auto' }}>
-          {filtered.length === 0 ? (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '56px 0', color: '#94a3b8' }}>
-              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#cbd5e1" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginBottom: 12 }}>
-                <path d="M9 11l3 3L22 4" />
-                <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
-              </svg>
-              <p style={{ fontSize: 14, margin: 0 }}>{tab === 'all' ? 'No estimates yet' : `No ${tab} estimates`}</p>
-              {tab === 'all' && <p style={{ fontSize: 12, marginTop: 4 }}>Click "New Estimate" to create one.</p>}
-            </div>
-          ) : (
-            filtered.map(est => (
-              <div
-                key={est.id}
-                onClick={() => onSelect(est)}
-                style={{
-                  display: 'grid', gridTemplateColumns: '140px 1fr 120px 120px 120px 110px',
-                  padding: '14px 20px', borderBottom: '1px solid #f9fafb',
-                  cursor: 'pointer', alignItems: 'center',
-                }}
-                onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
-                onMouseLeave={e => e.currentTarget.style.background = '#fff'}
-              >
-                <span style={{ fontSize: 13, fontWeight: 600, color: '#0f172a' }}>{est.estimate_number}</span>
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: '#0f172a' }}>{est.client_name || '—'}</div>
-                  {est.client_company && <div style={{ fontSize: 12, color: '#94a3b8' }}>{est.client_company}</div>}
+      ) : (
+        /* Desktop: table (unchanged) */
+        <div className="estimates-table" style={{
+          background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.04)', overflow: 'hidden', flex: 1, display: 'flex', flexDirection: 'column',
+        }}>
+          <div style={{
+            display: 'grid', gridTemplateColumns: '140px 1fr 120px 120px 120px 110px',
+            padding: '12px 20px', borderBottom: '1px solid #f1f5f9', background: '#f8fafc', flexShrink: 0,
+          }}>
+            {['Estimate #', 'Client', 'Issue Date', 'Expiry Date', 'Total', 'Status'].map(h => (
+              <span key={h} style={{ fontSize: 12, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</span>
+            ))}
+          </div>
+          <div style={{ flex: 1, overflowY: 'auto' }}>
+            {filtered.length === 0 ? emptyState : (
+              filtered.map(est => (
+                <div
+                  key={est.id}
+                  onClick={() => onSelect(est)}
+                  style={{
+                    display: 'grid', gridTemplateColumns: '140px 1fr 120px 120px 120px 110px',
+                    padding: '14px 20px', borderBottom: '1px solid #f9fafb',
+                    cursor: 'pointer', alignItems: 'center',
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
+                  onMouseLeave={e => e.currentTarget.style.background = '#fff'}
+                >
+                  <span style={{ fontSize: 13, fontWeight: 600, color: '#0f172a' }}>{est.estimate_number}</span>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: '#0f172a' }}>{est.client_name || '—'}</div>
+                    {est.client_company && <div style={{ fontSize: 12, color: '#94a3b8' }}>{est.client_company}</div>}
+                  </div>
+                  <span style={{ fontSize: 13, color: '#475569' }}>{est.issue_date}</span>
+                  <span style={{ fontSize: 13, color: '#475569' }}>{est.expiry_date}</span>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: '#0f172a' }}>{fmt(est.total)}</span>
+                  <StatusBadge status={est.status} />
                 </div>
-                <span style={{ fontSize: 13, color: '#475569' }}>{est.issue_date}</span>
-                <span style={{ fontSize: 13, color: '#475569' }}>{est.expiry_date}</span>
-                <span style={{ fontSize: 13, fontWeight: 600, color: '#0f172a' }}>{fmt(est.total)}</span>
-                <StatusBadge status={est.status} />
-              </div>
-            ))
-          )}
+              ))
+            )}
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* ── FAB — mobile only ── */}
+      {isMobile && !isReadOnly && (
+        <button
+          onClick={onNew}
+          title="New Estimate"
+          style={{
+            position:       'fixed',
+            bottom:         80,
+            right:          16,
+            width:          56,
+            height:         56,
+            borderRadius:   '50%',
+            background:     'var(--primary, #14b8a6)',
+            color:          '#fff',
+            border:         'none',
+            boxShadow:      '0 4px 20px rgba(0,0,0,0.24)',
+            cursor:         'pointer',
+            display:        'flex',
+            alignItems:     'center',
+            justifyContent: 'center',
+            zIndex:         50,
+          }}
+        >
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="12" y1="5" x2="12" y2="19"/>
+            <line x1="5" y1="12" x2="19" y2="12"/>
+          </svg>
+        </button>
+      )}
     </div>
   )
 }
@@ -1106,6 +1392,10 @@ export default function Estimates() {
   const [estimates, setEstimates] = useState([])
   const [loading, setLoading] = useState(true)
   const [toast, setToast] = useState(null)
+  // Mobile list-view actions
+  const [approveListEst,       setApproveListEst]       = useState(null)
+  const [deleteListConfirmEst, setDeleteListConfirmEst] = useState(null)
+  const [deletingFromList,     setDeletingFromList]     = useState(false)
 
   const load = useCallback(async () => {
     if (!user) return
@@ -1160,6 +1450,30 @@ export default function Estimates() {
     setEditing(null)
   }
 
+  // ── Mobile list-action: approve ───────────────────────────────────────────
+  async function handleApproveFromList(est) {
+    setApproveListEst(null)
+    const { error } = await supabase
+      .from('estimates')
+      .update({ status: 'approved' })
+      .eq('id', est.id)
+      .eq('user_id', user.id)
+    if (error) { setToast({ message: error.message, type: 'error' }) }
+    else { await load(); setToast({ message: 'Estimate approved.', type: 'success' }) }
+  }
+
+  // ── Mobile list-action: delete ────────────────────────────────────────────
+  async function handleDeleteFromList() {
+    const est = deleteListConfirmEst
+    if (!est) return
+    setDeletingFromList(true)
+    const { error } = await supabase.from('estimates').delete().eq('id', est.id).eq('user_id', user.id)
+    setDeletingFromList(false)
+    setDeleteListConfirmEst(null)
+    if (error) { setToast({ message: error.message, type: 'error' }) }
+    else { await load(); setToast({ message: 'Estimate deleted.', type: 'success' }) }
+  }
+
   if (loading && view === 'list') {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#94a3b8', fontSize: 14 }}>
@@ -1172,7 +1486,14 @@ export default function Estimates() {
     <>
       <style>{`@keyframes fadeSlideUp { from { opacity: 0; transform: translateX(-50%) translateY(12px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }`}</style>
       {view === 'list'
-        ? <ListView estimates={estimates} onNew={openNew} onSelect={openEdit} isReadOnly={isReadOnly} />
+        ? <ListView
+            estimates={estimates}
+            onNew={openNew}
+            onSelect={openEdit}
+            onApprove={est => handleApproveFromList(est)}
+            onDelete={est => setDeleteListConfirmEst(est)}
+            isReadOnly={isReadOnly}
+          />
         : <EstimateForm
             estimate={editing}
             clients={clients}
@@ -1184,6 +1505,28 @@ export default function Estimates() {
             isReadOnly={isReadOnly}
           />
       }
+      {/* ── Mobile: Delete confirmation from list card ── */}
+      {deleteListConfirmEst && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }}>
+          <div style={{ background: '#fff', borderRadius: 14, padding: 28, width: 340, maxWidth: '92vw', boxShadow: '0 20px 60px rgba(0,0,0,0.18)' }}>
+            <h3 style={{ margin: '0 0 10px', fontSize: 17, fontWeight: 700, color: '#0f172a' }}>Delete Estimate?</h3>
+            <p style={{ color: '#64748b', fontSize: 14, marginBottom: 22 }}>
+              Delete <strong>{deleteListConfirmEst.estimate_number}</strong>? This cannot be undone.
+            </p>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button onClick={() => setDeleteListConfirmEst(null)}
+                style={{ padding: '9px 18px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', color: '#64748b', fontWeight: 600, fontSize: 14, cursor: 'pointer' }}>
+                Cancel
+              </button>
+              <button onClick={handleDeleteFromList} disabled={deletingFromList}
+                style={{ padding: '9px 18px', borderRadius: 8, border: 'none', background: '#ef4444', color: '#fff', fontWeight: 600, fontSize: 14, cursor: deletingFromList ? 'not-allowed' : 'pointer', opacity: deletingFromList ? 0.7 : 1 }}>
+                {deletingFromList ? 'Deleting…' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {toast && <Toast message={toast.message} type={toast.type} onDone={() => setToast(null)} />}
     </>
   )

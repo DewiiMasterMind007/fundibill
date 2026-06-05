@@ -19,7 +19,10 @@
       "Bash(Copy-Item \"C:\\\\Users\\\\dewal\\\\Downloads\\\\favicon.ico\" \"C:\\\\Users\\\\dewal\\\\Desktop\\\\Invoicy App\\\\assets\\\\icon.ico\" -Force)",
       "Bash(Write-Host \"Copied to assets/icon.ico\")",
       "PowerShell(New-Item -ItemType Directory -Path \"C:\\\\Users\\\\dewal\\\\Desktop\\\\Invoicy App\\\\public\" -Force)",
-      "PowerShell(Copy-Item \"C:\\\\Users\\\\dewal\\\\Downloads\\\\favicon.ico\" \"C:\\\\Users\\\\dewal\\\\Desktop\\\\Invoicy App\\\\public\\\\favicon.ico\" -Force)"
+      "PowerShell(Copy-Item \"C:\\\\Users\\\\dewal\\\\Downloads\\\\favicon.ico\" \"C:\\\\Users\\\\dewal\\\\Desktop\\\\Invoicy App\\\\public\\\\favicon.ico\" -Force)",
+      "Bash(Copy-Item \"C:\\\\Users\\\\dewal\\\\Desktop\\\\Invoicy App\\\\public\\\\FundiBill long.png\" \"C:\\\\Users\\\\dewal\\\\Desktop\\\\Invoicy App\\\\public\\\\icon-192.png\")",
+      "Bash(Copy-Item \"C:\\\\Users\\\\dewal\\\\Desktop\\\\Invoicy App\\\\public\\\\FundiBill long.png\" \"C:\\\\Users\\\\dewal\\\\Desktop\\\\Invoicy App\\\\public\\\\icon-512.png\")",
+      "Bash(Write-Host \"Icons copied\")"
     ]
   }
 }

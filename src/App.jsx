@@ -5,8 +5,11 @@ import { TrialProvider, useTrialStatus } from './context/TrialContext'
 import { RecurringNotifProvider, useRecurringNotif } from './context/RecurringNotifContext'
 import { AppDataProvider, useAppData } from './context/AppDataContext'
 import { supabase } from './lib/supabase'
+import useIsMobile from './hooks/useIsMobile'
 import Auth from './pages/Auth'
 import Sidebar from './components/Sidebar'
+import BottomNav from './components/BottomNav'
+import MobileHeader from './components/MobileHeader'
 import TrialBanner from './components/TrialBanner'
 import Tutorial from './components/Tutorial'
 import UpdateNotification from './components/UpdateNotification'
@@ -129,6 +132,7 @@ function AuthenticatedApp() {
   const { primaryColor, accentColor }  = useAppData()
   const trialStatus = useTrialStatus()
   const showBanner  = trialStatus !== null && !trialStatus.isLicensed
+  const isMobile    = useIsMobile()
 
   // ── Tutorial state ─────────────────────────────────────────────────────────
   const [tutorialOpen, setTutorialOpen] = useState(false)
@@ -164,7 +168,7 @@ function AuthenticatedApp() {
     return () => { cancelled = true }
   }, [user])
 
-  // Called by the Sidebar Tutorial button — always starts from step 1
+  // Called by the Sidebar / BottomNav Tutorial button — always starts from step 1
   function handleOpenTutorial() {
     setTutorialKey(k => k + 1)
     setTutorialOpen(true)
@@ -180,56 +184,105 @@ function AuthenticatedApp() {
     }
   }
 
+  // ── Shared route tree (identical on both layouts) ──────────────────────────
+  const appRoutes = (
+    <Routes>
+      <Route path="/"          element={<Navigate to="/dashboard" replace />} />
+      <Route path="/dashboard" element={<Dashboard />} />
+      <Route path="/invoices"  element={<Invoices />} />
+      <Route path="/estimates" element={<Estimates />} />
+      <Route path="/clients"   element={<Clients />} />
+      <Route path="/items"     element={<Items />} />
+      <Route path="/expenses"  element={<Expenses />} />
+      <Route path="/settings"  element={<Settings />} />
+    </Routes>
+  )
+
   return (
     <HashRouter>
       {/* Inject the user's chosen primary colour as a CSS custom property so
           all themed UI elements pick it up via var(--primary). */}
       <style>{`:root { --primary: ${primaryColor}; --accent: ${accentColor}; }`}</style>
 
-      <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
+      {isMobile ? (
+        // ── Mobile layout ───────────────────────────────────────────────────
+        <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
 
-        {/* Auto-update notification banner */}
-        <UpdateNotification />
+          {/* Sticky top header */}
+          <MobileHeader />
 
-        {/* Trial expiry / upgrade banner */}
-        {showBanner && (
-          <TrialBanner
-            daysRemaining={trialStatus.daysRemaining}
-            trialExpired={trialStatus.trialExpired}
-          />
-        )}
+          {/* Auto-update notification */}
+          <UpdateNotification />
 
-        {/* Recurring-invoice notification banners (zero height when none pending) */}
-        <RecurringBanners />
+          {/* Trial expiry / upgrade banner */}
+          {showBanner && (
+            <TrialBanner
+              daysRemaining={trialStatus.daysRemaining}
+              trialExpired={trialStatus.trialExpired}
+            />
+          )}
 
-        <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-          <Sidebar onTutorial={handleOpenTutorial} primaryColor={primaryColor} />
+          {/* Recurring-invoice notification banners */}
+          <RecurringBanners />
+
+          {/* Scrollable page area — padded so content clears the fixed bottom nav */}
           <main style={{
             flex:          1,
             overflow:      'auto',
             background:    '#f8fafc',
             display:       'flex',
             flexDirection: 'column',
+            paddingBottom: 'calc(64px + env(safe-area-inset-bottom))',
           }}>
-            <Routes>
-              <Route path="/"          element={<Navigate to="/dashboard" replace />} />
-              <Route path="/dashboard" element={<Dashboard />} />
-              <Route path="/invoices"  element={<Invoices />} />
-              <Route path="/estimates" element={<Estimates />} />
-              <Route path="/clients"   element={<Clients />} />
-              <Route path="/items"     element={<Items />} />
-              <Route path="/expenses"  element={<Expenses />} />
-              <Route path="/settings"  element={<Settings />} />
-            </Routes>
+            {appRoutes}
           </main>
+
+          {/* Fixed bottom tab bar + slide-up drawer */}
+          <BottomNav onTutorial={handleOpenTutorial} primaryColor={primaryColor} />
         </div>
 
-        {/* Tutorial overlay — conditionally rendered; key forces remount on each start */}
-        {tutorialOpen && (
-          <Tutorial key={tutorialKey} onClose={handleCloseTutorial} />
-        )}
+      ) : (
+        // ── Desktop layout (unchanged) ──────────────────────────────────────
+        <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
 
-      </div>
+          {/* Auto-update notification banner */}
+          <UpdateNotification />
+
+          {/* Trial expiry / upgrade banner */}
+          {showBanner && (
+            <TrialBanner
+              daysRemaining={trialStatus.daysRemaining}
+              trialExpired={trialStatus.trialExpired}
+            />
+          )}
+
+          {/* Recurring-invoice notification banners (zero height when none pending) */}
+          <RecurringBanners />
+
+          <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+            {/* className="sidebar" lets the CSS media-query hide it as a fallback */}
+            <div className="sidebar">
+              <Sidebar onTutorial={handleOpenTutorial} primaryColor={primaryColor} />
+            </div>
+            <main style={{
+              flex:          1,
+              overflow:      'auto',
+              background:    '#f8fafc',
+              display:       'flex',
+              flexDirection: 'column',
+            }}>
+              {appRoutes}
+            </main>
+          </div>
+
+        </div>
+      )}
+
+      {/* Tutorial overlay — conditionally rendered; key forces remount on each start */}
+      {tutorialOpen && (
+        <Tutorial key={tutorialKey} onClose={handleCloseTutorial} />
+      )}
+
     </HashRouter>
   )
 }

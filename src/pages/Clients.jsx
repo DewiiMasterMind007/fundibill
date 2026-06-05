@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import { useTrialStatus } from '../context/TrialContext'
 import { useAppData } from '../context/AppDataContext'
 import HelpButton from '../components/HelpButton'
+import useIsMobile from '../hooks/useIsMobile'
 
 const READONLY_MSG = 'Your trial has ended. Upgrade to continue.'
 
@@ -33,7 +34,7 @@ const PALETTE = [
 function formatZAR(amount) {
   const n = Number(amount) || 0
   const [int, dec] = n.toFixed(2).split('.')
-  return 'R\u00a0' + int.replace(/\B(?=(\d{3})+(?!\d))/g, '\u00a0') + ',' + dec
+  return 'R ' + int.replace(/\B(?=(\d{3})+(?!\d))/g, ' ') + ',' + dec
 }
 
 function fmtDate(str) {
@@ -329,12 +330,132 @@ function StatCard({ value, label, accent }) {
   )
 }
 
+// ─── Mobile client card ───────────────────────────────────────────────────────
+
+function MobileClientCard({ client, onEdit, onViewInvoices, onViewEstimates, onDelete, isReadOnly }) {
+  const [menuOpen, setMenuOpen] = useState(false)
+  const menuRef = useRef(null)
+
+  const name  = client.company_name || client.name || '?'
+  const color = nameToColor(name)
+
+  useEffect(() => {
+    const fn = (e) => { if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false) }
+    document.addEventListener('mousedown', fn)
+    return () => document.removeEventListener('mousedown', fn)
+  }, [])
+
+  const menuItems = [
+    { label: 'Edit',           fn: () => { setMenuOpen(false); onEdit(client) } },
+    { label: 'View Invoices',  fn: () => { setMenuOpen(false); onViewInvoices(client) } },
+    { label: 'View Estimates', fn: () => { setMenuOpen(false); onViewEstimates(client) } },
+    !isReadOnly && { label: 'Delete', fn: () => { setMenuOpen(false); onDelete(client) }, danger: true },
+  ].filter(Boolean)
+
+  return (
+    <div
+      onClick={() => onEdit(client)}
+      style={{
+        background:   '#fff',
+        borderRadius: 8,
+        boxShadow:    '0 1px 4px rgba(0,0,0,0.07)',
+        border:       '1px solid #f1f5f9',
+        padding:      16,
+        marginBottom: 10,
+        cursor:       'pointer',
+        display:      'flex',
+        alignItems:   'center',
+        gap:          12,
+        position:     'relative',
+      }}
+    >
+      {/* Avatar */}
+      <div style={{
+        width:          44,
+        height:         44,
+        borderRadius:   '50%',
+        background:     color,
+        color:          '#fff',
+        display:        'flex',
+        alignItems:     'center',
+        justifyContent: 'center',
+        fontWeight:     700,
+        fontSize:       17,
+        flexShrink:     0,
+        letterSpacing:  '-0.3px',
+        userSelect:     'none',
+      }}>
+        {nameToInitials(name).charAt(0)}
+      </div>
+
+      {/* Content */}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 15, fontWeight: 700, color: '#0f172a', marginBottom: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {name}
+        </div>
+        {client.email && (
+          <div style={{ fontSize: 13, color: '#64748b', marginBottom: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {client.email}
+          </div>
+        )}
+        {client.phone && (
+          <div style={{ fontSize: 13, color: '#64748b' }}>
+            {client.phone}
+          </div>
+        )}
+      </div>
+
+      {/* Three-dot menu */}
+      <div
+        ref={menuRef}
+        onClick={e => e.stopPropagation()}
+        style={{ flexShrink: 0, position: 'relative', alignSelf: 'flex-start', marginTop: -4 }}
+      >
+        <button
+          onClick={e => { e.stopPropagation(); setMenuOpen(o => !o) }}
+          aria-label="More actions"
+          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px 8px', color: '#94a3b8', fontSize: 20, lineHeight: 1, letterSpacing: 2, borderRadius: 6 }}
+        >···</button>
+
+        {menuOpen && (
+          <div style={{
+            position:  'absolute', right: 0, top: '100%', zIndex: 200,
+            background: '#fff', borderRadius: 10,
+            boxShadow: '0 4px 24px rgba(0,0,0,0.14)',
+            border:    '1px solid #e2e8f0',
+            minWidth:  168, overflow: 'hidden', marginTop: 4,
+          }}>
+            {menuItems.map(item => (
+              <button
+                key={item.label}
+                onClick={item.fn}
+                style={{
+                  display:    'block', width: '100%',
+                  padding:    '12px 16px',
+                  background: 'none', border: 'none',
+                  cursor:     'pointer', textAlign: 'left',
+                  fontSize:   14, fontWeight: 500,
+                  color:      item.danger ? '#dc2626' : '#0f172a',
+                  fontFamily: 'inherit',
+                }}
+                onMouseEnter={e => { e.currentTarget.style.background = item.danger ? '#fef2f2' : '#f8fafc' }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'none' }}
+              >{item.label}</button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function Clients() {
   const { user }    = useAuth()
   const trialStatus = useTrialStatus()
   const isReadOnly  = trialStatus?.isReadOnly ?? false
+  const isMobile    = useIsMobile()
 
   // clients list comes from the global cache; refreshClients() re-fetches after writes
   const { clients, loaded: appLoaded, refreshClients } = useAppData()
@@ -394,6 +515,14 @@ export default function Clients() {
     loadClientDocs(client.id)
   }
 
+  // Open detail view with a specific tab (used by mobile card menu)
+  function openDetailWithTab(client, tab) {
+    setSelected(client)
+    setActiveTab(tab)
+    setView('detail')
+    loadClientDocs(client.id)
+  }
+
   function goBack() {
     setView('list')
     setSelected(null)
@@ -433,6 +562,12 @@ export default function Clients() {
       setForm(p => ({ ...p, [field]: e.target.value }))
       if (errors[field]) setErrors(p => ({ ...p, [field]: '' }))
     }
+  }
+
+  // Delete from mobile card: set selected then show confirm
+  function handleDeleteFromCard(client) {
+    setSelected(client)
+    setConfirmDelete(true)
   }
 
   // ── Save ──────────────────────────────────────────────────────────────────
@@ -537,7 +672,7 @@ export default function Clients() {
       )}
 
       {/* ── Main scrollable area ─────────────────────────────────────────── */}
-      <div style={{ height: '100%', overflowY: 'auto', padding: '32px 32px 64px' }}>
+      <div style={{ height: '100%', overflowY: 'auto', padding: isMobile ? '16px 16px 80px' : '32px 32px 64px' }}>
 
         {/* ════════════════════════ LIST VIEW ════════════════════════════ */}
         {view === 'list' && (
@@ -547,47 +682,54 @@ export default function Clients() {
               display:        'flex',
               alignItems:     'flex-start',
               justifyContent: 'space-between',
-              marginBottom:   24,
+              marginBottom:   isMobile ? 12 : 24,
             }}>
-              <div>
-                <h1 style={{ fontSize: 24, fontWeight: 700, color: '#0f172a', marginBottom: 4 }}>
-                  Clients
-                </h1>
-                <p style={{ fontSize: 14, color: '#64748b' }}>
-                  {loading
-                    ? 'Loading…'
-                    : `${clients.length} client${clients.length !== 1 ? 's' : ''}`}
-                </p>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <button
-                  onClick={isReadOnly ? undefined : openAdd}
-                  disabled={isReadOnly}
-                  title={isReadOnly ? READONLY_MSG : undefined}
-                  style={{
-                    background:   '#14b8a6',
-                    color:        '#fff',
-                    border:       'none',
-                    borderRadius: 8,
-                    padding:      '10px 18px',
-                    fontSize:     14,
-                    fontWeight:   600,
-                    cursor:       isReadOnly ? 'not-allowed' : 'pointer',
-                    opacity:      isReadOnly ? 0.45 : 1,
-                    display:      'flex',
-                    alignItems:   'center',
-                    gap:          7,
-                    boxShadow:    isReadOnly ? 'none' : '0 2px 8px rgba(20,184,166,0.3)',
-                    flexShrink:   0,
-                  }}
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
-                    stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-                    <line x1="12" y1="5" x2="12" y2="19" />
-                    <line x1="5"  y1="12" x2="19" y2="12" />
-                  </svg>
-                  Add New Client
-                </button>
+              {/* Title — hidden on mobile */}
+              {!isMobile && (
+                <div>
+                  <h1 style={{ fontSize: 24, fontWeight: 700, color: '#0f172a', marginBottom: 4 }}>
+                    Clients
+                  </h1>
+                  <p style={{ fontSize: 14, color: '#64748b' }}>
+                    {loading
+                      ? 'Loading…'
+                      : `${clients.length} client${clients.length !== 1 ? 's' : ''}`}
+                  </p>
+                </div>
+              )}
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, width: isMobile ? '100%' : 'auto', justifyContent: isMobile ? 'flex-end' : 'flex-end' }}>
+                {/* Add New Client button — desktop only; mobile uses FAB */}
+                {!isMobile && (
+                  <button
+                    onClick={isReadOnly ? undefined : openAdd}
+                    disabled={isReadOnly}
+                    title={isReadOnly ? READONLY_MSG : undefined}
+                    style={{
+                      background:   '#14b8a6',
+                      color:        '#fff',
+                      border:       'none',
+                      borderRadius: 8,
+                      padding:      '10px 18px',
+                      fontSize:     14,
+                      fontWeight:   600,
+                      cursor:       isReadOnly ? 'not-allowed' : 'pointer',
+                      opacity:      isReadOnly ? 0.45 : 1,
+                      display:      'flex',
+                      alignItems:   'center',
+                      gap:          7,
+                      boxShadow:    isReadOnly ? 'none' : '0 2px 8px rgba(20,184,166,0.3)',
+                      flexShrink:   0,
+                    }}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                      stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                      <line x1="12" y1="5" x2="12" y2="19" />
+                      <line x1="5"  y1="12" x2="19" y2="12" />
+                    </svg>
+                    Add New Client
+                  </button>
+                )}
                 <HelpButton page="clients" />
               </div>
             </div>
@@ -615,17 +757,17 @@ export default function Clients() {
               </div>
             )}
 
-            {/* Search bar — only when there are clients */}
+            {/* Search bar */}
             {clients.length > 0 && (
-              <div style={{ position: 'relative', maxWidth: 380, marginBottom: 16 }}>
+              <div style={{ position: 'relative', maxWidth: isMobile ? '100%' : 380, marginBottom: isMobile ? 12 : 16 }}>
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
                   stroke="#94a3b8" strokeWidth="2" strokeLinecap="round"
                   style={{
-                    position:       'absolute',
-                    left:           12,
-                    top:            '50%',
-                    transform:      'translateY(-50%)',
-                    pointerEvents:  'none',
+                    position:      'absolute',
+                    left:          12,
+                    top:           '50%',
+                    transform:     'translateY(-50%)',
+                    pointerEvents: 'none',
                   }}>
                   <circle cx="11" cy="11" r="8" />
                   <line x1="21" y1="21" x2="16.65" y2="16.65" />
@@ -634,7 +776,7 @@ export default function Clients() {
                   value={search}
                   onChange={e => setSearch(e.target.value)}
                   placeholder="Search by business name, email or phone…"
-                  style={{ ...INPUT, paddingLeft: 36, background: '#fff' }}
+                  style={{ ...INPUT, paddingLeft: 36, background: '#fff', minHeight: isMobile ? 44 : undefined }}
                   onFocus={onFocus}
                   onBlur={onBlur}
                 />
@@ -654,14 +796,12 @@ export default function Clients() {
                       lineHeight: 1,
                       padding:    2,
                     }}
-                  >
-                    ×
-                  </button>
+                  >×</button>
                 )}
               </div>
             )}
 
-            {/* Table / empty states */}
+            {/* Client list */}
             {!loading && visibleClients.length === 0 ? (
               search ? (
                 <div style={{ padding: '60px 20px', textAlign: 'center', color: '#94a3b8' }}>
@@ -675,8 +815,24 @@ export default function Clients() {
               ) : (
                 <EmptyState onAdd={openAdd} />
               )
+            ) : isMobile ? (
+              /* Mobile: card list */
+              <div>
+                {visibleClients.map(client => (
+                  <MobileClientCard
+                    key={client.id}
+                    client={client}
+                    onEdit={openEdit}
+                    onViewInvoices={c => openDetailWithTab(c, 'invoices')}
+                    onViewEstimates={c => openDetailWithTab(c, 'estimates')}
+                    onDelete={handleDeleteFromCard}
+                    isReadOnly={isReadOnly}
+                  />
+                ))}
+              </div>
             ) : (
-              <div style={{
+              /* Desktop: table (unchanged) */
+              <div className="clients-table" style={{
                 background:   '#fff',
                 border:       '1px solid #e2e8f0',
                 borderRadius: 12,
@@ -723,7 +879,6 @@ export default function Clients() {
                         onMouseEnter={e => { e.currentTarget.style.background = '#f8fafc' }}
                         onMouseLeave={e => { e.currentTarget.style.background = '' }}
                       >
-                        {/* Business name + avatar */}
                         <td style={{ padding: '14px 16px' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                             <Avatar name={client.company_name || client.name} size={34} />
@@ -732,57 +887,26 @@ export default function Clients() {
                             </span>
                           </div>
                         </td>
-
-                        {/* Email */}
                         <td style={{ padding: '14px 16px', fontSize: 13, color: '#334155', maxWidth: 200 }}>
-                          <span style={{
-                            display:      'block',
-                            overflow:     'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace:   'nowrap',
-                          }}>
+                          <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                             {client.email}
                           </span>
                         </td>
-
-                        {/* Phone */}
                         <td style={{ padding: '14px 16px', fontSize: 13, color: '#64748b', whiteSpace: 'nowrap' }}>
                           {client.phone || <span style={{ color: '#cbd5e1' }}>—</span>}
                         </td>
-
-                        {/* Invoice count */}
                         <td style={{ padding: '14px 16px', textAlign: 'center' }}>
                           {client.invoice_count > 0 ? (
-                            <span style={{
-                              background:   '#f0fdf4',
-                              color:        '#166534',
-                              fontSize:     12,
-                              fontWeight:   700,
-                              padding:      '2px 9px',
-                              borderRadius: 999,
-                              border:       '1px solid #dcfce7',
-                            }}>
+                            <span style={{ background: '#f0fdf4', color: '#166534', fontSize: 12, fontWeight: 700, padding: '2px 9px', borderRadius: 999, border: '1px solid #dcfce7' }}>
                               {client.invoice_count}
                             </span>
                           ) : (
                             <span style={{ color: '#cbd5e1', fontSize: 13 }}>—</span>
                           )}
                         </td>
-
-                        {/* Total */}
-                        <td style={{
-                          padding:    '14px 16px',
-                          fontSize:   13,
-                          fontWeight: 600,
-                          color:      client.total_invoiced > 0 ? '#0f172a' : '#cbd5e1',
-                          whiteSpace: 'nowrap',
-                        }}>
-                          {client.total_invoiced > 0
-                            ? formatZAR(client.total_invoiced)
-                            : '—'}
+                        <td style={{ padding: '14px 16px', fontSize: 13, fontWeight: 600, color: client.total_invoiced > 0 ? '#0f172a' : '#cbd5e1', whiteSpace: 'nowrap' }}>
+                          {client.total_invoiced > 0 ? formatZAR(client.total_invoiced) : '—'}
                         </td>
-
-                        {/* Arrow */}
                         <td style={{ padding: '14px 12px', color: '#cbd5e1', textAlign: 'center' }}>
                           <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
                             stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -795,6 +919,36 @@ export default function Clients() {
                 </table>
               </div>
             )}
+
+            {/* FAB — mobile only */}
+            {isMobile && !isReadOnly && (
+              <button
+                onClick={openAdd}
+                title="Add New Client"
+                style={{
+                  position:       'fixed',
+                  bottom:         80,
+                  right:          16,
+                  width:          56,
+                  height:         56,
+                  borderRadius:   '50%',
+                  background:     'var(--primary, #14b8a6)',
+                  color:          '#fff',
+                  border:         'none',
+                  boxShadow:      '0 4px 20px rgba(0,0,0,0.24)',
+                  cursor:         'pointer',
+                  display:        'flex',
+                  alignItems:     'center',
+                  justifyContent: 'center',
+                  zIndex:         50,
+                }}
+              >
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="12" y1="5" x2="12" y2="19"/>
+                  <line x1="5" y1="12" x2="19" y2="12"/>
+                </svg>
+              </button>
+            )}
           </>
         )}
 
@@ -806,22 +960,16 @@ export default function Clients() {
               display:        'flex',
               alignItems:     'center',
               justifyContent: 'space-between',
-              marginBottom:   24,
+              marginBottom:   isMobile ? 14 : 24,
+              gap:            8,
             }}>
               <button
                 onClick={goBack}
                 style={{
-                  background: 'none',
-                  border:     'none',
-                  cursor:     'pointer',
-                  display:    'flex',
-                  alignItems: 'center',
-                  gap:        6,
-                  color:      '#64748b',
-                  fontSize:   14,
-                  fontWeight: 500,
-                  padding:    0,
-                  transition: 'color 0.15s',
+                  background: 'none', border: 'none', cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', gap: 6,
+                  color: '#64748b', fontSize: 14, fontWeight: 500, padding: 0,
+                  transition: 'color 0.15s', flexShrink: 0,
                 }}
                 onMouseEnter={e => { e.currentTarget.style.color = '#0f172a' }}
                 onMouseLeave={e => { e.currentTarget.style.color = '#64748b' }}
@@ -830,25 +978,24 @@ export default function Clients() {
                   stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <polyline points="15 18 9 12 15 6" />
                 </svg>
-                Back to Clients
+                {isMobile ? 'Back' : 'Back to Clients'}
               </button>
 
               {!isReadOnly && (
-                <div style={{ display: 'flex', gap: 8 }}>
+                /* On mobile: buttons fill the remaining space equally (50/50) */
+                <div style={{ display: 'flex', gap: 8, flex: isMobile ? 1 : undefined, justifyContent: 'flex-end' }}>
                   <button
                     onClick={() => openEdit(selected)}
                     style={{
-                      background:   '#fff',
-                      border:       '1.5px solid #e2e8f0',
-                      color:        '#374151',
+                      background: '#fff', border: '1.5px solid #e2e8f0', color: '#374151',
                       borderRadius: 8,
-                      padding:      '8px 16px',
-                      fontSize:     13,
-                      fontWeight:   600,
-                      cursor:       'pointer',
-                      display:      'flex',
-                      alignItems:   'center',
-                      gap:          6,
+                      padding:     isMobile ? '0 16px' : '8px 16px',
+                      minHeight:   isMobile ? 44 : undefined,
+                      flex:        isMobile ? 1 : undefined,
+                      fontSize: 13, fontWeight: 600,
+                      cursor: 'pointer', display: 'flex', alignItems: 'center',
+                      justifyContent: isMobile ? 'center' : undefined,
+                      gap: 6,
                     }}
                   >
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
@@ -861,17 +1008,15 @@ export default function Clients() {
                   <button
                     onClick={() => setConfirmDelete(true)}
                     style={{
-                      background:   '#fff',
-                      border:       '1.5px solid #fca5a5',
-                      color:        '#dc2626',
+                      background: '#fff', border: '1.5px solid #fca5a5', color: '#dc2626',
                       borderRadius: 8,
-                      padding:      '8px 16px',
-                      fontSize:     13,
-                      fontWeight:   600,
-                      cursor:       'pointer',
-                      display:      'flex',
-                      alignItems:   'center',
-                      gap:          6,
+                      padding:     isMobile ? '0 16px' : '8px 16px',
+                      minHeight:   isMobile ? 44 : undefined,
+                      flex:        isMobile ? 1 : undefined,
+                      fontSize: 13, fontWeight: 600,
+                      cursor: 'pointer', display: 'flex', alignItems: 'center',
+                      justifyContent: isMobile ? 'center' : undefined,
+                      gap: 6,
                     }}
                   >
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
@@ -887,88 +1032,130 @@ export default function Clients() {
 
             {/* Client info card */}
             <div style={{
-              background:   '#fff',
-              border:       '1px solid #e2e8f0',
-              borderRadius: 12,
-              padding:      '24px 28px',
-              marginBottom: 20,
-              boxShadow:    '0 1px 3px rgba(0,0,0,0.04)',
+              background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12,
+              padding: isMobile ? '20px 16px 0' : '24px 28px',
+              marginBottom: 20, boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+              overflow: 'hidden',
             }}>
-              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 20 }}>
-                <Avatar name={selected.company_name || selected.name} size={60} />
-
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <h2 style={{ fontSize: 22, fontWeight: 700, color: '#0f172a', marginBottom: 2 }}>
-                    {selected.company_name || selected.name}
-                  </h2>
-
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 12 }}>
-                    <InfoRow
-                      icon="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2zm0 0l8 8 8-8"
-                      text={selected.email}
-                    />
-                    <InfoRow
-                      icon="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.61 3.44 2 2 0 0 1 3.58 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"
-                      text={selected.phone}
-                    />
-                    <InfoRow
-                      icon="M21 10c0 7-9 13-9 13S3 17 3 10a9 9 0 1 1 18 0z M12 10m-3 0a3 3 0 1 0 6 0a3 3 0 1 0-6 0"
-                      text={selected.address}
-                    />
+              {isMobile ? (
+                /* ── Mobile: stacked layout ── */
+                <>
+                  {/* Avatar + name + contact info — centered */}
+                  <div style={{ textAlign: 'center', paddingBottom: 16 }}>
+                    <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 10 }}>
+                      <Avatar name={selected.company_name || selected.name} size={56} />
+                    </div>
+                    <h2 style={{ fontSize: 18, fontWeight: 700, color: '#0f172a', marginBottom: 6 }}>
+                      {selected.company_name || selected.name}
+                    </h2>
+                    {selected.email && (
+                      <div style={{ fontSize: 13, color: '#64748b', marginBottom: 3 }}>{selected.email}</div>
+                    )}
+                    {selected.phone && (
+                      <div style={{ fontSize: 13, color: '#64748b', marginBottom: 3 }}>{selected.phone}</div>
+                    )}
+                    {selected.address && (
+                      <div style={{ fontSize: 13, color: '#94a3b8', marginBottom: 3 }}>{selected.address}</div>
+                    )}
                     {selected.website && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
-                          stroke="#94a3b8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-                          style={{ flexShrink: 0 }}>
-                          <circle cx="12" cy="12" r="10" />
-                          <line x1="2" y1="12" x2="22" y2="12" />
-                          <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
-                        </svg>
-                        <a
-                          href={selected.website}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          onClick={e => e.stopPropagation()}
-                          style={{ color: '#14b8a6', textDecoration: 'none' }}
-                        >
-                          {selected.website}
-                        </a>
-                      </div>
+                      <a href={selected.website} target="_blank" rel="noopener noreferrer"
+                        onClick={e => e.stopPropagation()}
+                        style={{ fontSize: 13, color: '#14b8a6', textDecoration: 'none' }}>
+                        {selected.website}
+                      </a>
                     )}
                   </div>
-                </div>
 
-                {/* Quick stats */}
-                <div style={{ display: 'flex', gap: 12, flexShrink: 0 }}>
-                  <StatCard
-                    value={docsLoading ? '—' : clientDocs.invoices.length}
-                    label="Invoices"
-                  />
-                  <StatCard
-                    value={docsLoading ? '—' : formatZAR(
-                      clientDocs.invoices.reduce((s, inv) => s + (Number(inv.total) || 0), 0)
-                    )}
-                    label="Total Invoiced"
-                    accent="#14b8a6"
-                  />
+                  {/* Stat boxes — side by side, full width, with divider */}
+                  <div style={{ display: 'flex', borderTop: '1px solid #f1f5f9' }}>
+                    <div style={{ flex: 1, padding: 14, textAlign: 'center', borderRight: '1px solid #f1f5f9' }}>
+                      <div style={{ fontSize: 20, fontWeight: 700, color: '#0f172a', letterSpacing: '-0.5px' }}>
+                        {docsLoading ? '—' : clientDocs.invoices.length}
+                      </div>
+                      <div style={{ fontSize: 10, color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: 3 }}>
+                        Invoices
+                      </div>
+                    </div>
+                    <div style={{ flex: 1, padding: 14, textAlign: 'center' }}>
+                      <div style={{ fontSize: 16, fontWeight: 700, color: '#14b8a6', letterSpacing: '-0.3px' }}>
+                        {docsLoading ? '—' : formatZAR(clientDocs.invoices.reduce((s, inv) => s + (Number(inv.total) || 0), 0))}
+                      </div>
+                      <div style={{ fontSize: 10, color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: 3 }}>
+                        Total Invoiced
+                      </div>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                /* ── Desktop: horizontal layout (unchanged) ── */
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 20 }}>
+                  <Avatar name={selected.company_name || selected.name} size={60} />
+
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <h2 style={{ fontSize: 22, fontWeight: 700, color: '#0f172a', marginBottom: 2 }}>
+                      {selected.company_name || selected.name}
+                    </h2>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 12 }}>
+                      <InfoRow
+                        icon="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2zm0 0l8 8 8-8"
+                        text={selected.email}
+                      />
+                      <InfoRow
+                        icon="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.61 3.44 2 2 0 0 1 3.58 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"
+                        text={selected.phone}
+                      />
+                      <InfoRow
+                        icon="M21 10c0 7-9 13-9 13S3 17 3 10a9 9 0 1 1 18 0z M12 10m-3 0a3 3 0 1 0 6 0a3 3 0 1 0-6 0"
+                        text={selected.address}
+                      />
+                      {selected.website && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                            stroke="#94a3b8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                            style={{ flexShrink: 0 }}>
+                            <circle cx="12" cy="12" r="10" />
+                            <line x1="2" y1="12" x2="22" y2="12" />
+                            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+                          </svg>
+                          <a
+                            href={selected.website}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={e => e.stopPropagation()}
+                            style={{ color: '#14b8a6', textDecoration: 'none' }}
+                          >
+                            {selected.website}
+                          </a>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Quick stats */}
+                  <div style={{ display: 'flex', gap: 12, flexShrink: 0 }}>
+                    <StatCard
+                      value={docsLoading ? '—' : clientDocs.invoices.length}
+                      label="Invoices"
+                    />
+                    <StatCard
+                      value={docsLoading ? '—' : formatZAR(
+                        clientDocs.invoices.reduce((s, inv) => s + (Number(inv.total) || 0), 0)
+                      )}
+                      label="Total Invoiced"
+                      accent="#14b8a6"
+                    />
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
 
             {/* Documents tabs card */}
             <div style={{
-              background:   '#fff',
-              border:       '1px solid #e2e8f0',
-              borderRadius: 12,
-              overflow:     'hidden',
-              boxShadow:    '0 1px 3px rgba(0,0,0,0.04)',
+              background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12,
+              overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
             }}>
-              {/* Tab strip */}
-              <div style={{
-                display:      'flex',
-                borderBottom: '1px solid #f1f5f9',
-                background:   '#f8fafc',
-              }}>
+              {/* Tab strip — full width equal space on mobile */}
+              <div style={{ display: 'flex', borderBottom: '1px solid #f1f5f9', background: '#f8fafc' }}>
                 {[
                   { key: 'invoices',  label: 'Invoices',  count: clientDocs.invoices.length  },
                   { key: 'estimates', label: 'Estimates', count: clientDocs.estimates.length },
@@ -977,31 +1164,21 @@ export default function Clients() {
                     key={tab.key}
                     onClick={() => setActiveTab(tab.key)}
                     style={{
-                      background:   'none',
-                      border:       'none',
-                      cursor:       'pointer',
-                      padding:      '13px 20px',
-                      fontSize:     13,
-                      fontWeight:   600,
+                      flex:         isMobile ? 1 : undefined,
+                      justifyContent: isMobile ? 'center' : undefined,
+                      background:   'none', border: 'none', cursor: 'pointer',
+                      padding:      '13px 20px', fontSize: isMobile ? 13 : 13, fontWeight: 600,
                       color:        activeTab === tab.key ? '#14b8a6' : '#64748b',
-                      borderBottom: activeTab === tab.key
-                        ? '2px solid #14b8a6'
-                        : '2px solid transparent',
+                      borderBottom: activeTab === tab.key ? '2px solid #14b8a6' : '2px solid transparent',
                       marginBottom: -1,
-                      display:      'flex',
-                      alignItems:   'center',
-                      gap:          8,
-                      transition:   'color 0.15s',
+                      display:      'flex', alignItems: 'center', gap: 8, transition: 'color 0.15s',
                     }}
                   >
                     {tab.label}
                     <span style={{
-                      background:   activeTab === tab.key ? '#f0fdfa' : '#f1f5f9',
-                      color:        activeTab === tab.key ? '#14b8a6' : '#94a3b8',
-                      fontSize:     11,
-                      fontWeight:   700,
-                      padding:      '1px 7px',
-                      borderRadius: 999,
+                      background: activeTab === tab.key ? '#f0fdfa' : '#f1f5f9',
+                      color:      activeTab === tab.key ? '#14b8a6' : '#94a3b8',
+                      fontSize: 11, fontWeight: 700, padding: '1px 7px', borderRadius: 999,
                     }}>
                       {docsLoading ? '…' : tab.count}
                     </span>
@@ -1028,26 +1205,56 @@ export default function Clients() {
                   )
                 }
 
+                // ── Mobile: card list ──
+                if (isMobile) {
+                  return (
+                    <div style={{ padding: '10px 12px' }}>
+                      {docs.map(doc => {
+                        const docNumber = isInv ? doc.invoice_number : doc.estimate_number
+                        const dateLabel = isInv ? 'Due' : 'Exp'
+                        const dateVal   = isInv ? doc.due_date : doc.expiry_date
+                        return (
+                          <div key={doc.id} style={{
+                            background:   '#fff',
+                            border:       '1px solid #f1f5f9',
+                            borderRadius: 8,
+                            padding:      14,
+                            marginBottom: 8,
+                            boxShadow:    '0 1px 3px rgba(0,0,0,0.05)',
+                          }}>
+                            {/* Top row: number + status badge */}
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                              <span style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', fontFamily: 'ui-monospace, Consolas, monospace' }}>
+                                {docNumber}
+                              </span>
+                              <StatusBadge status={doc.status} />
+                            </div>
+                            {/* Dates row */}
+                            <div style={{ display: 'flex', gap: 16, fontSize: 12, color: '#94a3b8', marginBottom: 6 }}>
+                              <span>Issued: {fmtDate(doc.issue_date)}</span>
+                              {dateVal && <span>{dateLabel}: {fmtDate(dateVal)}</span>}
+                            </div>
+                            {/* Amount */}
+                            <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--primary, #14b8a6)' }}>
+                              {formatZAR(doc.total)}
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )
+                }
+
+                // ── Desktop: table (unchanged) ──
                 return (
                   <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                       <tr style={{ borderBottom: '1px solid #f1f5f9', background: '#fafafa' }}>
-                        {[
-                          'Number',
-                          'Issue Date',
-                          isInv ? 'Due Date' : 'Expiry',
-                          'Status',
-                          'Total',
-                          '',
-                        ].map(h => (
+                        {['Number', 'Issue Date', isInv ? 'Due Date' : 'Expiry', 'Status', 'Total', ''].map(h => (
                           <th key={h} style={{
-                            padding:       '10px 16px',
-                            textAlign:     'left',
-                            fontSize:      11,
-                            fontWeight:    700,
-                            color:         '#94a3b8',
-                            textTransform: 'uppercase',
-                            letterSpacing: '0.06em',
+                            padding: '10px 16px', textAlign: 'left',
+                            fontSize: 11, fontWeight: 700, color: '#94a3b8',
+                            textTransform: 'uppercase', letterSpacing: '0.06em',
                           }}>
                             {h}
                           </th>
@@ -1056,17 +1263,8 @@ export default function Clients() {
                     </thead>
                     <tbody>
                       {docs.map((doc, i) => (
-                        <tr
-                          key={doc.id}
-                          style={{ borderTop: i === 0 ? 'none' : '1px solid #f1f5f9' }}
-                        >
-                          <td style={{
-                            padding:    '13px 16px',
-                            fontSize:   13,
-                            fontWeight: 600,
-                            color:      '#0f172a',
-                            fontFamily: 'ui-monospace, Consolas, monospace',
-                          }}>
+                        <tr key={doc.id} style={{ borderTop: i === 0 ? 'none' : '1px solid #f1f5f9' }}>
+                          <td style={{ padding: '13px 16px', fontSize: 13, fontWeight: 600, color: '#0f172a', fontFamily: 'ui-monospace, Consolas, monospace' }}>
                             {isInv ? doc.invoice_number : doc.estimate_number}
                           </td>
                           <td style={{ padding: '13px 16px', fontSize: 13, color: '#64748b' }}>
@@ -1078,27 +1276,15 @@ export default function Clients() {
                           <td style={{ padding: '13px 16px' }}>
                             <StatusBadge status={doc.status} />
                           </td>
-                          <td style={{
-                            padding:    '13px 16px',
-                            fontSize:   13,
-                            fontWeight: 600,
-                            color:      '#0f172a',
-                            whiteSpace: 'nowrap',
-                          }}>
+                          <td style={{ padding: '13px 16px', fontSize: 13, fontWeight: 600, color: '#0f172a', whiteSpace: 'nowrap' }}>
                             {formatZAR(doc.total)}
                           </td>
                           <td style={{ padding: '13px 16px' }}>
                             <button
                               style={{
-                                background:   '#f8fafc',
-                                border:       '1px solid #e2e8f0',
-                                color:        '#64748b',
-                                borderRadius: 6,
-                                padding:      '4px 13px',
-                                fontSize:     12,
-                                fontWeight:   500,
-                                cursor:       'pointer',
-                                transition:   'background 0.1s',
+                                background: '#f8fafc', border: '1px solid #e2e8f0', color: '#64748b',
+                                borderRadius: 6, padding: '4px 13px', fontSize: 12, fontWeight: 500,
+                                cursor: 'pointer', transition: 'background 0.1s',
                               }}
                               onMouseEnter={e => { e.currentTarget.style.background = '#f1f5f9' }}
                               onMouseLeave={e => { e.currentTarget.style.background = '#f8fafc' }}
@@ -1119,23 +1305,36 @@ export default function Clients() {
       </div>
 
       {/* ════════════════════════ SLIDE-IN PANEL ═══════════════════════════ */}
+      {/* Desktop: slides in from the right. Mobile: slides up from the bottom. */}
       <div style={{
-        position:   'fixed',
-        top:        0,
-        right:      0,
-        width:      440,
-        height:     '100%',
-        background: '#fff',
-        boxShadow:  '-4px 0 32px rgba(0,0,0,0.1)',
-        transform:  panelOpen ? 'translateX(0)' : 'translateX(100%)',
-        transition: 'transform 0.26s cubic-bezier(0.4,0,0.2,1)',
-        zIndex:     50,
-        display:    'flex',
+        position:      'fixed',
+        top:           isMobile ? 'auto' : 0,
+        bottom:        isMobile ? 0 : 'auto',
+        right:         0,
+        left:          isMobile ? 0 : 'auto',
+        width:         isMobile ? '100%' : 440,
+        // Mobile: fixed 90vh so the flex body (flex:1 overflowY:auto) + footer (flexShrink:0)
+        // layout works correctly and the Save button is always visible.
+        height:        isMobile ? '90vh' : '100%',
+        borderRadius:  isMobile ? '20px 20px 0 0' : 0,
+        background:    '#fff',
+        boxShadow:     isMobile ? '0 -4px 32px rgba(0,0,0,0.12)' : '-4px 0 32px rgba(0,0,0,0.1)',
+        transform:     panelOpen
+          ? 'translate(0,0)'
+          : isMobile ? 'translateY(100%)' : 'translateX(100%)',
+        transition:    'transform 0.26s cubic-bezier(0.4,0,0.2,1)',
+        zIndex:        50,
+        display:       'flex',
         flexDirection: 'column',
       }}>
+        {/* Drag handle — mobile only */}
+        {isMobile && (
+          <div style={{ width: 40, height: 4, background: '#e2e8f0', borderRadius: 2, margin: '12px auto 0' }} />
+        )}
+
         {/* Panel header */}
         <div style={{
-          padding:        '20px 24px',
+          padding:        isMobile ? '16px 20px 14px' : '20px 24px',
           borderBottom:   '1px solid #f1f5f9',
           display:        'flex',
           alignItems:     'center',
@@ -1153,19 +1352,10 @@ export default function Clients() {
           <button
             onClick={closePanel}
             style={{
-              background:     '#f1f5f9',
-              border:         'none',
-              borderRadius:   '50%',
-              width:          32,
-              height:         32,
-              cursor:         'pointer',
-              display:        'flex',
-              alignItems:     'center',
-              justifyContent: 'center',
-              color:          '#64748b',
-              fontSize:       18,
-              lineHeight:     1,
-              flexShrink:     0,
+              background:     '#f1f5f9', border: 'none', borderRadius: '50%',
+              width:          32, height: 32, cursor: 'pointer',
+              display:        'flex', alignItems: 'center', justifyContent: 'center',
+              color:          '#64748b', fontSize: 18, lineHeight: 1, flexShrink: 0,
             }}
           >
             ×
@@ -1174,19 +1364,11 @@ export default function Clients() {
 
         {/* Panel body */}
         <div style={{ flex: 1, overflowY: 'auto', padding: '24px' }}>
-          {/* Global error */}
           {errors._global && (
             <div style={{
-              background:   '#fee2e2',
-              border:       '1px solid #fca5a5',
-              borderRadius: 8,
-              padding:      '10px 14px',
-              marginBottom: 20,
-              fontSize:     13,
-              color:        '#dc2626',
-              display:      'flex',
-              alignItems:   'center',
-              gap:          6,
+              background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: 8,
+              padding: '10px 14px', marginBottom: 20, fontSize: 13, color: '#dc2626',
+              display: 'flex', alignItems: 'center', gap: 6,
             }}>
               <span>⚠</span> {errors._global}
             </div>
@@ -1250,27 +1432,22 @@ export default function Clients() {
           </PanelField>
         </div>
 
-        {/* Panel footer */}
+        {/* Panel footer — fixed save button */}
         <div style={{
-          padding:      '16px 24px',
-          borderTop:    '1px solid #f1f5f9',
-          display:      'flex',
-          gap:          10,
-          flexShrink:   0,
-          background:   '#fff',
+          padding:    isMobile ? '14px 20px calc(14px + env(safe-area-inset-bottom))' : '16px 24px',
+          borderTop:  '1px solid #f1f5f9',
+          display:    'flex',
+          gap:        10,
+          flexShrink: 0,
+          background: '#fff',
         }}>
           <button
             onClick={closePanel}
             style={{
-              flex:         1,
-              background:   '#f8fafc',
-              border:       '1.5px solid #e2e8f0',
-              color:        '#374151',
-              borderRadius: 8,
-              padding:      '10px 0',
-              fontSize:     14,
-              fontWeight:   600,
-              cursor:       'pointer',
+              flex: 1, background: '#f8fafc', border: '1.5px solid #e2e8f0',
+              color: '#374151', borderRadius: 8, padding: '10px 0',
+              fontSize: 14, fontWeight: 600, cursor: 'pointer',
+              minHeight: 44,
             }}
           >
             Cancel
@@ -1279,17 +1456,18 @@ export default function Clients() {
             onClick={handleSave}
             disabled={saving}
             style={{
-              flex:         2,
-              background:   saving ? '#5eead4' : '#14b8a6',
-              border:       'none',
-              color:        '#fff',
+              flex:       2,
+              background: saving ? '#5eead4' : '#14b8a6',
+              border:     'none',
+              color:      '#fff',
               borderRadius: 8,
-              padding:      '10px 0',
-              fontSize:     14,
-              fontWeight:   600,
-              cursor:       saving ? 'wait' : 'pointer',
-              transition:   'background 0.15s',
-              boxShadow:    saving ? 'none' : '0 2px 6px rgba(20,184,166,0.3)',
+              padding:    '10px 0',
+              fontSize:   14,
+              fontWeight: 600,
+              cursor:     saving ? 'wait' : 'pointer',
+              transition: 'background 0.15s',
+              boxShadow:  saving ? 'none' : '0 2px 6px rgba(20,184,166,0.3)',
+              minHeight:  44,
             }}
           >
             {saving ? 'Saving…' : editingClient ? 'Save Changes' : 'Add Client'}
@@ -1300,7 +1478,7 @@ export default function Clients() {
       {/* ════════════════════════ DELETE MODAL ═════════════════════════════ */}
       {confirmDelete && selected && (
         <DeleteModal
-          clientName={selected.company_name}
+          clientName={selected.company_name || selected.name}
           onConfirm={handleDeleteConfirm}
           onCancel={() => setConfirmDelete(false)}
         />

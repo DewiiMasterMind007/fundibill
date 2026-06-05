@@ -7,10 +7,11 @@
   "scripts": {
     "dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
     "build": "vite build",
-    "dist": "npm run build && electron-builder --win",
-    "dist:mac": "npm run build && electron-builder --mac",
-    "dist:all": "npm run build && electron-builder --win --mac",
-    "build:win": "node scripts/create-icon.js && vite build && electron-builder --win --x64",
+    "build:electron": "cross-env ELECTRON=true vite build",
+    "dist": "npm run build:electron && electron-builder --win",
+    "dist:mac": "npm run build:electron && electron-builder --mac",
+    "dist:all": "npm run build:electron && electron-builder --win --mac",
+    "build:win": "node scripts/create-icon.js && cross-env ELECTRON=true vite build && electron-builder --win --x64",
     "rebuild-native": "electron-builder install-app-deps"
   },
   "dependencies": {
@@ -28,9 +29,11 @@
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.0",
     "concurrently": "^8.2.2",
+    "cross-env": "^10.1.0",
     "electron": "^31.7.7",
     "electron-builder": "^24.13.3",
     "vite": "^5.3.0",
+    "vite-plugin-pwa": "^1.3.0",
     "wait-on": "^7.2.0"
   }
 }

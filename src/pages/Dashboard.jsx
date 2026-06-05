@@ -8,6 +8,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { useAppData } from '../context/AppDataContext'
 import HelpButton from '../components/HelpButton'
+import useIsMobile from '../hooks/useIsMobile'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -68,22 +69,30 @@ function chartStartDate(periodKey) {
 
 // ── Stat card ─────────────────────────────────────────────────────────────────
 
-function StatCard({ label, value, sub, accent, icon, loading }) {
+function StatCard({ label, value, sub, accent, icon, loading, isMobile }) {
   return (
     <div style={{
-      background: '#ffffff', borderRadius: 14, padding: '22px 24px',
+      background: '#ffffff', borderRadius: 14,
+      padding: isMobile ? 12 : '22px 24px',
       border: '1px solid #e2e8f0', boxShadow: '0 1px 4px rgba(0,0,0,0.05)',
       display: 'flex', flexDirection: 'column', gap: 4,
     }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-        <span style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.07em' }}>{label}</span>
-        <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 34, height: 34, borderRadius: 9, background: accent + '18', color: accent }}>{icon}</span>
+        <span style={{
+          fontSize: isMobile ? 10 : 11,
+          fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.07em',
+        }}>{label}</span>
+        <span style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          width: isMobile ? 28 : 34, height: isMobile ? 28 : 34,
+          borderRadius: 9, background: accent + '18', color: accent,
+        }}>{icon}</span>
       </div>
       {loading
         ? <div style={{ height: 26, width: 90, borderRadius: 6, background: '#f1f5f9', animation: 'pulse 1.5s ease-in-out infinite' }} />
-        : <div style={{ fontSize: 26, fontWeight: 800, color: '#0f172a', lineHeight: 1 }}>{value}</div>
+        : <div style={{ fontSize: isMobile ? 24 : 26, fontWeight: 800, color: '#0f172a', lineHeight: 1 }}>{value}</div>
       }
-      {sub && <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 4 }}>{sub}</div>}
+      {sub && <div style={{ fontSize: isMobile ? 11 : 12, color: '#94a3b8', marginTop: 4 }}>{sub}</div>}
     </div>
   )
 }
@@ -132,6 +141,7 @@ export default function Dashboard() {
   const navigate  = useNavigate()
   const { user }  = useAuth()
   const { clients: cachedClients } = useAppData()
+  const isMobile  = useIsMobile()
 
   const [filterKey,    setFilterKey]    = useState('30d')
   const [chartPeriod,  setChartPeriod]  = useState('6m')
@@ -279,35 +289,108 @@ export default function Dashboard() {
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div style={{ padding: 32, height: '100%', boxSizing: 'border-box', overflowY: 'auto', background: '#f8fafc' }}>
-      <style>{`@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }`}</style>
+    <div style={{
+      padding:    isMobile ? 16 : 32,
+      paddingTop: isMobile ? 16 : 32,
+      height:     '100%',
+      boxSizing:  'border-box',
+      overflowY:  'auto',
+      background: '#f8fafc',
+    }}>
+      {/* pulse animation + hide scrollbar on filter strip */}
+      <style>{`
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+        .fb-filter-scroll::-webkit-scrollbar { display: none }
+      `}</style>
 
       {/* ── Page header + filter ─────────────────────────────────────────── */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: showCustom ? 12 : 28, flexWrap: 'wrap', gap: 16 }}>
-        <div>
-          <h1 style={{ fontSize: 24, fontWeight: 800, color: '#0f172a', margin: 0, marginBottom: 4 }}>Dashboard</h1>
-          <p style={{ color: '#64748b', fontSize: 14, margin: 0 }}>Welcome back! Here&apos;s what&apos;s happening.</p>
-        </div>
+      <div style={{
+        display:        'flex',
+        alignItems:     isMobile ? 'center' : 'flex-start',
+        justifyContent: 'space-between',
+        marginBottom:   showCustom ? 12 : isMobile ? 14 : 28,
+        flexWrap:       'wrap',
+        gap:            isMobile ? 8 : 16,
+      }}>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <div style={{ display: 'flex', background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: 10, padding: 3, gap: 2, boxShadow: '0 1px 3px rgba(0,0,0,0.04)', opacity: isCustom ? 0.45 : 1, transition: 'opacity 0.2s' }}>
+        {/* Title — hidden on mobile (MobileHeader already shows the app name) */}
+        {!isMobile && (
+          <div>
+            <h1 style={{ fontSize: 24, fontWeight: 800, color: '#0f172a', margin: 0, marginBottom: 4 }}>Dashboard</h1>
+            <p style={{ color: '#64748b', fontSize: 14, margin: 0 }}>Welcome back! Here&apos;s what&apos;s happening.</p>
+          </div>
+        )}
+
+        {/* Controls row */}
+        <div style={{
+          display:    'flex',
+          alignItems: 'center',
+          gap:        8,
+          width:      isMobile ? '100%' : 'auto',
+        }}>
+          {/* Period filter pill group — scrollable on mobile */}
+          <div
+            className={isMobile ? 'fb-filter-scroll' : undefined}
+            style={{
+              display:    'flex',
+              background: '#ffffff',
+              border:     '1px solid #e2e8f0',
+              borderRadius: 10,
+              padding:    3,
+              gap:        2,
+              boxShadow:  '0 1px 3px rgba(0,0,0,0.04)',
+              opacity:    isCustom ? 0.45 : 1,
+              transition: 'opacity 0.2s',
+              flex:       isMobile ? 1 : undefined,
+              // Mobile: horizontal scroll, no wrapping, hidden scrollbar
+              overflowX:              isMobile ? 'auto'  : 'visible',
+              WebkitOverflowScrolling: isMobile ? 'touch' : undefined,
+              msOverflowStyle:         isMobile ? 'none'  : undefined,
+              scrollbarWidth:          isMobile ? 'none'  : undefined,
+            }}
+          >
             {PERIOD_FILTERS.map(f => (
               <button key={f.key}
                 onClick={() => { setFilterKey(f.key); if (isCustom) { setCustomFrom(''); setCustomTo(''); setShowCustom(false) } }}
-                style={{ padding: '6px 14px', borderRadius: 7, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, background: filterKey === f.key && !isCustom ? '#14b8a6' : 'transparent', color: filterKey === f.key && !isCustom ? '#fff' : '#64748b', transition: 'all 0.15s' }}>
+                style={{
+                  padding:    isMobile ? '8px 12px' : '6px 14px',
+                  borderRadius: 7,
+                  border:     'none',
+                  cursor:     'pointer',
+                  fontSize:   isMobile ? 12 : 13,
+                  fontWeight: 600,
+                  whiteSpace: 'nowrap',
+                  background: filterKey === f.key && !isCustom ? '#14b8a6' : 'transparent',
+                  color:      filterKey === f.key && !isCustom ? '#fff'    : '#64748b',
+                  transition: 'all 0.15s',
+                  flexShrink: 0,
+                }}>
                 {f.label}
               </button>
             ))}
           </div>
+
+          {/* Custom date range toggle */}
           <button
             title="Custom date range"
             onClick={() => setShowCustom(v => !v)}
-            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 36, height: 36, borderRadius: 8, border: `1.5px solid ${showCustom ? '#14b8a6' : '#e2e8f0'}`, background: showCustom ? '#f0fdfa' : '#fff', color: showCustom ? '#14b8a6' : '#64748b', cursor: 'pointer', boxShadow: '0 1px 3px rgba(0,0,0,0.04)', transition: 'all 0.15s', flexShrink: 0 }}>
+            style={{
+              display:    'flex', alignItems: 'center', justifyContent: 'center',
+              width:      36, height: 36, borderRadius: 8,
+              border:     `1.5px solid ${showCustom ? '#14b8a6' : '#e2e8f0'}`,
+              background: showCustom ? '#f0fdfa' : '#fff',
+              color:      showCustom ? '#14b8a6' : '#64748b',
+              cursor:     'pointer',
+              boxShadow:  '0 1px 3px rgba(0,0,0,0.04)',
+              transition: 'all 0.15s',
+              flexShrink: 0,
+            }}>
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
               <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
             </svg>
           </button>
+
           <HelpButton page="dashboard" />
         </div>
       </div>
@@ -343,33 +426,54 @@ export default function Dashboard() {
       )}
 
       {/* ── Stat cards ───────────────────────────────────────────────────── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, marginBottom: 24 }}>
-        <StatCard loading={loading} label="Total Invoiced"    value={fmtZAR(totalInvoiced)}  sub={periodLabel}          accent="#14b8a6"
+      {/* Mobile: 2-column grid. Desktop: 3-column grid (unchanged). */}
+      <div style={{
+        display:             'grid',
+        gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(3, 1fr)',
+        gap:                 isMobile ? 12 : 16,
+        marginBottom:        isMobile ? 14 : 24,
+      }}>
+        <StatCard isMobile={isMobile} loading={loading} label="Total Invoiced"    value={fmtZAR(totalInvoiced)}  sub={periodLabel}          accent="#14b8a6"
           icon={<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>} />
-        <StatCard loading={loading} label="Invoices Issued"   value={invoicesIssued}          sub={periodLabel}          accent="#6366f1"
+        <StatCard isMobile={isMobile} loading={loading} label="Invoices Issued"   value={invoicesIssued}          sub={periodLabel}          accent="#6366f1"
           icon={<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>} />
-        <StatCard loading={loading} label="Total Collected"   value={fmtZAR(totalCollected)}  sub={periodLabel}          accent="#10b981"
+        <StatCard isMobile={isMobile} loading={loading} label="Total Collected"   value={fmtZAR(totalCollected)}  sub={periodLabel}          accent="#10b981"
           icon={<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="20 6 9 17 4 12"/></svg>} />
-        <StatCard loading={loading} label="Overdue Invoices"  value={overdueCount}             sub="all time"             accent="#ef4444"
+        <StatCard isMobile={isMobile} loading={loading} label="Overdue Invoices"  value={overdueCount}             sub="all time"             accent="#ef4444"
           icon={<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>} />
-        <StatCard loading={loading} label="Outstanding Amount" value={fmtZAR(outstanding)}     sub="all time"             accent="#f59e0b"
+        <StatCard isMobile={isMobile} loading={loading} label="Outstanding Amount" value={fmtZAR(outstanding)}     sub="all time"             accent="#f59e0b"
           icon={<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>} />
-        <StatCard loading={loading} label="Estimates Pending" value={estimatesPending}         sub="awaiting approval"    accent="#8b5cf6"
+        {/* 6th card — even count so no full-width span needed. */}
+        <StatCard isMobile={isMobile} loading={loading} label="Estimates Pending" value={estimatesPending}         sub="awaiting approval"    accent="#8b5cf6"
           icon={<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>} />
       </div>
 
       {/* ── Revenue chart + Recent invoices ──────────────────────────────── */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, alignItems: 'start', marginBottom: 20 }}>
+      {/* Mobile: stacked single column. Desktop: side-by-side (unchanged). */}
+      <div style={{
+        display:             'grid',
+        gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
+        gap:                 isMobile ? 14 : 20,
+        alignItems:          'start',
+        marginBottom:        isMobile ? 14 : 20,
+      }}>
 
         {/* Revenue + Expenses chart */}
-        <div style={{ background: '#ffffff', borderRadius: 14, padding: '24px 24px 16px', border: '1px solid #e2e8f0', boxShadow: '0 1px 4px rgba(0,0,0,0.05)' }}>
-          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 20 }}>
+        <div style={{
+          background: '#ffffff', borderRadius: 14,
+          padding:    isMobile ? 12 : '24px 24px 16px',
+          border: '1px solid #e2e8f0', boxShadow: '0 1px 4px rgba(0,0,0,0.05)',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: isMobile ? 12 : 20 }}>
             <div>
               <h2 style={{ fontSize: 15, fontWeight: 700, color: '#0f172a', margin: 0 }}>Monthly Revenue &amp; Expenses</h2>
               <p style={{ fontSize: 12, color: '#94a3b8', margin: '4px 0 0' }}>
                 <span style={{ color: '#14b8a6', fontWeight: 600 }}>■</span> Revenue &nbsp;
-                <span style={{ color: '#ef4444', fontWeight: 600 }}>■</span> Expenses &nbsp;
-                <span style={{ color: '#94a3b8', fontWeight: 600, fontSize: 11 }}>Hover for Net</span>
+                <span style={{ color: '#ef4444', fontWeight: 600 }}>■</span> Expenses
+                {/* Hide "Hover for Net" hint on mobile — too cramped */}
+                {!isMobile && (
+                  <>&nbsp;<span style={{ color: '#94a3b8', fontWeight: 600, fontSize: 11 }}>Hover for Net</span></>
+                )}
               </p>
             </div>
             <select value={chartPeriod} onChange={e => setChartPeriod(e.target.value)}
@@ -383,10 +487,28 @@ export default function Dashboard() {
             </div>
           ) : (
             <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={chartData} barSize={chartMonthCount > 6 ? 14 : 22} margin={{ top: 4, right: 4, bottom: 0, left: 0 }} barGap={2}>
+              <BarChart
+                data={chartData}
+                barSize={chartMonthCount > 6 ? 14 : 22}
+                margin={{ top: 4, right: 4, bottom: 0, left: 0 }}
+                barGap={2}
+              >
                 <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-                <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#94a3b8', fontWeight: 500 }} axisLine={false} tickLine={false} />
-                <YAxis tickFormatter={fmtZARShort} tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} width={58} />
+                <XAxis
+                  dataKey="name"
+                  tick={{ fontSize: isMobile ? 10 : 11, fill: '#94a3b8', fontWeight: 500 }}
+                  axisLine={false}
+                  tickLine={false}
+                  // On mobile with many months, show every other label to avoid overlap
+                  interval={isMobile && chartMonthCount > 6 ? 1 : 0}
+                />
+                <YAxis
+                  tickFormatter={fmtZARShort}
+                  tick={{ fontSize: isMobile ? 10 : 11, fill: '#94a3b8' }}
+                  axisLine={false}
+                  tickLine={false}
+                  width={isMobile ? 46 : 58}
+                />
                 <Tooltip content={<BarTooltip />} cursor={{ fill: '#f1f5f9' }} />
                 <Bar dataKey="revenue" name="Revenue"  fill="#14b8a6" radius={[4, 4, 0, 0]} />
                 <Bar dataKey="expense" name="Expenses" fill="#ef4444" radius={[4, 4, 0, 0]} maxBarSize={10} />
@@ -396,8 +518,12 @@ export default function Dashboard() {
         </div>
 
         {/* Recent invoices */}
-        <div style={{ background: '#ffffff', borderRadius: 14, padding: '24px', border: '1px solid #e2e8f0', boxShadow: '0 1px 4px rgba(0,0,0,0.05)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
+        <div style={{
+          background: '#ffffff', borderRadius: 14,
+          padding:    isMobile ? 12 : '24px',
+          border: '1px solid #e2e8f0', boxShadow: '0 1px 4px rgba(0,0,0,0.05)',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: isMobile ? 12 : 18 }}>
             <div>
               <h2 style={{ fontSize: 15, fontWeight: 700, color: '#0f172a', margin: 0 }}>Recent Invoices</h2>
               <p style={{ fontSize: 12, color: '#94a3b8', margin: '4px 0 0' }}>Latest 5 invoices</p>
@@ -416,37 +542,45 @@ export default function Dashboard() {
               <p style={{ fontSize: 13, margin: 0 }}>No invoices yet</p>
             </div>
           ) : (
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead>
-                <tr>
-                  {['Invoice #', 'Client', 'Date', 'Amount', 'Status'].map(h => (
-                    <th key={h} style={{ textAlign: 'left', fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em', paddingBottom: 10, borderBottom: '1px solid #f1f5f9' }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {recentInvoices.map((inv, idx) => (
-                  <tr key={inv.id} onClick={() => navigate('/invoices', { state: { openId: inv.id } })}
-                    style={{ cursor: 'pointer', borderBottom: idx < recentInvoices.length - 1 ? '1px solid #f8fafc' : 'none' }}
-                    onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
-                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                    <td style={{ padding: '10px 0', fontSize: 13, fontWeight: 600, color: '#0f172a' }}>{inv.invoice_number}</td>
-                    <td style={{ padding: '10px 8px', fontSize: 13, color: '#475569', maxWidth: 110, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{inv.client_name || '—'}</td>
-                    <td style={{ padding: '10px 8px', fontSize: 12, color: '#94a3b8', whiteSpace: 'nowrap' }}>{inv.issue_date || '—'}</td>
-                    <td style={{ padding: '10px 8px', fontSize: 13, fontWeight: 600, color: '#0f172a', whiteSpace: 'nowrap' }}>{fmtZAR(inv.total)}</td>
-                    <td style={{ padding: '10px 0' }}><StatusBadge status={inv.status} /></td>
+            /* Scrollable wrapper on mobile so the table never clips */
+            <div style={{ overflowX: isMobile ? 'auto' : 'visible', WebkitOverflowScrolling: 'touch' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: isMobile ? 420 : undefined }}>
+                <thead>
+                  <tr>
+                    {['Invoice #', 'Client', 'Date', 'Amount', 'Status'].map(h => (
+                      <th key={h} style={{ textAlign: 'left', fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em', paddingBottom: 10, borderBottom: '1px solid #f1f5f9' }}>{h}</th>
+                    ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {recentInvoices.map((inv, idx) => (
+                    <tr key={inv.id} onClick={() => navigate('/invoices', { state: { openId: inv.id } })}
+                      style={{ cursor: 'pointer', borderBottom: idx < recentInvoices.length - 1 ? '1px solid #f8fafc' : 'none' }}
+                      onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
+                      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                      <td style={{ padding: '10px 0', fontSize: 13, fontWeight: 600, color: '#0f172a' }}>{inv.invoice_number}</td>
+                      <td style={{ padding: '10px 8px', fontSize: 13, color: '#475569', maxWidth: 110, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{inv.client_name || '—'}</td>
+                      <td style={{ padding: '10px 8px', fontSize: 12, color: '#94a3b8', whiteSpace: 'nowrap' }}>{inv.issue_date || '—'}</td>
+                      <td style={{ padding: '10px 8px', fontSize: 13, fontWeight: 600, color: '#0f172a', whiteSpace: 'nowrap' }}>{fmtZAR(inv.total)}</td>
+                      <td style={{ padding: '10px 0' }}><StatusBadge status={inv.status} /></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
       </div>
 
       {/* ── Payments by Method ────────────────────────────────────────────── */}
       {showPaymentMethods && (
-        <div style={{ background: '#ffffff', borderRadius: 14, padding: '24px', border: '1px solid #e2e8f0', boxShadow: '0 1px 4px rgba(0,0,0,0.05)', marginBottom: 20 }}>
-          <div style={{ marginBottom: 18 }}>
+        <div style={{
+          background: '#ffffff', borderRadius: 14,
+          padding:    isMobile ? 12 : '24px',
+          border: '1px solid #e2e8f0', boxShadow: '0 1px 4px rgba(0,0,0,0.05)',
+          marginBottom: isMobile ? 14 : 20,
+        }}>
+          <div style={{ marginBottom: isMobile ? 12 : 18 }}>
             <h2 style={{ fontSize: 15, fontWeight: 700, color: '#0f172a', margin: 0 }}>Payments Received by Method</h2>
             <p style={{ fontSize: 12, color: '#94a3b8', margin: '4px 0 0' }}>Paid invoices within the selected period · {periodLabel}</p>
           </div>
@@ -471,8 +605,12 @@ export default function Dashboard() {
           return Math.floor((todayMs - issued) / 86_400_000) > 7 ? '#dc2626' : '#d97706'
         }
         return (
-          <div style={{ background: '#ffffff', borderRadius: 14, padding: '24px', border: '1px solid #e2e8f0', boxShadow: '0 1px 4px rgba(0,0,0,0.05)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
+          <div style={{
+            background: '#ffffff', borderRadius: 14,
+            padding:    isMobile ? 12 : '24px',
+            border: '1px solid #e2e8f0', boxShadow: '0 1px 4px rgba(0,0,0,0.05)',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: isMobile ? 12 : 18 }}>
               <div>
                 <h2 style={{ fontSize: 15, fontWeight: 700, color: '#0f172a', margin: 0 }}>Outstanding Invoices</h2>
                 <p style={{ fontSize: 12, color: '#94a3b8', margin: '4px 0 0' }}>
@@ -493,31 +631,34 @@ export default function Dashboard() {
                 <span style={{ fontSize: 13 }}>No outstanding invoices — you&apos;re all caught up!</span>
               </div>
             ) : (
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead>
-                  <tr>
-                    {['Invoice #', 'Client', 'Date Issued', 'Amount'].map(h => (
-                      <th key={h} style={{ textAlign: 'left', fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em', paddingBottom: 10, borderBottom: '1px solid #f1f5f9' }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {outstandingList.map((inv, idx) => {
-                    const color = rowColor(inv)
-                    return (
-                      <tr key={inv.id} onClick={() => navigate('/invoices', { state: { openId: inv.id } })}
-                        style={{ cursor: 'pointer', borderBottom: idx < outstandingList.length - 1 ? '1px solid #f8fafc' : 'none' }}
-                        onMouseEnter={e => e.currentTarget.style.background = '#fafafa'}
-                        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                        <td style={{ padding: '10px 0',  fontSize: 13, fontWeight: 700, color }}>{inv.invoice_number}</td>
-                        <td style={{ padding: '10px 8px', fontSize: 13, fontWeight: 600, color }}>{inv.client_name || '—'}</td>
-                        <td style={{ padding: '10px 8px', fontSize: 13, color, whiteSpace: 'nowrap' }}>{inv.issue_date || '—'}</td>
-                        <td style={{ padding: '10px 0',  fontSize: 13, fontWeight: 700, color, whiteSpace: 'nowrap' }}>{fmtZAR(inv.total)}</td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
+              /* Scrollable wrapper on mobile */
+              <div style={{ overflowX: isMobile ? 'auto' : 'visible', WebkitOverflowScrolling: 'touch' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: isMobile ? 360 : undefined }}>
+                  <thead>
+                    <tr>
+                      {['Invoice #', 'Client', 'Date Issued', 'Amount'].map(h => (
+                        <th key={h} style={{ textAlign: 'left', fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em', paddingBottom: 10, borderBottom: '1px solid #f1f5f9' }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {outstandingList.map((inv, idx) => {
+                      const color = rowColor(inv)
+                      return (
+                        <tr key={inv.id} onClick={() => navigate('/invoices', { state: { openId: inv.id } })}
+                          style={{ cursor: 'pointer', borderBottom: idx < outstandingList.length - 1 ? '1px solid #f8fafc' : 'none' }}
+                          onMouseEnter={e => e.currentTarget.style.background = '#fafafa'}
+                          onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                          <td style={{ padding: '10px 0',  fontSize: 13, fontWeight: 700, color }}>{inv.invoice_number}</td>
+                          <td style={{ padding: '10px 8px', fontSize: 13, fontWeight: 600, color }}>{inv.client_name || '—'}</td>
+                          <td style={{ padding: '10px 8px', fontSize: 13, color, whiteSpace: 'nowrap' }}>{inv.issue_date || '—'}</td>
+                          <td style={{ padding: '10px 0',  fontSize: 13, fontWeight: 700, color, whiteSpace: 'nowrap' }}>{fmtZAR(inv.total)}</td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
             )}
           </div>
         )
