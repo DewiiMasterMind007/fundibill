@@ -228,7 +228,10 @@ function AuthenticatedApp() {
           {/* Scrollable page area — padded so content clears the fixed bottom nav */}
           <main style={{
             flex:          1,
-            overflow:      'auto',
+            overflowY:     'auto',
+            overflowX:     'hidden',   /* prevent any child from causing horizontal page scroll */
+            width:         '100%',
+            maxWidth:      '100%',
             background:    '#f8fafc',
             display:       'flex',
             flexDirection: 'column',

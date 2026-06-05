@@ -290,12 +290,15 @@ export default function Dashboard() {
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div style={{
-      padding:    isMobile ? 16 : 32,
-      paddingTop: isMobile ? 16 : 32,
-      height:     '100%',
-      boxSizing:  'border-box',
-      overflowY:  'auto',
-      background: '#f8fafc',
+      padding:     isMobile ? 16 : 32,
+      paddingTop:  isMobile ? 16 : 32,
+      height:      '100%',
+      width:       '100%',
+      maxWidth:    '100%',
+      boxSizing:   'border-box',
+      overflowY:   'auto',
+      overflowX:   'hidden',
+      background:  '#f8fafc',
     }}>
       {/* pulse animation + hide scrollbar on filter strip */}
       <style>{`
@@ -584,7 +587,7 @@ export default function Dashboard() {
             <h2 style={{ fontSize: 15, fontWeight: 700, color: '#0f172a', margin: 0 }}>Payments Received by Method</h2>
             <p style={{ fontSize: 12, color: '#94a3b8', margin: '4px 0 0' }}>Paid invoices within the selected period · {periodLabel}</p>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(auto-fill, minmax(200px, 1fr))', gap: 12 }}>
             {paymentMethods.map((pm, i) => (
               <div key={pm.method} style={{ background: '#f8fafc', border: `1.5px solid ${METHOD_COLORS[i % METHOD_COLORS.length]}30`, borderRadius: 10, padding: '14px 18px' }}>
                 <div style={{ fontSize: 12, fontWeight: 700, color: METHOD_COLORS[i % METHOD_COLORS.length], textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>{pm.method}</div>

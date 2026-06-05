@@ -4,7 +4,16 @@
   padding: 0;
 }
 
-html, body, #root {
+html, body {
+  height: 100%;
+  overflow: hidden;
+  /* Prevent any element from causing a horizontal scrollbar at the page level */
+  overflow-x: hidden;
+  max-width: 100vw;
+  position: relative;
+}
+
+#root {
   height: 100%;
   overflow: hidden;
 }
@@ -34,8 +43,20 @@ body {
   background: #94a3b8;
 }
 
-/* ── Responsive: hide desktop sidebar on mobile ───────────────────────────── */
+/* ── Responsive: mobile overflow-x lockdown + table hiding ───────────────── */
 @media (max-width: 768px) {
+  html, body {
+    overflow-x: hidden;
+    width: 100%;
+    max-width: 100%;
+  }
+
+  #root {
+    overflow-x: hidden;
+    width: 100%;
+    max-width: 100%;
+  }
+
   .sidebar {
     display: none;
   }
