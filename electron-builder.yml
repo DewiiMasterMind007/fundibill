@@ -1,0 +1,57 @@
+appId: co.fundiai.fundibill
+productName: FundiBill
+copyright: Copyright 2026 FundiAI
+
+# ── Auto-update publish config ─────────────────────────────────────────────────
+publish:
+  provider: github
+  owner: DewiiMasterMind007
+  repo: fundibill
+  private: true
+
+# ── Directories ────────────────────────────────────────────────────────────────
+directories:
+  buildResources: assets   # electron-builder looks here for icon.ico, etc.
+  output: dist             # installer lands in /dist
+
+# ── Files to pack ─────────────────────────────────────────────────────────────
+# Vite compiles all renderer dependencies into dist/renderer, so we only need
+# sql.js (used by the main process) from node_modules. Everything else is bundled.
+files:
+  - dist/renderer/**/*
+  - electron/**/*
+  - package.json
+  - node_modules/sql.js/**/*
+  - "!node_modules/sql.js/test/**"
+  - "!node_modules/sql.js/examples/**"
+
+# ── WASM must live outside the .asar archive ───────────────────────────────────
+# sql.js loads sql-wasm.wasm at runtime via the file system; asar-packed binary
+# files can't be read that way. electron/database.js uses process.resourcesPath
+# + app.asar.unpacked to locate them in production builds.
+asarUnpack:
+  - node_modules/sql.js/dist/**
+
+extraMetadata:
+  main: electron/main.js
+
+# ── Windows ───────────────────────────────────────────────────────────────────
+win:
+  icon: assets/icon.ico
+  artifactName: FundiBill-Setup-${version}.exe
+  target:
+    - target: nsis
+      arch:
+        - x64
+
+# ── NSIS installer ────────────────────────────────────────────────────────────
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  perMachine: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: FundiBill
+  installerIcon: assets/icon.ico
+  uninstallerIcon: assets/icon.ico
+  deleteAppDataOnUninstall: false  # keep user data (invoices, settings) on uninstall

@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FundiBill — License Key Generator</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0a0f1e;
+      color: #e2e8f0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 40px 20px 80px;
+    }
+
+    /* ── Header ── */
+    .header {
+      text-align: center;
+      margin-bottom: 40px;
+    }
+    .logo {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 26px;
+      font-weight: 700;
+      color: #fff;
+      letter-spacing: -0.5px;
+      margin-bottom: 8px;
+    }
+    .logo-dot {
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      background: #14b8a6;
+    }
+    .header p {
+      color: #64748b;
+      font-size: 14px;
+    }
+
+    /* ── Cards ── */
+    .card {
+      background: #111827;
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 14px;
+      padding: 32px 36px;
+      width: 100%;
+      max-width: 560px;
+      margin-bottom: 20px;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.4);
+    }
+    .card-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: #64748b;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 20px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .card-title::before {
+      content: '';
+      width: 3px; height: 14px;
+      border-radius: 2px;
+      background: #14b8a6;
+    }
+
+    /* ── Form elements ── */
+    label {
+      display: block;
+      font-size: 13px;
+      font-weight: 500;
+      color: #94a3b8;
+      margin-bottom: 6px;
+    }
+    input[type="text"] {
+      width: 100%;
+      background: #0f172a;
+      border: 1.5px solid rgba(255,255,255,0.1);
+      border-radius: 8px;
+      color: #e2e8f0;
+      font-size: 15px;
+      padding: 11px 14px;
+      outline: none;
+      transition: border-color 0.15s;
+      margin-bottom: 14px;
+    }
+    input[type="text"]:focus {
+      border-color: #14b8a6;
+    }
+    input.mono {
+      font-family: ui-monospace, 'Cascadia Code', Consolas, monospace;
+      font-size: 18px;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    button {
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.15s, background 0.15s;
+    }
+    button:active { opacity: 0.8; }
+
+    .btn-primary {
+      background: #14b8a6;
+      color: #fff;
+      padding: 11px 22px;
+      width: 100%;
+    }
+    .btn-primary:hover { background: #0d9488; }
+
+    .btn-ghost {
+      background: rgba(255,255,255,0.06);
+      color: #94a3b8;
+      border: 1px solid rgba(255,255,255,0.1);
+      padding: 9px 18px;
+    }
+    .btn-ghost:hover { background: rgba(255,255,255,0.1); color: #e2e8f0; }
+
+    /* ── Key display ── */
+    .key-display {
+      display: none;
+      background: #0f172a;
+      border: 1.5px solid #14b8a6;
+      border-radius: 10px;
+      padding: 18px 20px;
+      margin: 18px 0 14px;
+      text-align: center;
+    }
+    .key-display.visible { display: block; }
+    .key-text {
+      font-family: ui-monospace, 'Cascadia Code', Consolas, monospace;
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: 0.15em;
+      color: #14b8a6;
+      word-break: break-all;
+    }
+    .key-seed {
+      font-size: 11px;
+      color: #475569;
+      margin-top: 6px;
+    }
+
+    .copy-row {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 4px;
+    }
+    .copy-row button { flex: 1; }
+
+    /* ── Validation result ── */
+    .result {
+      display: none;
+      border-radius: 8px;
+      padding: 11px 14px;
+      font-size: 13px;
+      font-weight: 600;
+      margin-top: 12px;
+      align-items: center;
+      gap: 8px;
+    }
+    .result.visible { display: flex; }
+    .result.valid   { background: rgba(20,184,166,0.12); color: #2dd4bf; border: 1px solid rgba(20,184,166,0.25); }
+    .result.invalid { background: rgba(239,68,68,0.1);  color: #f87171; border: 1px solid rgba(239,68,68,0.2); }
+
+    /* ── Divider ── */
+    .divider {
+      width: 100%; height: 1px;
+      background: rgba(255,255,255,0.06);
+      margin: 4px 0 20px;
+    }
+
+    /* ── Footer ── */
+    footer {
+      margin-top: 20px;
+      color: #334155;
+      font-size: 12px;
+      text-align: center;
+    }
+    .algo-note {
+      background: #111827;
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 10px;
+      padding: 16px 20px;
+      max-width: 560px;
+      width: 100%;
+      margin-bottom: 20px;
+      font-size: 12px;
+      color: #475569;
+      line-height: 1.7;
+    }
+    .algo-note code {
+      background: rgba(255,255,255,0.06);
+      border-radius: 3px;
+      padding: 1px 5px;
+      font-family: ui-monospace, Consolas, monospace;
+      color: #94a3b8;
+      font-size: 11px;
+    }
+    .toast {
+      position: fixed;
+      bottom: 28px;
+      left: 50%;
+      transform: translateX(-50%) translateY(20px);
+      background: #1e293b;
+      color: #e2e8f0;
+      border: 1px solid rgba(20,184,166,0.4);
+      border-radius: 8px;
+      padding: 10px 20px;
+      font-size: 13px;
+      font-weight: 500;
+      opacity: 0;
+      transition: opacity 0.2s, transform 0.2s;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+    .toast.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Header -->
+  <div class="header">
+    <div class="logo"><span class="logo-dot"></span>FundiBill</div>
+    <p>Internal License Key Generator &amp; Validator</p>
+  </div>
+
+  <!-- Generate card -->
+  <div class="card">
+    <div class="card-title">Generate Key</div>
+
+    <label for="seed">Customer seed (name, order ID, email, etc.)</label>
+    <input type="text" id="seed" placeholder="e.g.  john.smith@example.com  or  ORD-10042"
+           autocomplete="off" spellcheck="false" />
+
+    <button class="btn-primary" onclick="handleGenerate()">Generate License Key</button>
+
+    <div class="key-display" id="keyDisplay">
+      <div class="key-text" id="keyText"></div>
+      <div class="key-seed" id="keySeed"></div>
+    </div>
+
+    <div class="copy-row" id="copyRow" style="display:none">
+      <button class="btn-ghost" onclick="copyKey()">Copy Key</button>
+      <button class="btn-ghost" onclick="handleGenerate()">Regenerate</button>
+    </div>
+  </div>
+
+  <!-- Validate card -->
+  <div class="card">
+    <div class="card-title">Validate Key</div>
+    <div class="divider"></div>
+
+    <label for="validateInput">Paste a key to verify it</label>
+    <input type="text" id="validateInput" class="mono"
+           placeholder="FNDBY-XXXX-XXXX-XXXX"
+           maxlength="19"
+           autocomplete="off" spellcheck="false"
+           oninput="handleValidateInput(this)" />
+
+    <button class="btn-ghost" style="width:100%" onclick="handleValidate()">
+      Validate Key
+    </button>
+
+    <div class="result" id="validateResult"></div>
+  </div>
+
+  <!-- Algorithm note -->
+  <div class="algo-note">
+    <strong style="color:#64748b">Algorithm reference</strong><br/>
+    Key format: <code>FNDBY-SEG1-SEG2-SEG3</code><br/>
+    SEG1 = <code>toSeg( fnv1a32(seed + ":S1") )</code>&nbsp;&nbsp;
+    SEG2 = <code>toSeg( fnv1a32(seed + ":S2") )</code><br/>
+    SEG3 = <code>toSeg( fnv1a32("FNDBY" + SEG1 + SEG2) )</code>  ← checksum<br/>
+    <code>toSeg(n)</code> encodes a uint32 as 4 chars from <code>A–Z0–9</code> (base-36, big-endian).<br/>
+    Validation only checks the SEG3 checksum — it does not require the original seed.
+  </div>
+
+  <footer>For internal use only · Do not share this file.</footer>
+  <div class="toast" id="toast">Copied to clipboard!</div>
+
+  <script>
+    // ═══════════════════════════════════════════════════════════════════════════
+    //  LICENSE ALGORITHM
+    //  Keep this section byte-for-byte identical to electron/license.js
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    function fnv1a32(str) {
+      let h = 0x811C9DC5
+      for (let i = 0; i < str.length; i++) {
+        h ^= str.charCodeAt(i)
+        h  = Math.imul(h, 0x01000193)
+      }
+      return h >>> 0
+    }
+
+    const CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+
+    function toSeg(n) {
+      const d = []
+      for (let i = 0; i < 4; i++) {
+        d.unshift(CHARS[n % 36])
+        n = Math.floor(n / 36)
+      }
+      return d.join('')
+    }
+
+    function computeChecksum(seg1, seg2) {
+      return toSeg(fnv1a32('FNDBY' + seg1 + seg2))
+    }
+
+    const KEY_RE = /^FNDBY-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/
+
+    function validateLicenseKey(key) {
+      const k = (key || '').trim().toUpperCase()
+      if (!KEY_RE.test(k)) return false
+      const [, seg1, seg2, seg3] = k.split('-')
+      return computeChecksum(seg1, seg2) === seg3
+    }
+
+    function generateLicenseKey(seed) {
+      const seg1 = toSeg(fnv1a32(seed + ':S1'))
+      const seg2 = toSeg(fnv1a32(seed + ':S2'))
+      return 'FNDBY-' + seg1 + '-' + seg2 + '-' + computeChecksum(seg1, seg2)
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    //  UI LOGIC
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    let lastGeneratedKey = ''
+
+    function handleGenerate() {
+      const seed = document.getElementById('seed').value.trim()
+      if (!seed) {
+        document.getElementById('seed').focus()
+        document.getElementById('seed').style.borderColor = '#ef4444'
+        setTimeout(() => { document.getElementById('seed').style.borderColor = '' }, 1200)
+        return
+      }
+
+      const key = generateLicenseKey(seed)
+      lastGeneratedKey = key
+
+      const display = document.getElementById('keyDisplay')
+      document.getElementById('keyText').textContent = key
+      document.getElementById('keySeed').textContent = 'Seed: "' + seed + '"'
+      display.classList.add('visible')
+      document.getElementById('copyRow').style.display = 'flex'
+
+      // Auto-fill the validate box
+      const vi = document.getElementById('validateInput')
+      vi.value = key
+      document.getElementById('validateResult').className = 'result'
+    }
+
+    function copyKey() {
+      if (!lastGeneratedKey) return
+      navigator.clipboard.writeText(lastGeneratedKey).then(() => showToast('Copied to clipboard!'))
+    }
+
+    function handleValidate() {
+      const raw = document.getElementById('validateInput').value.trim().toUpperCase()
+      const el  = document.getElementById('validateResult')
+
+      if (!raw) {
+        el.className = 'result invalid visible'
+        el.innerHTML = '<span>⚠</span> Please enter a key to validate.'
+        return
+      }
+
+      const ok = validateLicenseKey(raw)
+      if (ok) {
+        el.className = 'result valid visible'
+        el.innerHTML = '<span>✓</span> Valid FundiBill license key.'
+      } else {
+        const formatOk = /^FNDBY-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(raw)
+        const msg = formatOk
+          ? 'Checksum mismatch — this key was not generated by this tool.'
+          : 'Invalid format. Expected <code style="font-size:12px;background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:3px">FNDBY-XXXX-XXXX-XXXX</code>.'
+        el.className = 'result invalid visible'
+        el.innerHTML = '<span>✕</span> ' + msg
+      }
+    }
+
+    // Auto-format validate input as user types
+    function handleValidateInput(el) {
+      const clean = el.value.replace(/[^A-Z0-9]/gi, '').toUpperCase().slice(0, 17)
+      if (clean.length <= 5) { el.value = clean; return }
+      const prefix = clean.slice(0, 5)
+      const rest   = clean.slice(5)
+      const parts  = []
+      for (let i = 0; i < rest.length; i += 4) parts.push(rest.slice(i, i + 4))
+      el.value = [prefix, ...parts].join('-')
+      // Clear result when editing
+      document.getElementById('validateResult').className = 'result'
+    }
+
+    // Enter key on seed input triggers generate
+    document.getElementById('seed').addEventListener('keydown', e => {
+      if (e.key === 'Enter') handleGenerate()
+    })
+
+    // Enter key on validate input triggers validate
+    document.getElementById('validateInput').addEventListener('keydown', e => {
+      if (e.key === 'Enter') handleValidate()
+    })
+
+    function showToast(msg) {
+      const t = document.getElementById('toast')
+      t.textContent = msg
+      t.classList.add('show')
+      setTimeout(() => t.classList.remove('show'), 2200)
+    }
+  </script>
+</body>
+</html>

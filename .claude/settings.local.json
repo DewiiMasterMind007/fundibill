@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install:*)",
+      "Bash(node -e ':*)",
+      "Bash(npm uninstall:*)",
+      "Bash(npm list:*)",
+      "Bash(node scripts/create-icon.js)",
+      "Bash(node -e \"const s=require\\('fs'\\).statSync\\('assets/icon.ico'\\); console.log\\('icon.ico size:', s.size, 'bytes'\\)\")",
+      "Bash(del \"C:\\\\Users\\\\dewal\\\\Desktop\\\\Invoicy App\\\\assets\\\\icon.ico\")",
+      "Bash(rm assets/icon.ico)",
+      "Bash(node -e \"const s=require\\('fs'\\).statSync\\('assets/icon.ico'\\); console.log\\('size:', s.size, 'bytes'\\)\")",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\dewal\\\\Desktop\\\\Invoicy App\" -Recurse -Force)",
+      "Bash(Select-Object FullName, PSIsContainer)",
+      "Bash(Format-Table -AutoSize)",
+      "Bash(node -e \"require\\('nodemailer'\\); console.log\\('nodemailer OK'\\)\")",
+      "Bash(node -e *)",
+      "Bash(Select-Object FullName)",
+      "Bash(Copy-Item \"C:\\\\Users\\\\dewal\\\\Downloads\\\\favicon.ico\" \"C:\\\\Users\\\\dewal\\\\Desktop\\\\Invoicy App\\\\assets\\\\icon.ico\" -Force)",
+      "Bash(Write-Host \"Copied to assets/icon.ico\")",
+      "PowerShell(New-Item -ItemType Directory -Path \"C:\\\\Users\\\\dewal\\\\Desktop\\\\Invoicy App\\\\public\" -Force)",
+      "PowerShell(Copy-Item \"C:\\\\Users\\\\dewal\\\\Downloads\\\\favicon.ico\" \"C:\\\\Users\\\\dewal\\\\Desktop\\\\Invoicy App\\\\public\\\\favicon.ico\" -Force)"
+    ]
+  }
+}
