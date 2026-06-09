@@ -5,7 +5,7 @@ export async function sendEmail(payload) {
     return await window.electronAPI.sendEmail(payload)
   }
 
-  const response = await fetch('https://fundiai.co.za/send-reminder.php', {
+  const response = await fetch('https://api.fundiai.co.za/send-reminder.php', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
