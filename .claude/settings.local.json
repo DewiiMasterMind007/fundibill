@@ -22,7 +22,9 @@
       "PowerShell(Copy-Item \"C:\\\\Users\\\\dewal\\\\Downloads\\\\favicon.ico\" \"C:\\\\Users\\\\dewal\\\\Desktop\\\\Invoicy App\\\\public\\\\favicon.ico\" -Force)",
       "Bash(Copy-Item \"C:\\\\Users\\\\dewal\\\\Desktop\\\\Invoicy App\\\\public\\\\FundiBill long.png\" \"C:\\\\Users\\\\dewal\\\\Desktop\\\\Invoicy App\\\\public\\\\icon-192.png\")",
       "Bash(Copy-Item \"C:\\\\Users\\\\dewal\\\\Desktop\\\\Invoicy App\\\\public\\\\FundiBill long.png\" \"C:\\\\Users\\\\dewal\\\\Desktop\\\\Invoicy App\\\\public\\\\icon-512.png\")",
-      "Bash(Write-Host \"Icons copied\")"
+      "Bash(Write-Host \"Icons copied\")",
+      "Bash(Test-Path \"C:\\\\Users\\\\dewal\\\\Desktop\\\\Invoicy App\\\\vercel.json\")",
+      "Bash(Test-Path \"C:\\\\Users\\\\dewal\\\\Desktop\\\\Invoicy App\\\\package.json\")"
     ]
   }
 }
