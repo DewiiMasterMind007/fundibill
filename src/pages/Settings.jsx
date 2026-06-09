@@ -5,6 +5,7 @@ import { useTrialStatus } from '../context/TrialContext'
 import { useAppData } from '../context/AppDataContext'
 import HelpButton from '../components/HelpButton'
 import { generateTestEmail, PLAIN_TEXT_FOOTER } from '../lib/emailTemplates'
+import { sendEmail } from '../lib/sendEmail'
 import useIsMobile from '../hooks/useIsMobile'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -574,12 +575,17 @@ export default function Settings() {
       businessName: form.business_name || '',
       primaryColor: form.primary_color || '#14b8a6',
     })
-    const res = await window.db?.email?.send({
-      smtp,
-      to:      smtp.user,
-      subject: 'FundiBill — Test Email',
-      text:    'This is a test email from FundiBill. Your email settings are configured correctly.' + PLAIN_TEXT_FOOTER,
+    const res = await sendEmail({
+      to:           smtp.user,
+      subject:      'FundiBill — Test Email',
+      text:         'This is a test email from FundiBill. Your email settings are configured correctly.' + PLAIN_TEXT_FOOTER,
       html,
+      smtpHost:     smtp.host,
+      smtpPort:     parseInt(smtp.port || '587', 10) || 587,
+      smtpUser:     smtp.user,
+      smtpPassword: smtp.password,
+      smtpFromName: smtp.from_name,
+      smtpFromEmail: smtp.user,
     })
     if (res?.success) {
       setTestEmailStatus('success')

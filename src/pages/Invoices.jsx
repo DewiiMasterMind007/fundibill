@@ -9,6 +9,7 @@ import { useRecurringNotif } from '../context/RecurringNotifContext'
 import { useAppData } from '../context/AppDataContext'
 import HelpButton from '../components/HelpButton'
 import { generateReminderEmail, PLAIN_TEXT_FOOTER } from '../lib/emailTemplates'
+import { sendEmail } from '../lib/sendEmail'
 import useIsMobile from '../hooks/useIsMobile'
 
 const READONLY_MSG = 'Your trial has ended. Upgrade to continue.'
@@ -1658,7 +1659,7 @@ function ReminderModal({ invoice, clients, settings, onClose, onReminderSent }) 
         customMessage: message.trim(),
       })
 
-      const res = await window.electronAPI?.sendEmail({
+      const res = await sendEmail({
         to:           to.trim(),
         subject:      subject.trim(),
         message:      message.trim() + PLAIN_TEXT_FOOTER,

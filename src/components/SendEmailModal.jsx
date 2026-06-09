@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { generateInvoiceEmail, generateEstimateEmail } from '../lib/emailTemplates'
+import { sendEmail } from '../lib/sendEmail'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -177,7 +178,7 @@ export function SendEmailModal({ isOpen, data, settings, docType, clientEmail, o
         fileName:    payload.fileName,
       })
 
-      const res = await window.electronAPI?.sendEmail(payload)
+      const res = await sendEmail(payload)
 
       if (res?.success === false) {
         throw new Error(res.error || 'Unknown error from mail server.')
