@@ -1131,6 +1131,19 @@ export default function Settings() {
 
         {form.email_provider === 'gmail' ? (
           <>
+            {/* Gmail not yet supported notice */}
+            <div style={{
+              display: 'flex', alignItems: 'flex-start', gap: 10,
+              marginBottom: 16, padding: '12px 16px',
+              background: '#fef3c7', border: '1.5px solid #fde68a', borderRadius: 10,
+            }}>
+              <span style={{ fontSize: 16, lineHeight: 1.4 }}>ℹ️</span>
+              <p style={{ fontSize: 13, color: '#92400e', margin: 0, lineHeight: 1.6 }}>
+                Gmail sending is not yet supported. We're working on it and will notify you when this feature becomes available.
+                In the meantime, use Custom SMTP with your cPanel or business email.
+              </p>
+            </div>
+
             <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: isMobile ? 14 : 16 }}>
 
               <Field label="SMTP Host">
@@ -1149,27 +1162,25 @@ export default function Settings() {
 
               <Field label="From Email" hint="your Gmail address">
                 <input
-                  style={inp} value={form.smtp_user} placeholder="you@gmail.com" type="email"
-                  onChange={handleChange('smtp_user')}
-                  onBlur={blurStyle} onFocus={focusStyle}
+                  style={{ ...inp, background: '#f1f5f9', color: '#94a3b8', cursor: 'not-allowed' }}
+                  value={form.smtp_user} placeholder="you@gmail.com" type="email"
+                  readOnly disabled
                 />
               </Field>
 
               <Field label="From Name" hint="shown as the sender">
                 <input
-                  style={inp}
+                  style={{ ...inp, background: '#f1f5f9', color: '#94a3b8', cursor: 'not-allowed' }}
                   value={form.smtp_from_name} placeholder="Acme Studio"
-                  onChange={handleChange('smtp_from_name')}
-                  onBlur={blurStyle} onFocus={focusStyle}
+                  readOnly disabled
                 />
               </Field>
 
               <Field label="App Password" style={{ gridColumn: isMobile ? undefined : '1 / -1' }}>
                 <input
-                  style={{ ...inp, maxWidth: isMobile ? undefined : 360 }}
+                  style={{ ...inp, maxWidth: isMobile ? undefined : 360, background: '#f1f5f9', color: '#94a3b8', cursor: 'not-allowed' }}
                   type="password" value={form.smtp_password} placeholder="16-character app password"
-                  onChange={handleChange('smtp_password')}
-                  onBlur={blurStyle} onFocus={focusStyle}
+                  readOnly disabled
                 />
               </Field>
             </div>
@@ -1258,6 +1269,7 @@ export default function Settings() {
         )}
 
         {/* Test Email */}
+        {form.email_provider !== 'gmail' && (
         <div style={{ marginTop: 20 }}>
           <button
             onClick={sendTestEmail}
@@ -1301,6 +1313,7 @@ export default function Settings() {
             <div style={{ marginTop: 10, fontSize: 13, color: '#dc2626', fontWeight: 500 }}>⚠ {testEmailMsg}</div>
           )}
         </div>
+        )}
       </Section>
 
       {/* ── PAYMENT & REMINDERS ─────────────────────────────────────────── */}
