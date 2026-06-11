@@ -39,6 +39,7 @@ const DEFAULTS = {
   branch_code:             '',
   payment_methods:         null,
   default_payment_method:  null,
+  email_provider:          'smtp',
   smtp_host:               '',
   smtp_port:               '',
   smtp_user:               '',
@@ -64,6 +65,7 @@ const SUPABASE_COL = {
   default_payment_terms:    'default_payment_terms',
   default_payment_method:   'default_payment_method',
   terms_conditions:         'terms',
+  email_provider:           'email_provider',
   smtp_host:                'smtp_host',
   smtp_port:                'smtp_port',
   smtp_user:                'smtp_user',
@@ -518,6 +520,7 @@ export default function Settings() {
         default_payment_method:   profile.default_payment_method   ?? DEFAULTS.default_payment_method,
         terms_conditions:         profile.terms                    ?? DEFAULTS.terms_conditions,
         ...parseBankingDetails(profile.banking_details),
+        email_provider:           profile.email_provider           ?? DEFAULTS.email_provider,
         smtp_host:                profile.smtp_host                ?? DEFAULTS.smtp_host,
         smtp_port:                profile.smtp_port                ?? DEFAULTS.smtp_port,
         smtp_user:                profile.smtp_user                ?? DEFAULTS.smtp_user,
@@ -583,6 +586,15 @@ export default function Settings() {
 
   const handleColor = (field) => (value) =>
     setForm(prev => ({ ...prev, [field]: value }))
+
+  const handleEmailProvider = (provider) => () =>
+    setForm(prev => ({
+      ...prev,
+      email_provider: provider,
+      ...(provider === 'gmail'
+        ? { smtp_host: 'smtp.gmail.com', smtp_port: '587' }
+        : {}),
+    }))
 
   const handleLogoChange = (e) => {
     const file = e.target.files?.[0]
@@ -1075,52 +1087,175 @@ export default function Settings() {
         onToggle={() => toggleSection('email')}
         isMobile={isMobile}
       >
-        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: isMobile ? 14 : 16 }}>
-
-          <Field label="SMTP Host">
-            <input
-              style={inp} value={form.smtp_host} placeholder="smtp.gmail.com"
-              onChange={handleChange('smtp_host')}
-              onBlur={blurStyle} onFocus={focusStyle}
-            />
-          </Field>
-
-          <Field label="SMTP Port">
-            <input
-              style={inp} value={form.smtp_port} placeholder="587"
-              onChange={handleChange('smtp_port')}
-              onBlur={blurStyle} onFocus={focusStyle}
-            />
-          </Field>
-
-          <Field label="From Email" hint="also used as SMTP username">
-            <input
-              style={inp} value={form.smtp_user} placeholder="you@gmail.com" type="email"
-              onChange={handleChange('smtp_user')}
-              onBlur={blurStyle} onFocus={focusStyle}
-            />
-          </Field>
-
-          <Field label="SMTP Password">
-            <input
-              style={inp} type="password" value={form.smtp_password} placeholder="••••••••"
-              onChange={handleChange('smtp_password')}
-              onBlur={blurStyle} onFocus={focusStyle}
-            />
-            <p style={{ fontSize: 12, color: '#94a3b8', marginTop: 5, lineHeight: 1.5 }}>
-              Using Gmail? Use an <strong style={{ color: '#64748b' }}>App Password</strong> — not your regular password.
-            </p>
-          </Field>
-
-          <Field label="From Name" hint="shown as the sender" style={{ gridColumn: isMobile ? undefined : '1 / -1' }}>
-            <input
-              style={{ ...inp, maxWidth: isMobile ? undefined : 360 }}
-              value={form.smtp_from_name} placeholder="Acme Studio"
-              onChange={handleChange('smtp_from_name')}
-              onBlur={blurStyle} onFocus={focusStyle}
-            />
-          </Field>
+        {/* Provider toggle */}
+        <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
+          <button
+            onClick={handleEmailProvider('gmail')}
+            style={{
+              flex: isMobile ? '1 1 auto' : undefined,
+              padding: isMobile ? '12px 18px' : '9px 18px',
+              minHeight: isMobile ? 44 : undefined,
+              borderRadius: 8,
+              border: form.email_provider === 'gmail' ? `1.5px solid ${form.primary_color || '#14b8a6'}` : '1.5px solid #e2e8f0',
+              background: form.email_provider === 'gmail' ? (form.primary_color || '#14b8a6') : '#fff',
+              color: form.email_provider === 'gmail' ? '#fff' : '#374151',
+              fontWeight: 600, fontSize: isMobile ? 14 : 13,
+              cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+              transition: 'background 0.15s, border-color 0.15s, color 0.15s',
+            }}
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" opacity=".6"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" opacity=".8"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" opacity=".4"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+            Google / Gmail
+          </button>
+          <button
+            onClick={handleEmailProvider('smtp')}
+            style={{
+              flex: isMobile ? '1 1 auto' : undefined,
+              padding: isMobile ? '12px 18px' : '9px 18px',
+              minHeight: isMobile ? 44 : undefined,
+              borderRadius: 8,
+              border: form.email_provider !== 'gmail' ? `1.5px solid ${form.primary_color || '#14b8a6'}` : '1.5px solid #e2e8f0',
+              background: form.email_provider !== 'gmail' ? (form.primary_color || '#14b8a6') : '#fff',
+              color: form.email_provider !== 'gmail' ? '#fff' : '#374151',
+              fontWeight: 600, fontSize: isMobile ? 14 : 13,
+              cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+              transition: 'background 0.15s, border-color 0.15s, color 0.15s',
+            }}
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 5L2 7"/></svg>
+            Custom SMTP
+          </button>
         </div>
+
+        {form.email_provider === 'gmail' ? (
+          <>
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: isMobile ? 14 : 16 }}>
+
+              <Field label="SMTP Host">
+                <input
+                  style={{ ...inp, background: '#f1f5f9', color: '#94a3b8', cursor: 'not-allowed' }}
+                  value="smtp.gmail.com" readOnly disabled
+                />
+              </Field>
+
+              <Field label="SMTP Port">
+                <input
+                  style={{ ...inp, background: '#f1f5f9', color: '#94a3b8', cursor: 'not-allowed' }}
+                  value="587" readOnly disabled
+                />
+              </Field>
+
+              <Field label="From Email" hint="your Gmail address">
+                <input
+                  style={inp} value={form.smtp_user} placeholder="you@gmail.com" type="email"
+                  onChange={handleChange('smtp_user')}
+                  onBlur={blurStyle} onFocus={focusStyle}
+                />
+              </Field>
+
+              <Field label="From Name" hint="shown as the sender">
+                <input
+                  style={inp}
+                  value={form.smtp_from_name} placeholder="Acme Studio"
+                  onChange={handleChange('smtp_from_name')}
+                  onBlur={blurStyle} onFocus={focusStyle}
+                />
+              </Field>
+
+              <Field label="App Password" style={{ gridColumn: isMobile ? undefined : '1 / -1' }}>
+                <input
+                  style={{ ...inp, maxWidth: isMobile ? undefined : 360 }}
+                  type="password" value={form.smtp_password} placeholder="16-character app password"
+                  onChange={handleChange('smtp_password')}
+                  onBlur={blurStyle} onFocus={focusStyle}
+                />
+              </Field>
+            </div>
+
+            {/* Gmail App Password help box */}
+            <div style={{
+              marginTop: 16, padding: isMobile ? '14px' : '16px 18px',
+              background: '#eff6ff', border: '1.5px solid #bfdbfe', borderRadius: 10,
+            }}>
+              <p style={{ fontSize: 13, fontWeight: 700, color: '#1e40af', margin: '0 0 8px', display: 'flex', alignItems: 'center', gap: 6 }}>
+                ℹ️ Gmail requires an App Password
+              </p>
+              <p style={{ fontSize: 13, color: '#1e3a8a', margin: '0 0 8px', lineHeight: 1.6 }}>
+                Your regular Gmail password won't work. You need to generate a special App Password:
+              </p>
+              <ol style={{ fontSize: 13, color: '#1e3a8a', margin: '0 0 12px', paddingLeft: 20, lineHeight: 1.8 }}>
+                <li>Go to myaccount.google.com</li>
+                <li>Click <strong>Security</strong></li>
+                <li>Under "How you sign in to Google" click <strong>2-Step Verification</strong> and make sure it is ON</li>
+                <li>Go back to Security and click <strong>App Passwords</strong></li>
+                <li>Select <strong>Mail</strong> and your device</li>
+                <li>Copy the 16-character password</li>
+                <li>Paste it in the App Password field above</li>
+              </ol>
+              <button
+                onClick={() => window.db?.openExternal('https://myaccount.google.com/security')}
+                style={{
+                  background: '#1e40af', color: '#fff', border: 'none', borderRadius: 8,
+                  padding: isMobile ? '12px 16px' : '8px 16px', fontSize: 13, fontWeight: 600,
+                  cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6,
+                  width: isMobile ? '100%' : undefined, justifyContent: 'center',
+                }}
+              >
+                Open Google Account Settings
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+              </button>
+            </div>
+          </>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: isMobile ? 14 : 16 }}>
+
+            <Field label="SMTP Host">
+              <input
+                style={inp} value={form.smtp_host} placeholder="smtp.gmail.com"
+                onChange={handleChange('smtp_host')}
+                onBlur={blurStyle} onFocus={focusStyle}
+              />
+            </Field>
+
+            <Field label="SMTP Port">
+              <input
+                style={inp} value={form.smtp_port} placeholder="587"
+                onChange={handleChange('smtp_port')}
+                onBlur={blurStyle} onFocus={focusStyle}
+              />
+            </Field>
+
+            <Field label="From Email" hint="also used as SMTP username">
+              <input
+                style={inp} value={form.smtp_user} placeholder="you@example.com" type="email"
+                onChange={handleChange('smtp_user')}
+                onBlur={blurStyle} onFocus={focusStyle}
+              />
+            </Field>
+
+            <Field label="SMTP Password">
+              <input
+                style={inp} type="password" value={form.smtp_password} placeholder="••••••••"
+                onChange={handleChange('smtp_password')}
+                onBlur={blurStyle} onFocus={focusStyle}
+              />
+              <p style={{ fontSize: 12, color: '#94a3b8', marginTop: 5, lineHeight: 1.5 }}>
+                Using Gmail? Switch to the <strong style={{ color: '#64748b' }}>Google / Gmail</strong> tab above and use an App Password.
+              </p>
+            </Field>
+
+            <Field label="From Name" hint="shown as the sender" style={{ gridColumn: isMobile ? undefined : '1 / -1' }}>
+              <input
+                style={{ ...inp, maxWidth: isMobile ? undefined : 360 }}
+                value={form.smtp_from_name} placeholder="Acme Studio"
+                onChange={handleChange('smtp_from_name')}
+                onBlur={blurStyle} onFocus={focusStyle}
+              />
+            </Field>
+          </div>
+        )}
 
         {/* Test Email */}
         <div style={{ marginTop: 20 }}>
