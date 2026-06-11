@@ -8,7 +8,7 @@ import { useTrialStatus } from '../context/TrialContext'
 import { useRecurringNotif } from '../context/RecurringNotifContext'
 import { useAppData } from '../context/AppDataContext'
 import HelpButton from '../components/HelpButton'
-import { generateReminderEmail, PLAIN_TEXT_FOOTER } from '../lib/emailTemplates'
+import { generateReminderEmail, generatePaymentConfirmationEmail, PLAIN_TEXT_FOOTER } from '../lib/emailTemplates'
 import { sendEmail } from '../lib/sendEmail'
 import useIsMobile from '../hooks/useIsMobile'
 
@@ -360,6 +360,112 @@ function PaymentMethodModal({ methods, defaultMethod, onConfirm, onCancel }) {
   )
 }
 
+// ─── Mark as Paid — Thank You Email Modal ─────────────────────────────────────
+
+function MarkAsPaidEmailModal({ invoiceNumber, amount, clientName, clientEmail, businessName, saving, onConfirm, onCancel }) {
+  const hasEmail = !!(clientEmail && clientEmail.trim())
+
+  const buildDefaultMessage = () => [
+    `Dear ${clientName || 'Valued Client'},`,
+    '',
+    `Thank you for your payment of ${fmt(amount)} for invoice ${invoiceNumber}.`,
+    '',
+    'Your payment has been received and your invoice has been marked as paid.',
+    '',
+    'Thank you for your business — we look forward to working with you again.',
+    '',
+    'Kind regards,',
+    businessName || '',
+  ].join('\n')
+
+  const [sendEmailFlag, setSendEmailFlag] = useState(hasEmail)
+  const [to,      setTo]      = useState(clientEmail || '')
+  const [subject, setSubject] = useState(`Payment Received — Invoice ${invoiceNumber}`)
+  const [message, setMessage] = useState(buildDefaultMessage)
+
+  // Escape key
+  useEffect(() => {
+    const fn = e => { if (e.key === 'Escape' && !saving) onCancel() }
+    window.addEventListener('keydown', fn)
+    return () => window.removeEventListener('keydown', fn)
+  }, [saving, onCancel])
+
+  const iStyle = {
+    width: '100%', padding: '9px 12px', borderRadius: 8, fontSize: 14,
+    border: '1px solid #e2e8f0', background: '#f8fafc', color: '#0f172a',
+    outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit',
+  }
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.5)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 3100,
+    }} onMouseDown={e => e.target === e.currentTarget && !saving && onCancel()}>
+      <div style={{
+        background: '#fff', borderRadius: 14, width: 520, maxWidth: '92vw',
+        boxShadow: '0 20px 60px rgba(0,0,0,0.2)',
+        display: 'flex', flexDirection: 'column', maxHeight: '88vh',
+      }}>
+        {/* Header */}
+        <div style={{ padding: '16px 22px', borderBottom: '1px solid #e2e8f0', flexShrink: 0 }}>
+          <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#0f172a' }}>Mark Invoice as Paid</h2>
+        </div>
+
+        {/* Body */}
+        <div style={{ padding: 22, display: 'flex', flexDirection: 'column', gap: 14, overflowY: 'auto', flex: 1 }}>
+          <p style={{ margin: 0, fontSize: 14, color: '#334155', lineHeight: 1.6 }}>
+            Mark invoice <strong>{invoiceNumber}</strong> for <strong>{clientName || 'this client'}</strong> as paid?
+          </p>
+
+          {hasEmail && (
+            <label style={{ display: 'flex', alignItems: 'center', gap: 9, fontSize: 13, fontWeight: 500, color: '#0f172a', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={sendEmailFlag}
+                onChange={e => setSendEmailFlag(e.target.checked)}
+                style={{ accentColor: '#14b8a6', width: 16, height: 16 }}
+              />
+              Send payment confirmation email to {clientEmail}
+            </label>
+          )}
+
+          {hasEmail && sendEmailFlag && (
+            <>
+              <div>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#64748b', marginBottom: 5 }}>To</label>
+                <input value={to} onChange={e => setTo(e.target.value)} type="email" placeholder="client@example.com" style={iStyle} />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#64748b', marginBottom: 5 }}>Subject</label>
+                <input value={subject} onChange={e => setSubject(e.target.value)} style={iStyle} />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#64748b', marginBottom: 5 }}>Message</label>
+                <textarea value={message} onChange={e => setMessage(e.target.value)} rows={9}
+                  style={{ ...iStyle, resize: 'vertical', lineHeight: 1.6 }} />
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div style={{ padding: '14px 22px', borderTop: '1px solid #e2e8f0', display: 'flex', gap: 10, justifyContent: 'flex-end', flexShrink: 0 }}>
+          <button onClick={onCancel} disabled={saving}
+            style={{ padding: '9px 18px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', color: '#64748b', fontWeight: 600, fontSize: 14, cursor: saving ? 'not-allowed' : 'pointer' }}>
+            Cancel
+          </button>
+          <button
+            onClick={() => onConfirm({ sendEmail: hasEmail && sendEmailFlag, to: to.trim(), subject: subject.trim(), message: message.trim() })}
+            disabled={saving}
+            style={{ padding: '9px 22px', borderRadius: 8, border: 'none', background: '#16a34a', color: '#fff', fontWeight: 600, fontSize: 14, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1 }}>
+            {saving ? 'Marking…' : 'Mark as Paid'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Invoice Form ─────────────────────────────────────────────────────────────
 
 const newLine = () => ({ _key: Math.random().toString(36).slice(2), item_name: '', description: '', quantity: 1, unit_price: '', _catalogId: null })
@@ -402,6 +508,11 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
   const [deleting, setDeleting]             = useState(false)
   const [showPayModal, setShowPayModal]     = useState(false)
   const [showEmailModal, setShowEmailModal] = useState(false)
+  const [pendingPaymentMethod, setPendingPaymentMethod] = useState(null)
+  const [showMarkPaidEmailModal, setShowMarkPaidEmailModal] = useState(false)
+  const [sendingPaymentEmail, setSendingPaymentEmail] = useState(false)
+
+  const selectedClient = [...clients, ...extraClients].find(c => c.id === form.client_id)
 
   // Generate next invoice number for new invoices.
   // Uses the cached profile from AppDataContext — no extra Supabase call needed.
@@ -617,6 +728,61 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
     } catch (e) {
       setMarkingPaid(false)
       setErrors({ _global: e.message })
+    }
+  }
+
+  // Called from the "Mark Invoice as Paid" thank-you-email modal. Marks the
+  // invoice as paid (unchanged logic above), then optionally sends a payment
+  // confirmation email via the user's configured SMTP/relay.
+  async function handleConfirmMarkPaidWithEmail({ sendEmail: shouldSend, to, subject, message }) {
+    setShowMarkPaidEmailModal(false)
+    const paymentMethod = pendingPaymentMethod
+    setPendingPaymentMethod(null)
+    await confirmMarkAsPaid(paymentMethod)
+
+    if (!shouldSend) return
+
+    setSendingPaymentEmail(true)
+    try {
+      const businessName  = settings?.business_name || ''
+      const businessEmail = settings?.email || settings?.smtp_user || ''
+      const smtp = {
+        host:      settings?.smtp_host      || '',
+        port:      settings?.smtp_port      || '587',
+        user:      settings?.smtp_user      || '',
+        password:  settings?.smtp_password  || '',
+        from_name: settings?.smtp_from_name || businessName || '',
+      }
+      if (!to || !smtp.host || !smtp.user || !smtp.password) return
+
+      const html = generatePaymentConfirmationEmail({
+        businessName,
+        businessEmail,
+        businessPhone: settings?.phone    || '',
+        logoUrl:       settings?.logo_url || settings?.logo_path || '',
+        primaryColor:  settings?.primary_color || '#14b8a6',
+        clientName:    selectedClient?.company_name || selectedClient?.name || '',
+        invoiceNumber: form.invoice_number,
+        amount:        total,
+        customMessage: message,
+      })
+
+      await sendEmail({
+        to,
+        subject,
+        message: message + PLAIN_TEXT_FOOTER,
+        html,
+        smtpHost:      smtp.host,
+        smtpPort:      parseInt(smtp.port || '587', 10) || 587,
+        smtpUser:      smtp.user,
+        smtpPassword:  smtp.password,
+        smtpFromName:  smtp.from_name,
+        smtpFromEmail: smtp.user,
+      })
+    } catch (_) {
+      // Non-fatal — the invoice has already been marked as paid.
+    } finally {
+      setSendingPaymentEmail(false)
     }
   }
 
@@ -1103,8 +1269,22 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
             return DEFAULT_METHODS
           })()}
           defaultMethod={settings?.default_payment_method || ''}
-          onConfirm={confirmMarkAsPaid}
+          onConfirm={(method) => { setShowPayModal(false); setPendingPaymentMethod(method); setShowMarkPaidEmailModal(true) }}
           onCancel={() => setShowPayModal(false)}
+        />
+      )}
+
+      {/* Mark as Paid — thank you email modal */}
+      {showMarkPaidEmailModal && (
+        <MarkAsPaidEmailModal
+          invoiceNumber={form.invoice_number}
+          amount={total}
+          clientName={selectedClient?.company_name || selectedClient?.name || ''}
+          clientEmail={selectedClient?.email || ''}
+          businessName={settings?.business_name || ''}
+          saving={markingPaid || sendingPaymentEmail}
+          onConfirm={handleConfirmMarkPaidWithEmail}
+          onCancel={() => { setShowMarkPaidEmailModal(false); setPendingPaymentMethod(null) }}
         />
       )}
 
@@ -1993,6 +2173,9 @@ export default function Invoices() {
   const [markPaidListInv,      setMarkPaidListInv]      = useState(null)
   const [deleteListConfirmInv, setDeleteListConfirmInv] = useState(null)
   const [deletingFromList,     setDeletingFromList]     = useState(false)
+  const [pendingMarkPaidMethod, setPendingMarkPaidMethod] = useState(null)
+  const [showMarkPaidEmailModalList, setShowMarkPaidEmailModalList] = useState(false)
+  const [sendingPaymentEmailList, setSendingPaymentEmailList] = useState(false)
 
   // load() only fetches invoices — clients/settings/catalog come from AppDataContext
   const load = useCallback(async () => {
@@ -2097,6 +2280,63 @@ export default function Invoices() {
       .eq('id', inv.id).eq('user_id', user.id)
     if (error) { setToast({ message: error.message, type: 'error' }) }
     else { await load(); setToast({ message: 'Invoice marked as paid.', type: 'success' }) }
+  }
+
+  // Called from the "Mark Invoice as Paid" thank-you-email modal (mobile list
+  // flow). Marks the invoice as paid (unchanged logic above), then optionally
+  // sends a payment confirmation email via the user's configured SMTP/relay.
+  async function handleConfirmMarkPaidWithEmailFromList({ sendEmail: shouldSend, to, subject, message }) {
+    const inv = markPaidListInv
+    const paymentMethod = pendingMarkPaidMethod
+    setShowMarkPaidEmailModalList(false)
+    setPendingMarkPaidMethod(null)
+    await confirmMarkPaidFromList(paymentMethod)
+
+    if (!shouldSend || !inv) return
+
+    setSendingPaymentEmailList(true)
+    try {
+      const client = clients.find(c => c.id === inv.client_id)
+      const businessName  = settings?.business_name || ''
+      const businessEmail = settings?.email || settings?.smtp_user || ''
+      const smtp = {
+        host:      settings?.smtp_host      || '',
+        port:      settings?.smtp_port      || '587',
+        user:      settings?.smtp_user      || '',
+        password:  settings?.smtp_password  || '',
+        from_name: settings?.smtp_from_name || businessName || '',
+      }
+      if (!to || !smtp.host || !smtp.user || !smtp.password) return
+
+      const html = generatePaymentConfirmationEmail({
+        businessName,
+        businessEmail,
+        businessPhone: settings?.phone    || '',
+        logoUrl:       settings?.logo_url || settings?.logo_path || '',
+        primaryColor:  settings?.primary_color || '#14b8a6',
+        clientName:    client?.company_name || client?.name || '',
+        invoiceNumber: inv.invoice_number,
+        amount:        inv.total,
+        customMessage: message,
+      })
+
+      await sendEmail({
+        to,
+        subject,
+        message: message + PLAIN_TEXT_FOOTER,
+        html,
+        smtpHost:      smtp.host,
+        smtpPort:      parseInt(smtp.port || '587', 10) || 587,
+        smtpUser:      smtp.user,
+        smtpPassword:  smtp.password,
+        smtpFromName:  smtp.from_name,
+        smtpFromEmail: smtp.user,
+      })
+    } catch (_) {
+      // Non-fatal — the invoice has already been marked as paid.
+    } finally {
+      setSendingPaymentEmailList(false)
+    }
   }
 
   // ── Mobile list-action: delete ────────────────────────────────────────────
@@ -2237,7 +2477,7 @@ export default function Invoices() {
       )}
 
       {/* ── Mobile: PaymentMethodModal triggered from list card ── */}
-      {markPaidListInv && (
+      {markPaidListInv && !showMarkPaidEmailModalList && (
         <PaymentMethodModal
           methods={(() => {
             const raw = settings?.payment_methods
@@ -2245,8 +2485,22 @@ export default function Invoices() {
             return ['Cash', 'EFT / Bank Transfer', 'Credit Card', 'Debit Card']
           })()}
           defaultMethod={settings?.default_payment_method || ''}
-          onConfirm={confirmMarkPaidFromList}
+          onConfirm={(method) => { setPendingMarkPaidMethod(method); setShowMarkPaidEmailModalList(true) }}
           onCancel={() => setMarkPaidListInv(null)}
+        />
+      )}
+
+      {/* ── Mobile: Mark as Paid thank-you-email modal ── */}
+      {markPaidListInv && showMarkPaidEmailModalList && (
+        <MarkAsPaidEmailModal
+          invoiceNumber={markPaidListInv.invoice_number}
+          amount={markPaidListInv.total}
+          clientName={markPaidListInv.client_company || markPaidListInv.client_name || ''}
+          clientEmail={clients.find(c => c.id === markPaidListInv.client_id)?.email || ''}
+          businessName={settings?.business_name || ''}
+          saving={sendingPaymentEmailList}
+          onConfirm={handleConfirmMarkPaidWithEmailFromList}
+          onCancel={() => { setShowMarkPaidEmailModalList(false); setPendingMarkPaidMethod(null); setMarkPaidListInv(null) }}
         />
       )}
 

@@ -319,6 +319,51 @@ export function generateReminderEmail({
 }
 
 /**
+ * Generate a branded HTML email body for a payment confirmation
+ * ("thank you") email, sent when an invoice is marked as paid.
+ *
+ * @param {object} data
+ *   businessName    string
+ *   businessEmail   string
+ *   businessPhone   string
+ *   logoUrl         string
+ *   primaryColor    string
+ *   clientName      string
+ *   invoiceNumber   string   e.g. "INV-0001"
+ *   amount          number   raw amount paid (will be formatted)
+ *   customMessage   string   the editable body text from the modal
+ * @returns {string}  Full HTML document
+ */
+export function generatePaymentConfirmationEmail({
+  businessName  = '',
+  businessEmail = '',
+  businessPhone = '',
+  logoUrl       = '',
+  primaryColor  = '#14b8a6',
+  clientName    = '',
+  invoiceNumber = '',
+  amount        = 0,
+  customMessage = '',
+}) {
+  const color = primaryColor || '#14b8a6'
+
+  const bodyHtml = `
+    <p style="font-size:15px;color:#0f172a;font-family:Arial,Helvetica,sans-serif;margin:0 0 20px;font-weight:600;">
+      Dear ${esc(clientName || 'Valued Client')},
+    </p>
+    <p style="font-size:14px;color:#334155;font-family:Arial,Helvetica,sans-serif;margin:0;line-height:1.7;">
+      ${nl2br(customMessage)}
+    </p>
+    ${summaryBox([
+      ['Invoice Number', invoiceNumber || '—'],
+      ['Amount Paid',    fmtAmount(amount)   ],
+    ], color)}
+    ${signature(businessName, businessEmail, businessPhone)}`
+
+  return baseTemplate({ primaryColor: color, logoUrl, businessName, bodyHtml })
+}
+
+/**
  * Generate a branded HTML test email for the Settings → Send Test Email button.
  *
  * @param {object} opts
