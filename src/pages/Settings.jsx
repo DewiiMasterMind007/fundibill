@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { useTrialStatus } from '../context/TrialContext'
@@ -430,8 +431,12 @@ export default function Settings() {
   const { user, signOut } = useAuth()
   const { refreshProfile } = useAppData()
   const isMobile = useIsMobile()
+  const navigate = useNavigate()
+  const location = useLocation()
 
   const [form, setForm]                   = useState(DEFAULTS)
+  const [originalForm, setOriginalForm]   = useState(DEFAULTS)
+  const [pendingNav, setPendingNav]       = useState(null)
   const [toastVisible, setToast]          = useState(false)
   const [saveError, setSaveError]         = useState('')
   const [saving, setSaving]               = useState(false)
@@ -468,37 +473,75 @@ export default function Settings() {
       const profile = rows?.[0] ?? null
       if (!profile) return
 
-      setForm(prev => ({
-        ...prev,
-        business_name:            profile.business_name            ?? prev.business_name,
-        business_address:         profile.address                  ?? prev.business_address,
-        email:                    profile.email                    ?? prev.email,
-        phone:                    profile.phone                    ?? prev.phone,
-        vat_number:               profile.vat_number               ?? prev.vat_number,
-        logo_path:                profile.logo_url                 ?? prev.logo_path,
-        primary_color:            profile.primary_color            ?? prev.primary_color,
-        accent_color:             profile.accent_color             ?? prev.accent_color,
-        text_color:               profile.text_color               ?? prev.text_color,
-        invoice_prefix:           profile.invoice_prefix           ?? prev.invoice_prefix,
-        estimate_prefix:          profile.estimate_prefix          ?? prev.estimate_prefix,
-        starting_invoice_number:  profile.starting_invoice_number  ?? prev.starting_invoice_number,
-        starting_estimate_number: profile.starting_estimate_number ?? prev.starting_estimate_number,
-        default_payment_terms:    profile.default_payment_terms    ?? prev.default_payment_terms,
-        default_payment_method:   profile.default_payment_method   ?? prev.default_payment_method,
-        terms_conditions:         profile.terms                    ?? prev.terms_conditions,
-        banking_details:          profile.banking_details          ?? prev.banking_details,
-        smtp_host:                profile.smtp_host                ?? prev.smtp_host,
-        smtp_port:                profile.smtp_port                ?? prev.smtp_port,
-        smtp_user:                profile.smtp_user                ?? prev.smtp_user,
-        smtp_password:            profile.smtp_password            ?? prev.smtp_password,
-        smtp_from_name:           profile.smtp_from_name           ?? prev.smtp_from_name,
-        payment_terms_days:       profile.payment_terms_days       ?? prev.payment_terms_days,
-      }))
+      const merged = {
+        ...DEFAULTS,
+        business_name:            profile.business_name            ?? DEFAULTS.business_name,
+        business_address:         profile.address                  ?? DEFAULTS.business_address,
+        email:                    profile.email                    ?? DEFAULTS.email,
+        phone:                    profile.phone                    ?? DEFAULTS.phone,
+        vat_number:               profile.vat_number               ?? DEFAULTS.vat_number,
+        logo_path:                profile.logo_url                 ?? DEFAULTS.logo_path,
+        primary_color:            profile.primary_color            ?? DEFAULTS.primary_color,
+        accent_color:             profile.accent_color             ?? DEFAULTS.accent_color,
+        text_color:               profile.text_color               ?? DEFAULTS.text_color,
+        invoice_prefix:           profile.invoice_prefix           ?? DEFAULTS.invoice_prefix,
+        estimate_prefix:          profile.estimate_prefix          ?? DEFAULTS.estimate_prefix,
+        starting_invoice_number:  profile.starting_invoice_number  ?? DEFAULTS.starting_invoice_number,
+        starting_estimate_number: profile.starting_estimate_number ?? DEFAULTS.starting_estimate_number,
+        default_payment_terms:    profile.default_payment_terms    ?? DEFAULTS.default_payment_terms,
+        default_payment_method:   profile.default_payment_method   ?? DEFAULTS.default_payment_method,
+        terms_conditions:         profile.terms                    ?? DEFAULTS.terms_conditions,
+        banking_details:          profile.banking_details          ?? DEFAULTS.banking_details,
+        smtp_host:                profile.smtp_host                ?? DEFAULTS.smtp_host,
+        smtp_port:                profile.smtp_port                ?? DEFAULTS.smtp_port,
+        smtp_user:                profile.smtp_user                ?? DEFAULTS.smtp_user,
+        smtp_password:            profile.smtp_password            ?? DEFAULTS.smtp_password,
+        smtp_from_name:           profile.smtp_from_name           ?? DEFAULTS.smtp_from_name,
+        payment_terms_days:       profile.payment_terms_days       ?? DEFAULTS.payment_terms_days,
+      }
+      setForm(merged)
+      // Snapshot the freshly-loaded values as the "original" baseline for
+      // unsaved-changes comparison.
+      setOriginalForm(merged)
       setPayMethods(parseMethods(profile.payment_methods))
       setExpCategories(parseCategories(profile.expense_categories))
     }
     load()
   }, [user])
+
+  // ── Unsaved-changes detection ────────────────────────────────────────────
+  const hasChanges = JSON.stringify(form) !== JSON.stringify(originalForm)
+
+  // Warn before closing/refreshing the tab/app with unsaved changes
+  useEffect(() => {
+    if (!hasChanges) return
+    const handler = (e) => {
+      e.preventDefault()
+      e.returnValue = ''
+      return ''
+    }
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [hasChanges])
+
+  // Intercept in-app navigation (sidebar / bottom nav links) while there are
+  // unsaved changes and show a confirmation modal instead.
+  useEffect(() => {
+    if (!hasChanges) return
+    const handler = (e) => {
+      const link = e.target.closest?.('a[href]')
+      if (!link) return
+      const href = link.getAttribute('href') || ''
+      if (!href.startsWith('#/')) return
+      const path = href.slice(1)
+      if (path === location.pathname) return
+      e.preventDefault()
+      e.stopPropagation()
+      setPendingNav(path)
+    }
+    document.addEventListener('click', handler, true)
+    return () => document.removeEventListener('click', handler, true)
+  }, [hasChanges, location.pathname])
 
   // ── Toast helper ─────────────────────────────────────────────────────────
   const showToast = useCallback(() => {
@@ -545,6 +588,8 @@ export default function Settings() {
         if (profileError) throw new Error(profileError.message)
 
         refreshProfile()
+        // Reset the unsaved-changes baseline now that the form matches the DB
+        setOriginalForm(form)
       }
 
       showToast()
@@ -608,7 +653,7 @@ export default function Settings() {
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div style={{
-      padding:    isMobile ? '16px 16px 160px' : '32px 32px 64px',
+      padding:    isMobile ? '16px 16px 96px' : '32px 32px 64px',
       maxWidth:   820,
       overflowY:  'auto',
       height:     '100%',
@@ -620,8 +665,46 @@ export default function Settings() {
       {!isMobile && (
         <>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-            <h1 style={{ fontSize: 24, fontWeight: 700, color: '#0f172a', margin: 0 }}>Settings</h1>
-            <HelpButton page="settings" />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <h1 style={{ fontSize: 24, fontWeight: 700, color: '#0f172a', margin: 0 }}>Settings</h1>
+              {hasChanges && (
+                <span
+                  title="You have unsaved changes"
+                  aria-label="Unsaved changes"
+                  style={{
+                    width: 9, height: 9, borderRadius: '50%', flexShrink: 0,
+                    background: form.primary_color || '#14b8a6',
+                    boxShadow: `0 0 0 3px ${(form.primary_color || '#14b8a6')}22`,
+                  }}
+                />
+              )}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              {hasChanges && (
+                <button
+                  onClick={isReadOnly ? undefined : handleSave}
+                  disabled={saving || isReadOnly}
+                  title={isReadOnly ? 'Your trial has ended. Upgrade to continue.' : undefined}
+                  style={{
+                    background:   isReadOnly ? '#94a3b8' : (form.primary_color || '#14b8a6'),
+                    color:        '#fff',
+                    border:       'none',
+                    borderRadius: 8,
+                    padding:      '9px 20px',
+                    fontSize:     13,
+                    fontWeight:   600,
+                    cursor:       isReadOnly ? 'not-allowed' : saving ? 'wait' : 'pointer',
+                    opacity:      isReadOnly ? 0.55 : saving ? 0.75 : 1,
+                    boxShadow:    (saving || isReadOnly) ? 'none' : `0 2px 8px ${(form.primary_color || '#14b8a6')}4d`,
+                    transition:   'opacity 0.15s',
+                    whiteSpace:   'nowrap',
+                  }}
+                >
+                  {saving ? 'Saving…' : 'Save Changes'}
+                </button>
+              )}
+              <HelpButton page="settings" />
+            </div>
           </div>
           <p style={{ color: '#64748b', fontSize: 14, marginBottom: saveError ? 16 : 28 }}>
             Manage your business profile, branding, and document preferences.
@@ -633,6 +716,47 @@ export default function Settings() {
       {isMobile && (
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
           <HelpButton page="settings" />
+        </div>
+      )}
+
+      {/* ── MOBILE: Save button fixed to top-right of the mobile header bar ── */}
+      {isMobile && hasChanges && (
+        <div style={{
+          position: 'fixed',
+          top:      11,
+          right:    56,
+          zIndex:   40,
+        }}>
+          <button
+            onClick={isReadOnly ? undefined : handleSave}
+            disabled={saving || isReadOnly}
+            title={isReadOnly ? 'Your trial has ended. Upgrade to continue.' : undefined}
+            style={{
+              height:       34,
+              padding:      '0 14px',
+              border:       'none',
+              borderRadius: 8,
+              background:   isReadOnly ? '#94a3b8' : (form.primary_color || 'var(--primary, #14b8a6)'),
+              color:        '#fff',
+              fontWeight:   700,
+              fontSize:     13,
+              cursor:       isReadOnly ? 'not-allowed' : saving ? 'wait' : 'pointer',
+              opacity:      isReadOnly ? 0.6 : saving ? 0.8 : 1,
+              boxShadow:    '0 2px 8px rgba(0,0,0,0.25)',
+              display:      'flex',
+              alignItems:   'center',
+              justifyContent: 'center',
+              gap:          6,
+              fontFamily:   'inherit',
+              whiteSpace:   'nowrap',
+            }}
+          >
+            <span style={{
+              width: 6, height: 6, borderRadius: '50%',
+              background: '#fff', flexShrink: 0,
+            }} />
+            {saving ? 'Saving…' : 'Save Changes'}
+          </button>
         </div>
       )}
 
@@ -1048,34 +1172,9 @@ export default function Settings() {
         </p>
       </Section>
 
-      {/* ── DESKTOP SAVE BUTTON (inline, above payment methods) ─────────── */}
-      {!isMobile && (
-        <div style={{ marginBottom: 28, display: 'flex', alignItems: 'center', gap: 16 }}>
-          <button
-            onClick={isReadOnly ? undefined : handleSave}
-            disabled={saving || isReadOnly}
-            title={isReadOnly ? 'Your trial has ended. Upgrade to continue.' : undefined}
-            style={{
-              background:  isReadOnly ? '#94a3b8' : saving ? '#5eead4' : '#14b8a6',
-              color:       '#fff',
-              border:      'none',
-              borderRadius: 8,
-              padding:     '11px 28px',
-              fontSize:    14,
-              fontWeight:  600,
-              cursor:      isReadOnly ? 'not-allowed' : saving ? 'wait' : 'pointer',
-              opacity:     isReadOnly ? 0.55 : 1,
-              boxShadow:   (saving || isReadOnly) ? 'none' : '0 2px 8px rgba(20,184,166,0.3)',
-              transition:  'background 0.15s',
-            }}
-          >
-            {saving ? 'Saving…' : 'Save Settings'}
-          </button>
-          {isReadOnly && (
-            <span style={{ fontSize: 13, color: '#94a3b8', fontWeight: 500 }}>
-              Settings are locked. Upgrade to make changes.
-            </span>
-          )}
+      {isReadOnly && (
+        <div style={{ marginBottom: 28, fontSize: 13, color: '#94a3b8', fontWeight: 500 }}>
+          Settings are locked. Upgrade to make changes.
         </div>
       )}
 
@@ -1106,6 +1205,7 @@ export default function Settings() {
                   checked={form.default_payment_method === method}
                   onChange={async () => {
                     setForm(p => ({ ...p, default_payment_method: method }))
+                    setOriginalForm(p => ({ ...p, default_payment_method: method }))
                     await supabase.from('profiles').update({ default_payment_method: method }).eq('id', user.id)
                     showToast()
                   }}
@@ -1123,6 +1223,7 @@ export default function Settings() {
                     setPayMethods(updated)
                     const newDefault = form.default_payment_method === method ? updated[0] || null : form.default_payment_method
                     setForm(p => ({ ...p, payment_methods: JSON.stringify(updated), default_payment_method: newDefault }))
+                    setOriginalForm(p => ({ ...p, payment_methods: JSON.stringify(updated), default_payment_method: newDefault }))
                     await supabase.from('profiles').update({ payment_methods: JSON.stringify(updated), default_payment_method: newDefault }).eq('id', user.id)
                     showToast()
                   }}
@@ -1150,6 +1251,7 @@ export default function Settings() {
               setNewMethod('')
               const defaultM = form.default_payment_method || updated[0]
               setForm(p => ({ ...p, payment_methods: JSON.stringify(updated), default_payment_method: defaultM }))
+              setOriginalForm(p => ({ ...p, payment_methods: JSON.stringify(updated), default_payment_method: defaultM }))
               await supabase.from('profiles').update({ payment_methods: JSON.stringify(updated), default_payment_method: defaultM }).eq('id', user.id)
               showToast()
             }}
@@ -1166,6 +1268,7 @@ export default function Settings() {
               setNewMethod('')
               const defaultM = form.default_payment_method || updated[0]
               setForm(p => ({ ...p, payment_methods: JSON.stringify(updated), default_payment_method: defaultM }))
+              setOriginalForm(p => ({ ...p, payment_methods: JSON.stringify(updated), default_payment_method: defaultM }))
               await supabase.from('profiles').update({ payment_methods: JSON.stringify(updated), default_payment_method: defaultM }).eq('id', user.id)
               showToast()
             }}
@@ -1287,50 +1390,71 @@ export default function Settings() {
         </div>
       )}
 
-      {/* ── MOBILE: Fixed Save button above BottomNav ─────────────────────── */}
-      {isMobile && (
+      {/* ── Unsaved changes confirmation modal ────────────────────────────── */}
+      {pendingNav && (
         <div style={{
-          position:   'fixed',
-          bottom:     'calc(64px + env(safe-area-inset-bottom))',
-          left:       0,
-          right:      0,
-          padding:    '0 16px',
-          zIndex:     110,
+          position:       'fixed',
+          inset:          0,
+          background:     'rgba(15,23,42,0.5)',
+          display:        'flex',
+          alignItems:     'center',
+          justifyContent: 'center',
+          zIndex:         1000,
+          padding:        16,
         }}>
-          <button
-            onClick={isReadOnly ? undefined : handleSave}
-            disabled={saving || isReadOnly}
-            style={{
-              width:        '100%',
-              height:       52,
-              border:       'none',
-              borderRadius: 10,
-              background:   isReadOnly ? '#94a3b8' : saving ? '#5eead4' : 'var(--primary, #14b8a6)',
-              color:        '#fff',
-              fontWeight:   700,
-              fontSize:     16,
-              cursor:       isReadOnly ? 'not-allowed' : saving ? 'wait' : 'pointer',
-              opacity:      isReadOnly ? 0.55 : 1,
-              boxShadow:    (saving || isReadOnly) ? 'none' : '0 4px 16px rgba(20,184,166,0.35)',
-              transition:   'background 0.15s',
-              fontFamily:   'inherit',
-              display:      'flex',
-              alignItems:   'center',
-              justifyContent: 'center',
-              gap:          8,
-            }}
-          >
-            {saving ? (
-              <>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ animation: 'testEmailSpin 0.8s linear infinite' }}>
-                  <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
-                </svg>
-                Saving…
-              </>
-            ) : (
-              'Save Settings'
-            )}
-          </button>
+          <div style={{
+            background:   '#fff',
+            borderRadius: 12,
+            padding:      24,
+            maxWidth:     360,
+            width:        '100%',
+            boxShadow:    '0 12px 40px rgba(0,0,0,0.25)',
+          }}>
+            <h3 style={{ margin: '0 0 8px', fontSize: 16, fontWeight: 700, color: '#0f172a' }}>
+              Unsaved Changes
+            </h3>
+            <p style={{ margin: '0 0 20px', fontSize: 14, color: '#64748b', lineHeight: 1.5 }}>
+              You have unsaved changes. Leave without saving?
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+              <button
+                onClick={() => setPendingNav(null)}
+                style={{
+                  padding:      '9px 18px',
+                  borderRadius: 8,
+                  border:       '1.5px solid #e2e8f0',
+                  background:   '#fff',
+                  color:        '#374151',
+                  fontWeight:   600,
+                  fontSize:     13,
+                  cursor:       'pointer',
+                  fontFamily:   'inherit',
+                }}
+              >
+                Stay
+              </button>
+              <button
+                onClick={() => {
+                  const dest = pendingNav
+                  setPendingNav(null)
+                  navigate(dest)
+                }}
+                style={{
+                  padding:      '9px 18px',
+                  borderRadius: 8,
+                  border:       'none',
+                  background:   '#dc2626',
+                  color:        '#fff',
+                  fontWeight:   600,
+                  fontSize:     13,
+                  cursor:       'pointer',
+                  fontFamily:   'inherit',
+                }}
+              >
+                Leave
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

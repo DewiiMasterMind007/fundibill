@@ -24,7 +24,9 @@
       "Bash(Copy-Item \"C:\\\\Users\\\\dewal\\\\Desktop\\\\Invoicy App\\\\public\\\\FundiBill long.png\" \"C:\\\\Users\\\\dewal\\\\Desktop\\\\Invoicy App\\\\public\\\\icon-512.png\")",
       "Bash(Write-Host \"Icons copied\")",
       "Bash(Test-Path \"C:\\\\Users\\\\dewal\\\\Desktop\\\\Invoicy App\\\\vercel.json\")",
-      "Bash(Test-Path \"C:\\\\Users\\\\dewal\\\\Desktop\\\\Invoicy App\\\\package.json\")"
+      "Bash(Test-Path \"C:\\\\Users\\\\dewal\\\\Desktop\\\\Invoicy App\\\\package.json\")",
+      "Bash(npx --yes esbuild src/pages/Settings.jsx --loader=jsx --jsx=automatic)",
+      "Bash(npx --yes esbuild --bundle src/pages/Settings.jsx --jsx=automatic --outfile=/tmp/out.js --external:*)"
     ]
   }
 }
