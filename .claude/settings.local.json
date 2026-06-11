@@ -26,7 +26,8 @@
       "Bash(Test-Path \"C:\\\\Users\\\\dewal\\\\Desktop\\\\Invoicy App\\\\vercel.json\")",
       "Bash(Test-Path \"C:\\\\Users\\\\dewal\\\\Desktop\\\\Invoicy App\\\\package.json\")",
       "Bash(npx --yes esbuild src/pages/Settings.jsx --loader=jsx --jsx=automatic)",
-      "Bash(npx --yes esbuild --bundle src/pages/Settings.jsx --jsx=automatic --outfile=/tmp/out.js --external:*)"
+      "Bash(npx --yes esbuild --bundle src/pages/Settings.jsx --jsx=automatic --outfile=/tmp/out.js --external:*)",
+      "Bash(grep -n \"banking_details\\\\|BANKING DETAILS\\\\|Section\\\\s*$\" src/pages/Settings.jsx)"
     ]
   }
 }

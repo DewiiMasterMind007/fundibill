@@ -34,7 +34,9 @@ const DEFAULTS = {
   starting_estimate_number: 1,
   default_payment_terms:   '30',
   terms_conditions:        '',
-  banking_details:         '',
+  bank_name:               '',
+  account_number:          '',
+  branch_code:             '',
   payment_methods:         null,
   default_payment_method:  null,
   smtp_host:               '',
@@ -62,7 +64,6 @@ const SUPABASE_COL = {
   default_payment_terms:    'default_payment_terms',
   default_payment_method:   'default_payment_method',
   terms_conditions:         'terms',
-  banking_details:          'banking_details',
   smtp_host:                'smtp_host',
   smtp_port:                'smtp_port',
   smtp_user:                'smtp_user',
@@ -89,6 +90,28 @@ function parseCategories(raw) {
   if (!raw) return [...BUILTIN_CATEGORIES]
   try { const p = JSON.parse(raw); if (Array.isArray(p) && p.length) return p } catch (_) {}
   return [...BUILTIN_CATEGORIES]
+}
+
+// `profiles.banking_details` stores a JSON object: { bank_name, account_number, branch_code }.
+// Older accounts may still have a free-text string saved — fall back to using
+// it as the bank name so the data isn't silently dropped.
+function parseBankingDetails(raw) {
+  const empty = { bank_name: '', account_number: '', branch_code: '' }
+  if (!raw) return empty
+  try {
+    const p = JSON.parse(raw)
+    if (p && typeof p === 'object') {
+      return {
+        bank_name:      p.bank_name      ?? '',
+        account_number: p.account_number ?? '',
+        branch_code:    p.branch_code    ?? '',
+      }
+    }
+  } catch (_) {
+    // Legacy free-text banking details
+    return { ...empty, bank_name: raw }
+  }
+  return empty
 }
 
 // ─── Shared input style ───────────────────────────────────────────────────────
@@ -444,6 +467,9 @@ export default function Settings() {
   const [newMethod, setNewMethod]         = useState('')
   const [expCategories, setExpCategories] = useState(BUILTIN_CATEGORIES)
   const [newCategory, setNewCategory]     = useState('')
+  const [addingCategory, setAddingCategory]     = useState(false)
+  const [editingCategory, setEditingCategory]   = useState(null)
+  const [editCategoryValue, setEditCategoryValue] = useState('')
   const [testEmailStatus, setTestEmailStatus] = useState(null)
   const [testEmailMsg, setTestEmailMsg]   = useState('')
   const toastTimer  = useRef(null)
@@ -491,7 +517,7 @@ export default function Settings() {
         default_payment_terms:    profile.default_payment_terms    ?? DEFAULTS.default_payment_terms,
         default_payment_method:   profile.default_payment_method   ?? DEFAULTS.default_payment_method,
         terms_conditions:         profile.terms                    ?? DEFAULTS.terms_conditions,
-        banking_details:          profile.banking_details          ?? DEFAULTS.banking_details,
+        ...parseBankingDetails(profile.banking_details),
         smtp_host:                profile.smtp_host                ?? DEFAULTS.smtp_host,
         smtp_port:                profile.smtp_port                ?? DEFAULTS.smtp_port,
         smtp_user:                profile.smtp_user                ?? DEFAULTS.smtp_user,
@@ -582,6 +608,11 @@ export default function Settings() {
         }
         profileData.payment_methods    = JSON.stringify(payMethods)
         profileData.expense_categories = JSON.stringify(expCategories)
+        profileData.banking_details    = JSON.stringify({
+          bank_name:      form.bank_name      || '',
+          account_number: form.account_number || '',
+          branch_code:    form.branch_code    || '',
+        })
         if (profileData.payment_terms_days != null) profileData.payment_terms_days = parseInt(profileData.payment_terms_days, 10) || 7
 
         const { error: profileError } = await supabase.from('profiles').upsert(profileData, { onConflict: 'id' })
@@ -1006,13 +1037,33 @@ export default function Settings() {
         onToggle={() => toggleSection('banking')}
         isMobile={isMobile}
       >
-        <textarea
-          style={{ ...inp, minHeight: isMobile ? 120 : 120, resize: 'vertical', lineHeight: 1.6 }}
-          value={form.banking_details}
-          placeholder={'Bank: First National Bank\nAccount Name: Acme Studio\nAccount Number: 62000000000\nBranch Code: 250655\nReference: Invoice number'}
-          onChange={handleChange('banking_details')}
-          onBlur={blurStyle} onFocus={focusStyle}
-        />
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: isMobile ? 14 : 16 }}>
+
+          <Field label="Bank Name">
+            <input
+              style={inp} value={form.bank_name} placeholder="e.g. Capitec Bank"
+              onChange={handleChange('bank_name')}
+              onBlur={blurStyle} onFocus={focusStyle}
+            />
+          </Field>
+
+          <Field label="Account Number">
+            <input
+              style={inp} value={form.account_number} placeholder="e.g. 1234567890"
+              onChange={handleChange('account_number')}
+              onBlur={blurStyle} onFocus={focusStyle}
+            />
+          </Field>
+
+          <Field label="Branch Code">
+            <input
+              style={inp} value={form.branch_code} placeholder="e.g. 470010"
+              onChange={handleChange('branch_code')}
+              onBlur={blurStyle} onFocus={focusStyle}
+            />
+          </Field>
+
+        </div>
       </Section>
 
       {/* ── EMAIL / SMTP ─────────────────────────────────────────────────── */}
@@ -1291,68 +1342,154 @@ export default function Settings() {
         isMobile={isMobile}
       >
         <p style={{ fontSize: 13, color: '#64748b', marginBottom: 16, lineHeight: 1.6 }}>
-          Configure the categories available when adding expenses.
+          Add your expense categories below. These will appear as options when recording expenses.
+          Click + to add a new category, or click an existing one to edit or delete it.
         </p>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
-          {expCategories.map((cat) => (
-            <div key={cat} style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-              background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: 8,
-              padding: isMobile ? '12px 14px' : '10px 14px',
-            }}>
-              <span style={{ fontSize: isMobile ? 15 : 14, color: '#0f172a', fontWeight: 500 }}>{cat}</span>
-              {expCategories.length > 1 && (
-                <button
-                  onClick={async () => {
-                    const updated = expCategories.filter(c => c !== cat)
-                    setExpCategories(updated)
-                    await supabase.from('profiles').update({ expense_categories: JSON.stringify(updated) }).eq('id', user.id)
-                    showToast()
-                  }}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: 4, borderRadius: 6, display: 'flex', alignItems: 'center' }}
-                  onMouseEnter={e => { e.currentTarget.style.color = '#dc2626'; e.currentTarget.style.background = '#fee2e2' }}
-                  onMouseLeave={e => { e.currentTarget.style.color = '#94a3b8'; e.currentTarget.style.background = 'none' }}
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
-                </button>
-              )}
-            </div>
-          ))}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 }}>
+          {expCategories.map((cat) => {
+            const isEditing = editingCategory === cat
+
+            const commitEdit = async () => {
+              const newName = editCategoryValue.trim()
+              setEditingCategory(null)
+              if (!newName || newName === cat || expCategories.includes(newName)) {
+                setEditCategoryValue('')
+                return
+              }
+              const updated = expCategories.map(c => c === cat ? newName : c)
+              setExpCategories(updated)
+              setEditCategoryValue('')
+              await supabase.from('profiles').update({ expense_categories: JSON.stringify(updated) }).eq('id', user.id)
+              showToast()
+            }
+
+            return (
+              <div key={cat} style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: 8,
+                padding: isMobile ? '12px 14px' : '10px 14px',
+                gap: 10,
+              }}>
+                {isEditing ? (
+                  <input
+                    autoFocus
+                    value={editCategoryValue}
+                    onChange={e => setEditCategoryValue(e.target.value)}
+                    onKeyDown={async e => {
+                      if (e.key === 'Enter') await commitEdit()
+                      if (e.key === 'Escape') { setEditingCategory(null); setEditCategoryValue('') }
+                    }}
+                    onBlur={commitEdit}
+                    style={{ ...inp, flex: 1, padding: '6px 8px' }}
+                    onFocus={focusStyle}
+                  />
+                ) : (
+                  <span style={{ fontSize: isMobile ? 15 : 14, color: '#0f172a', fontWeight: 500, flex: 1 }}>{cat}</span>
+                )}
+
+                {!isEditing && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                    <button
+                      onClick={() => { setEditingCategory(cat); setEditCategoryValue(cat) }}
+                      title="Edit category"
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: 4, borderRadius: 6, display: 'flex', alignItems: 'center' }}
+                      onMouseEnter={e => { e.currentTarget.style.color = '#0891b2'; e.currentTarget.style.background = '#e0f2fe' }}
+                      onMouseLeave={e => { e.currentTarget.style.color = '#94a3b8'; e.currentTarget.style.background = 'none' }}
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                      </svg>
+                    </button>
+                    {expCategories.length > 1 && (
+                      <button
+                        onClick={async () => {
+                          const updated = expCategories.filter(c => c !== cat)
+                          setExpCategories(updated)
+                          await supabase.from('profiles').update({ expense_categories: JSON.stringify(updated) }).eq('id', user.id)
+                          showToast()
+                        }}
+                        title="Delete category"
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: 4, borderRadius: 6, display: 'flex', alignItems: 'center' }}
+                        onMouseEnter={e => { e.currentTarget.style.color = '#dc2626'; e.currentTarget.style.background = '#fee2e2' }}
+                        onMouseLeave={e => { e.currentTarget.style.color = '#94a3b8'; e.currentTarget.style.background = 'none' }}
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            )
+          })}
         </div>
 
-        <div style={{ display: 'flex', gap: 8 }}>
-          <input
-            value={newCategory}
-            onChange={e => setNewCategory(e.target.value)}
-            onKeyDown={async e => {
-              if (e.key !== 'Enter' || !newCategory.trim()) return
-              const c = newCategory.trim()
-              if (expCategories.includes(c)) return
-              const updated = [...expCategories, c]
-              setExpCategories(updated)
-              setNewCategory('')
-              await supabase.from('profiles').update({ expense_categories: JSON.stringify(updated) }).eq('id', user.id)
-              showToast()
-            }}
-            placeholder="Type a category and press Enter…"
-            style={{ ...inp, flex: 1 }}
-            onFocus={focusStyle} onBlur={blurStyle}
-          />
+        {addingCategory ? (
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input
+              autoFocus
+              value={newCategory}
+              onChange={e => setNewCategory(e.target.value)}
+              onKeyDown={async e => {
+                if (e.key === 'Enter') {
+                  const c = newCategory.trim()
+                  if (!c || expCategories.includes(c)) return
+                  const updated = [...expCategories, c]
+                  setExpCategories(updated)
+                  setNewCategory('')
+                  await supabase.from('profiles').update({ expense_categories: JSON.stringify(updated) }).eq('id', user.id)
+                  showToast()
+                } else if (e.key === 'Escape') {
+                  setAddingCategory(false)
+                  setNewCategory('')
+                }
+              }}
+              placeholder="Type a category name…"
+              style={{ ...inp, flex: 1 }}
+              onFocus={focusStyle} onBlur={blurStyle}
+            />
+            <button
+              onClick={async () => {
+                const c = newCategory.trim()
+                if (!c || expCategories.includes(c)) return
+                const updated = [...expCategories, c]
+                setExpCategories(updated)
+                setNewCategory('')
+                await supabase.from('profiles').update({ expense_categories: JSON.stringify(updated) }).eq('id', user.id)
+                showToast()
+              }}
+              style={{ background: '#14b8a6', color: '#fff', border: 'none', borderRadius: 8, padding: isMobile ? '12px 16px' : '9px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap', boxShadow: '0 2px 6px rgba(20,184,166,0.3)' }}>
+              Add
+            </button>
+            <button
+              onClick={() => { setAddingCategory(false); setNewCategory('') }}
+              style={{ background: '#fff', color: '#64748b', border: '1.5px solid #e2e8f0', borderRadius: 8, padding: isMobile ? '12px 16px' : '9px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+              Cancel
+            </button>
+          </div>
+        ) : (
           <button
-            onClick={async () => {
-              const c = newCategory.trim()
-              if (!c || expCategories.includes(c)) return
-              const updated = [...expCategories, c]
-              setExpCategories(updated)
-              setNewCategory('')
-              await supabase.from('profiles').update({ expense_categories: JSON.stringify(updated) }).eq('id', user.id)
-              showToast()
+            onClick={() => setAddingCategory(true)}
+            style={{
+              width:        '100%',
+              padding:      isMobile ? '14px' : '12px',
+              border:       '2px dashed #cbd5e1',
+              borderRadius: 8,
+              background:   'transparent',
+              color:        '#64748b',
+              fontSize:     14,
+              fontWeight:   600,
+              cursor:       'pointer',
+              transition:   'border-color 0.15s, color 0.15s, background 0.15s',
             }}
-            style={{ background: '#14b8a6', color: '#fff', border: 'none', borderRadius: 8, padding: isMobile ? '12px 16px' : '9px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap', boxShadow: '0 2px 6px rgba(20,184,166,0.3)' }}>
-            Add
+            onMouseEnter={e => { e.currentTarget.style.borderColor = '#14b8a6'; e.currentTarget.style.color = '#14b8a6'; e.currentTarget.style.background = '#f0fdfa' }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = '#cbd5e1'; e.currentTarget.style.color = '#64748b'; e.currentTarget.style.background = 'transparent' }}
+          >
+            + Add Expense Category
           </button>
-        </div>
+        )}
+
         <p style={{ fontSize: 12, color: '#94a3b8', marginTop: 8 }}>
           Removing a category does not affect existing expenses that used it.
         </p>

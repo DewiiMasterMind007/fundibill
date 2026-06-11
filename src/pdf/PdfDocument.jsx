@@ -1,6 +1,26 @@
 import React from 'react'
 import { Document, Page, Text, View, Image, StyleSheet } from '@react-pdf/renderer'
 
+// Banking details: profiles.banking_details stores a JSON object
+// { bank_name, account_number, branch_code }. Older accounts may still have
+// a free-text string saved -- fall back to showing it as-is in that case.
+function formatBankingDetails(raw) {
+  if (!raw) return ''
+  try {
+    const parsed = JSON.parse(raw)
+    if (parsed && typeof parsed === 'object') {
+      const lines = []
+      if (parsed.bank_name)      lines.push(`Bank: ${parsed.bank_name}`)
+      if (parsed.account_number) lines.push(`Account Number: ${parsed.account_number}`)
+      if (parsed.branch_code)    lines.push(`Branch Code: ${parsed.branch_code}`)
+      return lines.join('\n')
+    }
+  } catch (_) {
+    // Not JSON -- legacy free-text banking details
+  }
+  return typeof raw === 'string' ? raw : ''
+}
+
 // ── ZAR currency ──────────────────────────────────────────────────────────────
 const fmtZAR = (n) => {
   const num = Number(n) || 0
@@ -145,6 +165,7 @@ export function PdfDocument({ data, settings, docType }) {
   const total        = Number(data.total)        || 0
   const balanceDue   = Math.max(0, total - amountPaid)
   const logoSrc      = settings?._logoSrc || null
+  const bankingText  = formatBankingDetails(settings?.banking_details)
 
   // Dynamic colour overrides driven by the user's primary_color setting
   const primary = settings?.primary_color || C.teal
@@ -382,13 +403,13 @@ export function PdfDocument({ data, settings, docType }) {
           }}
         >
           {/* Banking Details (left) | Terms & Conditions (right) */}
-          {(settings?.banking_details || settings?.terms) && (
+          {(bankingText || settings?.terms) && (
             <View style={S.footColumns}>
               <View style={S.footColLeft}>
-                {settings?.banking_details && (
+                {bankingText && (
                   <>
                     <Text style={[S.footSecLabel, D.footSecLabel]}>Banking Details</Text>
-                    <Text style={S.footText}>{settings.banking_details}</Text>
+                    <Text style={S.footText}>{bankingText}</Text>
                   </>
                 )}
               </View>
