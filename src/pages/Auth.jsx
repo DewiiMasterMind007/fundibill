@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
+import PasswordInput from '../components/PasswordInput'
 import fundibillLogo from '../../public/FundiBill long.png'
 
 export default function Auth() {
@@ -173,12 +174,13 @@ export default function Auth() {
             <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.85)', marginBottom: 6 }}>
               Password
             </label>
-            <input
+            <PasswordInput
               className="fb-input"
-              type="password" required autoComplete={isRegister ? 'new-password' : 'current-password'}
+              required autoComplete={isRegister ? 'new-password' : 'current-password'}
               value={password} onChange={e => setPassword(e.target.value)}
               placeholder="••••••••"
               style={INPUT} onFocus={focusStyle} onBlur={blurStyle}
+              iconColor="rgba(255,255,255,0.55)" iconHoverColor="rgba(255,255,255,0.9)"
             />
           </div>
 
@@ -187,12 +189,13 @@ export default function Auth() {
               <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.85)', marginBottom: 6 }}>
                 Confirm password
               </label>
-              <input
+              <PasswordInput
                 className="fb-input"
-                type="password" required autoComplete="new-password"
+                required autoComplete="new-password"
                 value={confirm} onChange={e => setConfirm(e.target.value)}
                 placeholder="••••••••"
                 style={INPUT} onFocus={focusStyle} onBlur={blurStyle}
+                iconColor="rgba(255,255,255,0.55)" iconHoverColor="rgba(255,255,255,0.9)"
               />
             </div>
           )}

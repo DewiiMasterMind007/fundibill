@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext'
 import { useTrialStatus } from '../context/TrialContext'
 import { useAppData } from '../context/AppDataContext'
 import HelpButton from '../components/HelpButton'
+import PasswordInput from '../components/PasswordInput'
 import { generateTestEmail, PLAIN_TEXT_FOOTER } from '../lib/emailTemplates'
 import { sendEmail } from '../lib/sendEmail'
 import useIsMobile from '../hooks/useIsMobile'
@@ -1177,9 +1178,9 @@ export default function Settings() {
               </Field>
 
               <Field label="App Password" style={{ gridColumn: isMobile ? undefined : '1 / -1' }}>
-                <input
+                <PasswordInput
                   style={{ ...inp, maxWidth: isMobile ? undefined : 360, background: '#f1f5f9', color: '#94a3b8', cursor: 'not-allowed' }}
-                  type="password" value={form.smtp_password} placeholder="16-character app password"
+                  value={form.smtp_password} placeholder="16-character app password"
                   readOnly disabled
                 />
               </Field>
@@ -1247,8 +1248,8 @@ export default function Settings() {
             </Field>
 
             <Field label="SMTP Password">
-              <input
-                style={inp} type="password" value={form.smtp_password} placeholder="••••••••"
+              <PasswordInput
+                style={inp} value={form.smtp_password} placeholder="••••••••"
                 onChange={handleChange('smtp_password')}
                 onBlur={blurStyle} onFocus={focusStyle}
               />
