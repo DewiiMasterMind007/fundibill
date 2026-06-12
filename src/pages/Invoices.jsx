@@ -60,6 +60,43 @@ function StatusBadge({ status }) {
   )
 }
 
+function UndoButton({ onClick, title }) {
+  return (
+    <button
+      onClick={onClick}
+      title={title}
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 4,
+        padding: '3px 9px', borderRadius: 20, fontSize: 12, fontWeight: 600,
+        border: '1px solid #cbd5e1', background: '#fff', color: '#64748b',
+        cursor: 'pointer', fontFamily: 'inherit',
+      }}
+    >
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M3 7v6h6" /><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13" />
+      </svg>
+      Undo
+    </button>
+  )
+}
+
+function RevertConfirmModal({ message, onConfirm, onCancel, confirming }) {
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 3200 }}>
+      <div style={{ background: '#fff', borderRadius: 14, padding: 28, width: 380, maxWidth: '92vw', boxShadow: '0 20px 60px rgba(0,0,0,0.18)' }}>
+        <h3 style={{ margin: '0 0 10px', fontSize: 17, fontWeight: 700, color: '#0f172a' }}>Revert Status?</h3>
+        <p style={{ color: '#64748b', fontSize: 14, marginBottom: 22 }}>{message}</p>
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <button onClick={onCancel} disabled={confirming} style={{ padding: '9px 18px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', color: '#64748b', fontWeight: 600, fontSize: 14, cursor: confirming ? 'not-allowed' : 'pointer' }}>Cancel</button>
+          <button onClick={onConfirm} disabled={confirming} style={{ padding: '9px 18px', borderRadius: 8, border: 'none', background: '#64748b', color: '#fff', fontWeight: 600, fontSize: 14, cursor: confirming ? 'not-allowed' : 'pointer', opacity: confirming ? 0.7 : 1 }}>
+            {confirming ? 'Reverting…' : 'Confirm'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Mobile Invoice Card ──────────────────────────────────────────────────────
 
 function MobileInvoiceCard({ inv, onSelect, onOpenReminder, onMarkPaid, onDelete, isReadOnly }) {
@@ -162,7 +199,12 @@ function MobileInvoiceCard({ inv, onSelect, onOpenReminder, onMarkPaid, onDelete
       </div>
 
       {/* ── Status badge ── */}
-      <StatusBadge status={inv.status} />
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <StatusBadge status={inv.status} />
+        {inv.status === 'paid' && inv.payment_date && (
+          <span style={{ fontSize: 12, fontWeight: 600, color: '#15803d' }}>Paid: {inv.payment_date}</span>
+        )}
+      </div>
     </div>
   )
 }
@@ -383,6 +425,7 @@ function MarkAsPaidEmailModal({ invoiceNumber, amount, clientName, clientEmail, 
   const [to,      setTo]      = useState(clientEmail || '')
   const [subject, setSubject] = useState(`Payment Received — Invoice ${invoiceNumber}`)
   const [message, setMessage] = useState(buildDefaultMessage)
+  const [paymentDate, setPaymentDate] = useState(todayStr())
 
   // Escape key
   useEffect(() => {
@@ -417,6 +460,11 @@ function MarkAsPaidEmailModal({ invoiceNumber, amount, clientName, clientEmail, 
           <p style={{ margin: 0, fontSize: 14, color: '#334155', lineHeight: 1.6 }}>
             Mark invoice <strong>{invoiceNumber}</strong> for <strong>{clientName || 'this client'}</strong> as paid?
           </p>
+
+          <div>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#64748b', marginBottom: 5 }}>Payment Date</label>
+            <input value={paymentDate} onChange={e => setPaymentDate(e.target.value)} type="date" style={iStyle} />
+          </div>
 
           {hasEmail && (
             <label style={{ display: 'flex', alignItems: 'center', gap: 9, fontSize: 13, fontWeight: 500, color: '#0f172a', cursor: 'pointer' }}>
@@ -456,7 +504,7 @@ function MarkAsPaidEmailModal({ invoiceNumber, amount, clientName, clientEmail, 
             Cancel
           </button>
           <button
-            onClick={() => onConfirm({ sendEmail: hasEmail && sendEmailFlag, to: to.trim(), subject: subject.trim(), message: message.trim() })}
+            onClick={() => onConfirm({ sendEmail: hasEmail && sendEmailFlag, to: to.trim(), subject: subject.trim(), message: message.trim(), paymentDate })}
             disabled={saving}
             style={{ padding: '9px 22px', borderRadius: 8, border: 'none', background: '#16a34a', color: '#fff', fontWeight: 600, fontSize: 14, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1 }}>
             {saving ? 'Marking…' : 'Mark as Paid'}
@@ -491,6 +539,8 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
       vat_enabled:    invoice?.vat_enabled ?? false,
       amount_paid:    invoice?.amount_paid ?? 0,
       status:         invoice?.status || 'draft',
+      payment_date:    invoice?.payment_date || '',
+      previous_status: invoice?.previous_status || null,
     }
   })
 
@@ -512,6 +562,8 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
   const [pendingPaymentMethod, setPendingPaymentMethod] = useState(null)
   const [showMarkPaidEmailModal, setShowMarkPaidEmailModal] = useState(false)
   const [sendingPaymentEmail, setSendingPaymentEmail] = useState(false)
+  const [undoTarget, setUndoTarget] = useState(null) // 'paid' | 'sent' | null
+  const [undoing, setUndoing] = useState(false)
 
   const selectedClient = [...clients, ...extraClients].find(c => c.id === form.client_id)
 
@@ -551,9 +603,15 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
   // Sync status and amount_paid when the invoice prop updates (e.g. after mark-as-sent/paid)
   useEffect(() => {
     if (invoice) {
-      setForm(p => ({ ...p, status: invoice.status, amount_paid: invoice.amount_paid ?? 0 }))
+      setForm(p => ({
+        ...p,
+        status:          invoice.status,
+        amount_paid:     invoice.amount_paid ?? 0,
+        payment_date:    invoice.payment_date || '',
+        previous_status: invoice.previous_status || null,
+      }))
     }
-  }, [invoice?.status, invoice?.amount_paid])
+  }, [invoice?.status, invoice?.amount_paid, invoice?.payment_date, invoice?.previous_status])
 
   // VAT-inclusive: unit_price is the price the client pays (VAT already inside)
   const grossTotal = lineItems.reduce((s, li) => s + (Number(li.quantity) || 0) * (Number(li.unit_price) || 0), 0)
@@ -639,6 +697,10 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
       status:         overrideStatus || form.status,
     }
 
+    if (overrideStatus && overrideStatus !== form.status) {
+      payload.previous_status = form.status
+    }
+
     const items = lineItems
       .filter(li => li.item_name.trim())
       .map(li => ({
@@ -709,23 +771,26 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
     }
   }
 
-  async function confirmMarkAsPaid(paymentMethod) {
+  async function confirmMarkAsPaid(paymentMethod, paymentDate) {
     setShowPayModal(false)
     setMarkingPaid(true)
+    const payDate = paymentDate || todayStr()
     try {
       const { error } = await supabase
         .from('invoices')
         .update({
-          status:         'paid',
-          payment_method: paymentMethod,
-          paid_at:        new Date().toISOString(),
-          amount_paid:    total,
+          status:          'paid',
+          payment_method:  paymentMethod,
+          paid_at:         new Date().toISOString(),
+          amount_paid:     total,
+          payment_date:    payDate,
+          previous_status: form.status,
         })
         .eq('id', invoice.id)
         .eq('user_id', user.id)
       setMarkingPaid(false)
       if (error) throw new Error(error.message)
-      onSaved({ id: invoice.id, status: 'paid', amount_paid: total })
+      onSaved({ id: invoice.id, status: 'paid', amount_paid: total, payment_date: payDate, previous_status: form.status })
     } catch (e) {
       setMarkingPaid(false)
       setErrors({ _global: e.message })
@@ -735,11 +800,11 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
   // Called from the "Mark Invoice as Paid" thank-you-email modal. Marks the
   // invoice as paid (unchanged logic above), then optionally sends a payment
   // confirmation email via the user's configured SMTP/relay.
-  async function handleConfirmMarkPaidWithEmail({ sendEmail: shouldSend, to, subject, message }) {
+  async function handleConfirmMarkPaidWithEmail({ sendEmail: shouldSend, to, subject, message, paymentDate }) {
     setShowMarkPaidEmailModal(false)
     const paymentMethod = pendingPaymentMethod
     setPendingPaymentMethod(null)
-    await confirmMarkAsPaid(paymentMethod)
+    await confirmMarkAsPaid(paymentMethod, paymentDate)
 
     if (!shouldSend) return
 
@@ -782,6 +847,7 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
         total,
         amount_paid:    total,
         status:         'paid',
+        payment_date:   paymentDate || todayStr(),
         client_name:    selectedClient?.name || '',
         client_company: selectedClient?.company_name || '',
         client_email:   selectedClient?.email || '',
@@ -831,6 +897,32 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
     } catch (e) { setDeleting(false); setErrors({ _global: e.message }) }
   }
 
+  async function handleUndo() {
+    if (!undoTarget) return
+    setUndoing(true)
+    try {
+      const revertPayload = { status: form.previous_status, previous_status: null }
+      if (undoTarget === 'paid') {
+        revertPayload.payment_date   = null
+        revertPayload.payment_method = null
+      } else if (undoTarget === 'sent') {
+        revertPayload.sent_from_app = false
+      }
+      const { error } = await supabase
+        .from('invoices')
+        .update(revertPayload)
+        .eq('id', invoice.id)
+        .eq('user_id', user.id)
+      setUndoing(false)
+      setUndoTarget(null)
+      if (error) { setErrors({ _global: error.message }); return }
+      onSaved({ id: invoice.id, ...revertPayload })
+    } catch (e) {
+      setUndoing(false)
+      setErrors({ _global: e.message })
+    }
+  }
+
   const [pdfOpen, setPdfOpen] = useState(false)
   const isMobile = useIsMobile()
 
@@ -867,7 +959,20 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
           <h2 style={{ fontSize: isMobile ? 15 : 16, fontWeight: 700, color: '#0f172a', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {isNew ? 'New Invoice' : `Invoice ${form.invoice_number}`}
           </h2>
-          {!isNew && <StatusBadge status={form.status} />}
+          {!isNew && (
+            <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'flex-start' : 'center', gap: isMobile ? 4 : 8, flexShrink: 0 }}>
+              <StatusBadge status={form.status} />
+              {form.status === 'paid' && form.previous_status && (
+                <UndoButton title="Undo Mark as Paid" onClick={() => setUndoTarget('paid')} />
+              )}
+              {form.status === 'sent' && form.previous_status && (
+                <UndoButton title="Undo Mark as Sent" onClick={() => setUndoTarget('sent')} />
+              )}
+              {isPaid && form.payment_date && (
+                <span style={{ fontSize: 12, fontWeight: 600, color: '#15803d' }}>Paid on: {form.payment_date}</span>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Desktop: full action buttons in header */}
@@ -1246,6 +1351,7 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
           total,
           amount_paid:    Number(form.amount_paid) || 0,
           status:         form.status,
+          payment_date:   form.payment_date,
           client_name:    selectedClient?.name || '',
           client_company: selectedClient?.company_name || '',
           client_email:   selectedClient?.email || '',
@@ -1316,6 +1422,16 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
           saving={markingPaid || sendingPaymentEmail}
           onConfirm={handleConfirmMarkPaidWithEmail}
           onCancel={() => { setShowMarkPaidEmailModal(false); setPendingPaymentMethod(null) }}
+        />
+      )}
+
+      {/* Revert status confirmation modal */}
+      {undoTarget && (
+        <RevertConfirmModal
+          message={`Revert this invoice back to ${STATUS_META[form.previous_status]?.label || form.previous_status}?`}
+          onConfirm={handleUndo}
+          onCancel={() => setUndoTarget(null)}
+          confirming={undoing}
         />
       )}
 
@@ -2136,8 +2252,8 @@ function ListView({ invoices, onNew, onRecurring, onSelect, onOpenReminder, onMa
       ) : (
         /* Desktop: table (unchanged) */
         <div className="invoices-table" style={{ background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.04)', overflow: 'hidden', flex: 1, display: 'flex', flexDirection: 'column' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr 110px 110px 120px 110px 32px', padding: '12px 20px', borderBottom: '1px solid #f1f5f9', background: '#f8fafc', flexShrink: 0 }}>
-            {['Invoice #', 'Client', 'Issue Date', 'Due Date', 'Total', 'Status', ''].map(h => (
+          <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr 110px 110px 120px 110px 100px 32px', padding: '12px 20px', borderBottom: '1px solid #f1f5f9', background: '#f8fafc', flexShrink: 0 }}>
+            {['Invoice #', 'Client', 'Issue Date', 'Due Date', 'Total', 'Status', 'Paid Date', ''].map(h => (
               <span key={h} style={{ fontSize: 12, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</span>
             ))}
           </div>
@@ -2145,7 +2261,7 @@ function ListView({ invoices, onNew, onRecurring, onSelect, onOpenReminder, onMa
             {filtered.length === 0 ? emptyState : (
               filtered.map(inv => (
                 <div key={inv.id} onClick={() => onSelect(inv)}
-                  style={{ display: 'grid', gridTemplateColumns: '140px 1fr 110px 110px 120px 110px 32px', padding: '14px 20px', borderBottom: '1px solid #f9fafb', cursor: 'pointer', alignItems: 'center' }}
+                  style={{ display: 'grid', gridTemplateColumns: '140px 1fr 110px 110px 120px 110px 100px 32px', padding: '14px 20px', borderBottom: '1px solid #f9fafb', cursor: 'pointer', alignItems: 'center' }}
                   onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
                   onMouseLeave={e => e.currentTarget.style.background = '#fff'}>
                   <span style={{ fontSize: 13, fontWeight: 600, color: '#0f172a' }}>{inv.invoice_number}</span>
@@ -2157,6 +2273,9 @@ function ListView({ invoices, onNew, onRecurring, onSelect, onOpenReminder, onMa
                   <span style={{ fontSize: 13, color: inv.status === 'overdue' ? '#dc2626' : '#475569', fontWeight: inv.status === 'overdue' ? 600 : 400 }}>{inv.due_date || '—'}</span>
                   <span style={{ fontSize: 13, fontWeight: 600, color: '#0f172a' }}>{fmt(inv.total)}</span>
                   <StatusBadge status={inv.status} />
+                  <span style={{ fontSize: 12, fontWeight: 600, color: '#15803d' }}>
+                    {inv.status === 'paid' && inv.payment_date ? `Paid: ${inv.payment_date}` : ''}
+                  </span>
                   {inv.status !== 'paid' && inv.status !== 'draft' && inv.due_date && inv.due_date < todayStr() ? (
                     <span
                       onClick={e => { e.stopPropagation(); onOpenReminder(inv) }}
@@ -2325,13 +2444,14 @@ export default function Invoices() {
   function handleReminderSent() { setToast({ message: 'Reminder sent successfully.', type: 'success' }) }
 
   // ── Mobile list-action: mark as paid ─────────────────────────────────────
-  async function confirmMarkPaidFromList(paymentMethod) {
+  async function confirmMarkPaidFromList(paymentMethod, paymentDate) {
     const inv = markPaidListInv
     setMarkPaidListInv(null)
     if (!inv) return
+    const payDate = paymentDate || todayStr()
     const { error } = await supabase
       .from('invoices')
-      .update({ status: 'paid', payment_method: paymentMethod, paid_at: new Date().toISOString(), amount_paid: inv.total })
+      .update({ status: 'paid', payment_method: paymentMethod, paid_at: new Date().toISOString(), amount_paid: inv.total, payment_date: payDate, previous_status: inv.status })
       .eq('id', inv.id).eq('user_id', user.id)
     if (error) { setToast({ message: error.message, type: 'error' }) }
     else { await load(); setToast({ message: 'Invoice marked as paid.', type: 'success' }) }
@@ -2340,12 +2460,12 @@ export default function Invoices() {
   // Called from the "Mark Invoice as Paid" thank-you-email modal (mobile list
   // flow). Marks the invoice as paid (unchanged logic above), then optionally
   // sends a payment confirmation email via the user's configured SMTP/relay.
-  async function handleConfirmMarkPaidWithEmailFromList({ sendEmail: shouldSend, to, subject, message }) {
+  async function handleConfirmMarkPaidWithEmailFromList({ sendEmail: shouldSend, to, subject, message, paymentDate }) {
     const inv = markPaidListInv
     const paymentMethod = pendingMarkPaidMethod
     setShowMarkPaidEmailModalList(false)
     setPendingMarkPaidMethod(null)
-    await confirmMarkPaidFromList(paymentMethod)
+    await confirmMarkPaidFromList(paymentMethod, paymentDate)
 
     if (!shouldSend || !inv) return
 
@@ -2387,6 +2507,7 @@ export default function Invoices() {
           ...inv,
           amount_paid:    inv.total,
           status:         'paid',
+          payment_date:   paymentDate || todayStr(),
           client_name:    client?.name || '',
           client_company: client?.company_name || '',
           client_email:   client?.email || '',

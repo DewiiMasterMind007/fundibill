@@ -45,6 +45,43 @@ function StatusBadge({ status }) {
   )
 }
 
+function UndoButton({ onClick, title }) {
+  return (
+    <button
+      onClick={onClick}
+      title={title}
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 4,
+        padding: '3px 9px', borderRadius: 20, fontSize: 12, fontWeight: 600,
+        border: '1px solid #cbd5e1', background: '#fff', color: '#64748b',
+        cursor: 'pointer', fontFamily: 'inherit',
+      }}
+    >
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M3 7v6h6" /><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13" />
+      </svg>
+      Undo
+    </button>
+  )
+}
+
+function RevertConfirmModal({ message, onConfirm, onCancel, confirming }) {
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 3200 }}>
+      <div style={{ background: '#fff', borderRadius: 14, padding: 28, width: 380, maxWidth: '92vw', boxShadow: '0 20px 60px rgba(0,0,0,0.18)' }}>
+        <h3 style={{ margin: '0 0 10px', fontSize: 17, fontWeight: 700, color: '#0f172a' }}>Revert Status?</h3>
+        <p style={{ color: '#64748b', fontSize: 14, marginBottom: 22 }}>{message}</p>
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <button onClick={onCancel} disabled={confirming} style={{ padding: '9px 18px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', color: '#64748b', fontWeight: 600, fontSize: 14, cursor: confirming ? 'not-allowed' : 'pointer' }}>Cancel</button>
+          <button onClick={onConfirm} disabled={confirming} style={{ padding: '9px 18px', borderRadius: 8, border: 'none', background: '#64748b', color: '#fff', fontWeight: 600, fontSize: 14, cursor: confirming ? 'not-allowed' : 'pointer', opacity: confirming ? 0.7 : 1 }}>
+            {confirming ? 'Reverting…' : 'Confirm'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Mobile Estimate Card ─────────────────────────────────────────────────────
 
 function MobileEstimateCard({ est, onSelect, onApprove, onDelete, isReadOnly }) {
@@ -432,6 +469,7 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
       notes: estimate?.notes || '',
       vat_enabled: estimate?.vat_enabled ?? false,
       status: estimate?.status || 'draft',
+      previous_status: estimate?.previous_status || null,
     }
   })
 
@@ -449,6 +487,8 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
   const [deleting, setDeleting] = useState(false)
   const [pdfOpen, setPdfOpen] = useState(false)
   const [showEmailModal, setShowEmailModal] = useState(false)
+  const [undoApprove, setUndoApprove] = useState(false)
+  const [undoing, setUndoing] = useState(false)
 
   // Generate estimate number for new estimates
   useEffect(() => {
@@ -484,8 +524,8 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
 
   // Sync status from prop when it changes (e.g. after save refreshes parent)
   useEffect(() => {
-    if (estimate) setForm(p => ({ ...p, status: estimate.status }))
-  }, [estimate?.status])
+    if (estimate) setForm(p => ({ ...p, status: estimate.status, previous_status: estimate.previous_status || null }))
+  }, [estimate?.status, estimate?.previous_status])
 
   // VAT-inclusive: unit_price is the price the client pays (VAT already inside)
   const grossTotal = lineItems.reduce((s, i) => s + (Number(i.quantity) || 0) * (Number(i.unit_price) || 0), 0)
@@ -732,10 +772,10 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
         await supabase.from('invoice_items').insert(items.map(i => ({ ...i, invoice_id: inv.id })))
       }
 
-      // Mark estimate as converted
+      // Mark estimate as converted, linking to the new invoice
       await supabase
         .from('estimates')
-        .update({ status: 'converted' })
+        .update({ status: 'converted', converted_invoice_id: inv.id })
         .eq('id', estimateId)
 
       setSaving(false)
@@ -759,6 +799,24 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
       else onDeleted()
     } catch (e) {
       setDeleting(false)
+      setErrors({ _global: e.message })
+    }
+  }
+
+  async function handleUndoApprove() {
+    setUndoing(true)
+    try {
+      const { error } = await supabase
+        .from('estimates')
+        .update({ status: form.previous_status, previous_status: null })
+        .eq('id', estimate.id)
+        .eq('user_id', user.id)
+      setUndoing(false)
+      setUndoApprove(false)
+      if (error) { setErrors({ _global: error.message }); return }
+      onSaved({ id: estimate.id, status: form.previous_status, previous_status: null })
+    } catch (e) {
+      setUndoing(false)
       setErrors({ _global: e.message })
     }
   }
@@ -798,7 +856,27 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
           <h2 style={{ fontSize: isMobile ? 15 : 16, fontWeight: 700, color: '#0f172a', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {isNew ? 'New Estimate' : `Estimate ${form.estimate_number}`}
           </h2>
-          {!isNew && <StatusBadge status={form.status} />}
+          {!isNew && (
+            <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'flex-start' : 'center', gap: isMobile ? 4 : 8, flexShrink: 0 }}>
+              <StatusBadge status={form.status} />
+              {form.status === 'approved' && form.previous_status && (
+                <UndoButton title="Undo Approve" onClick={() => setUndoApprove(true)} />
+              )}
+              {form.status === 'converted' && (
+                <button
+                  onClick={() => estimate?.converted_invoice_id && navigate('/invoices', { state: { openId: estimate.converted_invoice_id } })}
+                  disabled={!estimate?.converted_invoice_id}
+                  style={{
+                    background: 'none', border: 'none', padding: 0, fontSize: 12, fontWeight: 600,
+                    color: '#7c3aed', textDecoration: 'underline', cursor: estimate?.converted_invoice_id ? 'pointer' : 'default',
+                    fontFamily: 'inherit',
+                  }}
+                >
+                  Converted — view invoice
+                </button>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Desktop: full action buttons in header */}
@@ -1125,6 +1203,16 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
             </div>
           </div>
         </div>
+      )}
+
+      {/* Revert status confirmation modal */}
+      {undoApprove && (
+        <RevertConfirmModal
+          message={`Revert this estimate back to ${STATUS_META[form.previous_status]?.label || form.previous_status}?`}
+          onConfirm={handleUndoApprove}
+          onCancel={() => setUndoApprove(false)}
+          confirming={undoing}
+        />
       )}
 
       {/* Add Client modal */}
@@ -1455,7 +1543,7 @@ export default function Estimates() {
     setApproveListEst(null)
     const { error } = await supabase
       .from('estimates')
-      .update({ status: 'approved' })
+      .update({ status: 'approved', previous_status: est.status })
       .eq('id', est.id)
       .eq('user_id', user.id)
     if (error) { setToast({ message: error.message, type: 'error' }) }

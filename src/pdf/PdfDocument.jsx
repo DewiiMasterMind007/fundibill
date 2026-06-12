@@ -189,7 +189,9 @@ export function PdfDocument({ data, settings, docType }) {
   const LOGO_H    = 80   // logo image (72pt) + its marginBottom (8pt)
   const BIZ_NAME  = 22   // fontSize:15 ~18pt + marginBottom:4
   const LINE_H    = 13   // each bizDetail line: fontSize:9 ~11pt + marginBottom:2
-  const RIGHT_COL = 95   // docLabel 48pt + 3 MetaRows ~15pt each
+  const META_ROW  = 15   // each MetaRow: fontSize:9 ~11pt + marginBottom:4
+  const showPaymentDate = isInvoice && isPaid && !!data.payment_date
+  const RIGHT_COL = 95 + (showPaymentDate ? META_ROW : 0)  // docLabel 48pt + MetaRows ~15pt each
 
   const addressLineCount = settings?.business_address
     ? settings.business_address.split('\n').filter(l => l.trim()).length
@@ -258,6 +260,12 @@ export function PdfDocument({ data, settings, docType }) {
               <MetaRow label={isInvoice ? 'Invoice #' : 'Estimate #'} value={docNumber} />
               <MetaRow label="Issue Date"    value={data.issue_date} />
               <MetaRow label={secDateLabel}  value={secDate} />
+              {showPaymentDate && (
+                <View style={S.metaRow}>
+                  <Text style={S.metaLabel}>Payment Date</Text>
+                  <Text style={[S.metaVal, { color: C.green }]}>{data.payment_date}</Text>
+                </View>
+              )}
             </View>
           </View>
 
