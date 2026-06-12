@@ -52,6 +52,20 @@ export default defineConfig({
     }),
   ],
 
+  resolve: {
+    alias: {
+      buffer: 'buffer',
+    },
+  },
+
+  define: {
+    global: 'globalThis',
+  },
+
+  optimizeDeps: {
+    include: ['buffer'],
+  },
+
   build: {
     outDir: 'dist/renderer',
     emptyOutDir: true,

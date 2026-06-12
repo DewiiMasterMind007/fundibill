@@ -237,18 +237,18 @@ export function PdfDocument({ data, settings, docType }) {
           {/* Business info (left)  |  Doc type + meta (right) */}
           <View style={S.header}>
             <View style={S.headerLeft}>
-              {logoSrc && <Image src={logoSrc} style={S.logo} />}
+              {!!logoSrc && <Image src={logoSrc} style={S.logo} />}
               <Text style={S.bizName}>{settings?.business_name || 'Your Business'}</Text>
-              {settings?.business_address && (
+              {!!settings?.business_address && (
                 <Text style={S.bizDetail}>{settings.business_address}</Text>
               )}
-              {settings?.email && (
+              {!!settings?.email && (
                 <Text style={S.bizDetail}>{settings.email}</Text>
               )}
-              {settings?.phone && (
+              {!!settings?.phone && (
                 <Text style={S.bizDetail}>{settings.phone}</Text>
               )}
-              {settings?.vat_number && (
+              {!!settings?.vat_number && (
                 <Text style={S.bizDetail}>VAT: {settings.vat_number}</Text>
               )}
             </View>
@@ -316,9 +316,9 @@ export function PdfDocument({ data, settings, docType }) {
         <View style={S.billToSection}>
           <Text style={[S.sectionLabel, D.sectionLabel]}>Bill To</Text>
           <Text style={S.clientName}>{data.client_company || data.client_name || '—'}</Text>
-          {data.client_address && <Text style={S.clientDetail}>{data.client_address}</Text>}
-          {data.client_email   && <Text style={S.clientDetail}>{data.client_email}</Text>}
-          {data.client_phone   && <Text style={S.clientDetail}>{data.client_phone}</Text>}
+          {!!data.client_address && <Text style={S.clientDetail}>{data.client_address}</Text>}
+          {!!data.client_email   && <Text style={S.clientDetail}>{data.client_email}</Text>}
+          {!!data.client_phone   && <Text style={S.clientDetail}>{data.client_phone}</Text>}
         </View>
 
         {/* ── Line items table ─────────────────────────────────────────────── */}
@@ -403,10 +403,10 @@ export function PdfDocument({ data, settings, docType }) {
           }}
         >
           {/* Banking Details (left) | Terms & Conditions (right) */}
-          {(bankingText || settings?.terms) && (
+          {!!(bankingText || settings?.terms) && (
             <View style={S.footColumns}>
               <View style={S.footColLeft}>
-                {bankingText && (
+                {!!bankingText && (
                   <>
                     <Text style={[S.footSecLabel, D.footSecLabel]}>Banking Details</Text>
                     <Text style={S.footText}>{bankingText}</Text>
@@ -414,7 +414,7 @@ export function PdfDocument({ data, settings, docType }) {
                 )}
               </View>
               <View style={S.footColRight}>
-                {settings?.terms && (
+                {!!settings?.terms && (
                   <>
                     <Text style={[S.footSecLabelR, D.footSecLabelR]}>Terms & Conditions</Text>
                     <Text style={S.footTextRight}>{settings.terms}</Text>

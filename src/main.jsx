@@ -1,3 +1,10 @@
+import { Buffer } from 'buffer'
+
+// @react-pdf/renderer's browser bundle references the Node Buffer global
+// (e.g. for image/font decoding) — polyfill it before anything else loads.
+window.Buffer = Buffer
+globalThis.Buffer = Buffer
+
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App'

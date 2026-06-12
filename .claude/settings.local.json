@@ -33,7 +33,9 @@
       "Bash(grep -rn \"pdfjs\\\\|react-pdf\\\\b\\\\|GlobalWorkerOptions\" src/ package.json)",
       "Bash(ls vercel.json)",
       "Bash(grep -l \"Buffer\" node_modules/@react-pdf/renderer/lib/*.js node_modules/@react-pdf/font/lib/*.js node_modules/fontkit/dist/*.js node_modules/restructure/dist/*.js)",
-      "Bash(ls node_modules/buffer)"
+      "Bash(ls node_modules/buffer)",
+      "Bash(npx --yes esbuild --bundle src/pdf/PdfDocument.jsx --jsx=automatic --outfile=/tmp/pdfdoc.js --external:*)",
+      "Bash(npx --yes esbuild --bundle src/main.jsx --jsx=automatic --outfile=/tmp/main.js --external:*)"
     ]
   }
 }
