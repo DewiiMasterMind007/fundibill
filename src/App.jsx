@@ -269,10 +269,12 @@ function AuthenticatedApp() {
             </div>
             <main style={{
               flex:          1,
-              overflow:      'auto',
+              overflowY:     'auto',
+              overflowX:     'hidden',
               background:    '#f8fafc',
               display:       'flex',
               flexDirection: 'column',
+              paddingBottom: 40,
             }}>
               {appRoutes}
             </main>
