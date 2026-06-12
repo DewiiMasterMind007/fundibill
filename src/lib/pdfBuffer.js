@@ -28,6 +28,13 @@ export async function buildPdfBuffer(data, settings, docType) {
   ])
 
   const element = React.createElement(PdfDocument, { data, settings: settingsWithLogo, docType })
-  const blob    = await pdf(element).toBlob()
-  return blob.arrayBuffer()
+
+  try {
+    const blob = await pdf(element).toBlob()
+    console.log('[PDF] blob generated, size:', blob.size)
+    return blob.arrayBuffer()
+  } catch (err) {
+    console.error('[PDF] generation failed:', err)
+    throw new Error('PDF generation failed: ' + err.message)
+  }
 }
