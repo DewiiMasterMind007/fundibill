@@ -280,6 +280,26 @@ export default function Dashboard() {
 
   const showPaymentMethods = paymentMethods.length > 1
 
+  // ── Expenses by category (filtered to the active period) ───────────────────
+  const expensesByCategory = (() => {
+    const inPeriodExpenses = expenses.filter(e => {
+      const d = e.date
+      if (!d) return false
+      if (d < fromDate) return false
+      if (toDate && d > toDate) return false
+      return true
+    })
+    if (inPeriodExpenses.length === 0) return []
+    const map = {}
+    for (const exp of inPeriodExpenses) {
+      const cat = exp.category || 'Uncategorized'
+      if (!map[cat]) map[cat] = { category: cat, count: 0, total: 0 }
+      map[cat].count++
+      map[cat].total += Number(exp.amount) || 0
+    }
+    return Object.values(map).sort((a, b) => b.total - a.total)
+  })()
+
   // ── Recent invoices ─────────────────────────────────────────────────────────
   const recentInvoices = [...invoices]
     .sort((a, b) => ((b.issue_date || b.created_at || '') > (a.issue_date || a.created_at || '') ? 1 : -1))
@@ -584,29 +604,63 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* ── Payments by Method ────────────────────────────────────────────── */}
-      {showPaymentMethods && (
+      {/* ── Payments by Method + Expenses by Category ───────────────────────── */}
+      <div style={{
+        display:             'grid',
+        gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
+        gap:                 isMobile ? 14 : 20,
+        marginBottom:        isMobile ? 14 : 20,
+      }}>
+        {showPaymentMethods && (
+          <div style={{
+            background: '#ffffff', borderRadius: 14,
+            padding:    isMobile ? 12 : '24px',
+            border: '1px solid #e2e8f0', boxShadow: '0 1px 4px rgba(0,0,0,0.05)',
+          }}>
+            <div style={{ marginBottom: isMobile ? 12 : 18 }}>
+              <h2 style={{ fontSize: 15, fontWeight: 700, color: '#0f172a', margin: 0 }}>Payments Received by Method</h2>
+              <p style={{ fontSize: 12, color: '#94a3b8', margin: '4px 0 0' }}>Paid invoices within the selected period · {periodLabel}</p>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(auto-fill, minmax(200px, 1fr))', gap: 12 }}>
+              {paymentMethods.map((pm, i) => (
+                <div key={pm.method} style={{ background: '#f8fafc', border: `1.5px solid ${METHOD_COLORS[i % METHOD_COLORS.length]}30`, borderRadius: 10, padding: '14px 18px' }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: METHOD_COLORS[i % METHOD_COLORS.length], textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>{pm.method}</div>
+                  <div style={{ fontSize: 20, fontWeight: 800, color: '#0f172a', letterSpacing: '-0.5px' }}>{fmtZAR(pm.total)}</div>
+                  <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 3 }}>{pm.count} payment{pm.count !== 1 ? 's' : ''}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Expenses by Category */}
         <div style={{
           background: '#ffffff', borderRadius: 14,
           padding:    isMobile ? 12 : '24px',
           border: '1px solid #e2e8f0', boxShadow: '0 1px 4px rgba(0,0,0,0.05)',
-          marginBottom: isMobile ? 14 : 20,
         }}>
           <div style={{ marginBottom: isMobile ? 12 : 18 }}>
-            <h2 style={{ fontSize: 15, fontWeight: 700, color: '#0f172a', margin: 0 }}>Payments Received by Method</h2>
-            <p style={{ fontSize: 12, color: '#94a3b8', margin: '4px 0 0' }}>Paid invoices within the selected period · {periodLabel}</p>
+            <h2 style={{ fontSize: 15, fontWeight: 700, color: '#0f172a', margin: 0 }}>Expenses by Category</h2>
+            <p style={{ fontSize: 12, color: '#94a3b8', margin: '4px 0 0' }}>Recorded expenses within the selected period</p>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(auto-fill, minmax(200px, 1fr))', gap: 12 }}>
-            {paymentMethods.map((pm, i) => (
-              <div key={pm.method} style={{ background: '#f8fafc', border: `1.5px solid ${METHOD_COLORS[i % METHOD_COLORS.length]}30`, borderRadius: 10, padding: '14px 18px' }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: METHOD_COLORS[i % METHOD_COLORS.length], textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>{pm.method}</div>
-                <div style={{ fontSize: 20, fontWeight: 800, color: '#0f172a', letterSpacing: '-0.5px' }}>{fmtZAR(pm.total)}</div>
-                <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 3 }}>{pm.count} payment{pm.count !== 1 ? 's' : ''}</div>
-              </div>
-            ))}
-          </div>
+          {expensesByCategory.length === 0 ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '24px 0', color: '#94a3b8' }}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#cbd5e1" strokeWidth="1.5"><polyline points="20 6 9 17 4 12"/></svg>
+              <span style={{ fontSize: 13 }}>No expenses recorded yet — you&apos;re all caught up!</span>
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(auto-fill, minmax(200px, 1fr))', gap: 12 }}>
+              {expensesByCategory.map((ec, i) => (
+                <div key={ec.category} style={{ background: '#f8fafc', border: `1.5px solid ${METHOD_COLORS[i % METHOD_COLORS.length]}30`, borderRadius: 10, padding: '14px 18px' }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: METHOD_COLORS[i % METHOD_COLORS.length], textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>{ec.category}</div>
+                  <div style={{ fontSize: 20, fontWeight: 800, color: '#0f172a', letterSpacing: '-0.5px' }}>{fmtZAR(ec.total)}</div>
+                  <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 3 }}>{ec.count} expense{ec.count !== 1 ? 's' : ''}</div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
-      )}
+      </div>
 
       {/* ── Outstanding Invoices ──────────────────────────────────────────── */}
       {(() => {
