@@ -1870,6 +1870,28 @@ function ReminderModal({ invoice, clients, settings, onClose, onReminderSent }) 
         customMessage: message.trim(),
       })
 
+      // Build a PDF of the invoice to attach to the reminder
+      let pdfBuffer
+      try {
+        const { data: itemsData } = await supabase
+          .from('invoice_items')
+          .select('*')
+          .eq('invoice_id', invoice.id)
+
+        const pdfData = {
+          ...invoice,
+          client_name:    client?.name || '',
+          client_company: client?.company_name || '',
+          client_email:   client?.email || '',
+          client_phone:   client?.phone || '',
+          client_address: client?.address || '',
+          items:          itemsData ?? [],
+        }
+        pdfBuffer = await buildPdfBuffer(pdfData, settings, 'INVOICE')
+      } catch (_) {
+        pdfBuffer = undefined
+      }
+
       const res = await sendEmail({
         to:           to.trim(),
         subject:      subject.trim(),
@@ -1881,6 +1903,8 @@ function ReminderModal({ invoice, clients, settings, onClose, onReminderSent }) 
         smtpPassword: smtp.password,
         smtpFromName: smtp.from_name,
         smtpFromEmail: smtp.user,
+        pdfBuffer,
+        fileName:     `Invoice-${invoice?.invoice_number || 'reminder'}.pdf`,
       })
 
       if (res?.success === false) throw new Error(res.error || 'Failed to send reminder.')
