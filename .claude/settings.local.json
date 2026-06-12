@@ -29,7 +29,9 @@
       "Bash(npx --yes esbuild --bundle src/pages/Settings.jsx --jsx=automatic --outfile=/tmp/out.js --external:*)",
       "Bash(grep -n \"banking_details\\\\|BANKING DETAILS\\\\|Section\\\\s*$\" src/pages/Settings.jsx)",
       "Bash(npx --yes esbuild --bundle src/pages/Invoices.jsx --jsx=automatic --outfile=/tmp/out2.js --external:*)",
-      "Bash(npx --yes esbuild --bundle src/lib/emailTemplates.js --outfile=/tmp/out3.js --external:*)"
+      "Bash(npx --yes esbuild --bundle src/lib/emailTemplates.js --outfile=/tmp/out3.js --external:*)",
+      "Bash(grep -rn \"pdfjs\\\\|react-pdf\\\\b\\\\|GlobalWorkerOptions\" src/ package.json)",
+      "Bash(ls vercel.json)"
     ]
   }
 }

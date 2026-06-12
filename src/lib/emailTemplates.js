@@ -347,18 +347,18 @@ export function generatePaymentConfirmationEmail({
 }) {
   const color = primaryColor || '#14b8a6'
 
+  // The default customMessage already includes its own "Dear ..." greeting
+  // and "Kind regards, ..." sign-off (see MarkAsPaidEmailModal), so — unlike
+  // the other templates — we render it as-is without an extra greeting or
+  // signature block to avoid duplication.
   const bodyHtml = `
-    <p style="font-size:15px;color:#0f172a;font-family:Arial,Helvetica,sans-serif;margin:0 0 20px;font-weight:600;">
-      Dear ${esc(clientName || 'Valued Client')},
-    </p>
     <p style="font-size:14px;color:#334155;font-family:Arial,Helvetica,sans-serif;margin:0;line-height:1.7;">
       ${nl2br(customMessage)}
     </p>
     ${summaryBox([
       ['Invoice Number', invoiceNumber || '—'],
       ['Amount Paid',    fmtAmount(amount)   ],
-    ], color)}
-    ${signature(businessName, businessEmail, businessPhone)}`
+    ], color)}`
 
   return baseTemplate({ primaryColor: color, logoUrl, businessName, bodyHtml })
 }

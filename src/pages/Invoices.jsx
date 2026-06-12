@@ -10,6 +10,7 @@ import { useAppData } from '../context/AppDataContext'
 import HelpButton from '../components/HelpButton'
 import { generateReminderEmail, generatePaymentConfirmationEmail, PLAIN_TEXT_FOOTER } from '../lib/emailTemplates'
 import { sendEmail } from '../lib/sendEmail'
+import { buildPdfBuffer } from '../lib/pdfBuffer'
 import useIsMobile from '../hooks/useIsMobile'
 
 const READONLY_MSG = 'Your trial has ended. Upgrade to continue.'
@@ -767,6 +768,34 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
         customMessage: message,
       })
 
+      // Build a PDF of the now-paid invoice (with PAID watermark) to attach
+      const pdfData = {
+        ...(invoice || {}),
+        invoice_number: form.invoice_number,
+        issue_date:     form.issue_date,
+        due_date:       form.due_date,
+        notes:          form.notes,
+        vat_enabled:    form.vat_enabled,
+        vat_rate:       form.vat_enabled ? 15 : 0,
+        subtotal,
+        vat_amount:     vatAmount,
+        total,
+        amount_paid:    total,
+        status:         'paid',
+        client_name:    selectedClient?.name || '',
+        client_company: selectedClient?.company_name || '',
+        client_email:   selectedClient?.email || '',
+        client_phone:   selectedClient?.phone || '',
+        client_address: selectedClient?.address || '',
+        items:          lineItems.filter(li => li.item_name.trim()),
+      }
+      let pdfBuffer
+      try {
+        pdfBuffer = await buildPdfBuffer(pdfData, settings, 'INVOICE')
+      } catch (_) {
+        pdfBuffer = undefined
+      }
+
       await sendEmail({
         to,
         subject,
@@ -778,6 +807,8 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
         smtpPassword:  smtp.password,
         smtpFromName:  smtp.from_name,
         smtpFromEmail: smtp.user,
+        pdfBuffer,
+        fileName: `Invoice-${form.invoice_number || 'paid'}.pdf`,
       })
     } catch (_) {
       // Non-fatal — the invoice has already been marked as paid.
@@ -2320,6 +2351,30 @@ export default function Invoices() {
         customMessage: message,
       })
 
+      // Build a PDF of the now-paid invoice (with PAID watermark) to attach
+      let pdfBuffer
+      try {
+        const { data: itemsData } = await supabase
+          .from('invoice_items')
+          .select('*')
+          .eq('invoice_id', inv.id)
+
+        const pdfData = {
+          ...inv,
+          amount_paid:    inv.total,
+          status:         'paid',
+          client_name:    client?.name || '',
+          client_company: client?.company_name || '',
+          client_email:   client?.email || '',
+          client_phone:   client?.phone || '',
+          client_address: client?.address || '',
+          items:          itemsData ?? [],
+        }
+        pdfBuffer = await buildPdfBuffer(pdfData, settings, 'INVOICE')
+      } catch (_) {
+        pdfBuffer = undefined
+      }
+
       await sendEmail({
         to,
         subject,
@@ -2331,6 +2386,8 @@ export default function Invoices() {
         smtpPassword:  smtp.password,
         smtpFromName:  smtp.from_name,
         smtpFromEmail: smtp.user,
+        pdfBuffer,
+        fileName: `Invoice-${inv.invoice_number || 'paid'}.pdf`,
       })
     } catch (_) {
       // Non-fatal — the invoice has already been marked as paid.
