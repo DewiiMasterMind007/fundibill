@@ -928,7 +928,7 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
   }
 
   async function handleSendWhatsApp() {
-    if (!selectedClient?.phone || waLoading) return
+    if (waLoading) return
     setWaToast(null)
     setWaLoading(true)
     try {
@@ -977,7 +977,7 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
 
       const result = await sendPdfViaWhatsApp({
         blob, filename, message,
-        phone: selectedClient.phone,
+        phone: selectedClient?.phone,
         title: `Invoice ${form.invoice_number} from ${businessName}`,
       })
 
@@ -1069,7 +1069,7 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
               </button>
             )}
             {!isNew && !isReadOnly && (
-              <WhatsAppButton phone={selectedClient?.phone} loading={waLoading} onClick={handleSendWhatsApp} />
+              <WhatsAppButton loading={waLoading} onClick={handleSendWhatsApp} />
             )}
             {!isReadOnly && !isNew && (form.status === 'sent' || form.status === 'overdue') && (
               <button onClick={() => setShowPayModal(true)} disabled={markingPaid} style={{ ...btnStyle('#15803d'), background: '#16a34a' }}>
@@ -1114,7 +1114,7 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
               </button>
             )}
             {!isNew && !isReadOnly && (
-              <WhatsAppButton phone={selectedClient?.phone} loading={waLoading} onClick={handleSendWhatsApp} icon />
+              <WhatsAppButton loading={waLoading} onClick={handleSendWhatsApp} icon />
             )}
             {!isReadOnly && !isNew && (
               <button onClick={() => setConfirmDelete(true)} title="Delete"
@@ -1364,7 +1364,7 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
                 </svg>
                 Send via Email
               </button>
-              <WhatsAppButton phone={selectedClient?.phone} loading={waLoading} onClick={handleSendWhatsApp} mobile />
+              <WhatsAppButton loading={waLoading} onClick={handleSendWhatsApp} mobile />
             </div>
           )}
           <div style={{ display: 'flex', gap: 10 }}>

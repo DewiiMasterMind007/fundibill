@@ -1,7 +1,8 @@
 // ── WhatsApp send button ──────────────────────────────────────────────────────
 //
 // Green "Send via WhatsApp" button used on the Invoice and Estimate detail
-// screens. Disabled (with a tooltip) when the client has no phone number.
+// screens. The user picks the WhatsApp contact themselves, so no client
+// phone number is required.
 //
 // Variants:
 //   - default: full button with label, used in desktop header / mobile bottom bar
@@ -17,10 +18,9 @@ function WhatsAppIcon({ size = 14 }) {
   )
 }
 
-export function WhatsAppButton({ phone, loading, onClick, icon = false, mobile = false }) {
-  const hasPhone = !!(phone && phone.trim())
-  const disabled = !hasPhone || loading
-  const title = hasPhone ? 'Send via WhatsApp' : 'Add a phone number to this client to send via WhatsApp'
+export function WhatsAppButton({ loading, onClick, icon = false, mobile = false }) {
+  const disabled = loading
+  const title = 'Send via WhatsApp'
 
   const spinner = (
     <span style={{
@@ -47,7 +47,6 @@ export function WhatsAppButton({ phone, loading, onClick, icon = false, mobile =
             background: disabled ? '#cbd5e1' : WHATSAPP_GREEN,
             color: '#fff', cursor: disabled ? 'not-allowed' : 'pointer',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            opacity: !hasPhone ? 0.6 : 1,
           }}
         >
           {loading ? spinner : <WhatsAppIcon size={15} />}
@@ -72,7 +71,6 @@ export function WhatsAppButton({ phone, loading, onClick, icon = false, mobile =
           display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
           fontFamily: 'inherit', width: mobile ? '100%' : undefined,
           flex: mobile ? 1 : undefined,
-          opacity: !hasPhone ? 0.6 : 1,
         }}
       >
         {loading ? spinner : <WhatsAppIcon size={mobile ? 16 : 14} />}

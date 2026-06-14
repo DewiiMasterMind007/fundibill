@@ -849,7 +849,7 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
   const [waToast, setWaToast] = useState(null)
 
   async function handleSendWhatsApp() {
-    if (!selectedClient?.phone || waLoading) return
+    if (waLoading) return
     setWaToast(null)
     setWaLoading(true)
     try {
@@ -896,7 +896,7 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
 
       const result = await sendPdfViaWhatsApp({
         blob, filename, message,
-        phone: selectedClient.phone,
+        phone: selectedClient?.phone,
         title: `Estimate ${form.estimate_number} from ${businessName}`,
       })
 
@@ -999,7 +999,7 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
               </button>
             )}
             {!isNew && !isReadOnly && (
-              <WhatsAppButton phone={selectedClient?.phone} loading={waLoading} onClick={handleSendWhatsApp} />
+              <WhatsAppButton loading={waLoading} onClick={handleSendWhatsApp} />
             )}
             {!isReadOnly && (
               <button onClick={() => handleSave()} disabled={saving} style={btnStyle('#14b8a6')}>
@@ -1039,7 +1039,7 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
               </button>
             )}
             {!isNew && !isReadOnly && (
-              <WhatsAppButton phone={selectedClient?.phone} loading={waLoading} onClick={handleSendWhatsApp} icon />
+              <WhatsAppButton loading={waLoading} onClick={handleSendWhatsApp} icon />
             )}
             {!isReadOnly && !isNew && (
               <button onClick={() => setConfirmDelete(true)} title="Delete"
@@ -1271,7 +1271,7 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
                 </svg>
                 Send via Email
               </button>
-              <WhatsAppButton phone={selectedClient?.phone} loading={waLoading} onClick={handleSendWhatsApp} mobile />
+              <WhatsAppButton loading={waLoading} onClick={handleSendWhatsApp} mobile />
             </div>
           )}
 
