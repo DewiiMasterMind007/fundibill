@@ -56,7 +56,7 @@ export default function Auth() {
 
   // Glass input style — white text on frosted background
   const INPUT = {
-    width: '100%', padding: '11px 14px', borderRadius: 10, fontSize: 14,
+    width: '100%', padding: '11px 14px', borderRadius: 10, fontSize: 16,
     background: 'rgba(255,255,255,0.15)',
     border: '1.5px solid rgba(255,255,255,0.30)',
     color: '#ffffff',
