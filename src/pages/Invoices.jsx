@@ -11,6 +11,8 @@ import HelpButton from '../components/HelpButton'
 import { generateReminderEmail, generatePaymentConfirmationEmail, PLAIN_TEXT_FOOTER } from '../lib/emailTemplates'
 import { sendEmail } from '../lib/sendEmail'
 import { buildPdfBuffer } from '../lib/pdfBuffer'
+import { sendPdfViaWhatsApp, buildInvoiceWhatsAppMessage } from '../lib/whatsapp'
+import { WhatsAppButton } from '../components/WhatsAppButton'
 import useIsMobile from '../hooks/useIsMobile'
 
 const READONLY_MSG = 'Your trial has ended. Upgrade to continue.'
@@ -564,6 +566,8 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
   const [sendingPaymentEmail, setSendingPaymentEmail] = useState(false)
   const [undoTarget, setUndoTarget] = useState(null) // 'paid' | 'sent' | null
   const [undoing, setUndoing] = useState(false)
+  const [waLoading, setWaLoading] = useState(false)
+  const [waToast, setWaToast] = useState(null)
 
   const selectedClient = [...clients, ...extraClients].find(c => c.id === form.client_id)
 
@@ -923,6 +927,69 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
     }
   }
 
+  async function handleSendWhatsApp() {
+    if (!selectedClient?.phone || waLoading) return
+    setWaToast(null)
+    setWaLoading(true)
+    try {
+      const pdfData = {
+        ...(invoice || {}),
+        invoice_number: form.invoice_number,
+        issue_date:     form.issue_date,
+        due_date:       form.due_date,
+        notes:          form.notes,
+        vat_enabled:    form.vat_enabled,
+        vat_rate:       form.vat_enabled ? 15 : 0,
+        subtotal,
+        vat_amount:     vatAmount,
+        total,
+        amount_paid:    Number(form.amount_paid) || 0,
+        status:         form.status,
+        payment_date:   form.payment_date,
+        client_name:    selectedClient?.name || '',
+        client_company: selectedClient?.company_name || '',
+        client_email:   selectedClient?.email || '',
+        client_phone:   selectedClient?.phone || '',
+        client_address: selectedClient?.address || '',
+        items:          lineItems.filter(li => li.item_name.trim()),
+      }
+
+      let arrayBuffer
+      try {
+        arrayBuffer = await buildPdfBuffer(pdfData, settings, 'INVOICE')
+      } catch {
+        setWaToast({ message: 'Could not generate PDF. Please try again.', type: 'error' })
+        setWaLoading(false)
+        return
+      }
+
+      const blob         = new Blob([arrayBuffer], { type: 'application/pdf' })
+      const filename     = `Invoice-${form.invoice_number || 'draft'}.pdf`
+      const businessName = settings?.business_name || ''
+      const clientName   = selectedClient?.company_name || selectedClient?.name || 'there'
+      const message = buildInvoiceWhatsAppMessage({
+        clientName,
+        invoiceNumber: form.invoice_number,
+        amount:        fmt(total),
+        dueDate:       form.due_date,
+        businessName,
+      })
+
+      const result = await sendPdfViaWhatsApp({
+        blob, filename, message,
+        phone: selectedClient.phone,
+        title: `Invoice ${form.invoice_number} from ${businessName}`,
+      })
+
+      if (result.status === 'fallback') {
+        setWaToast({ message: 'Your PDF has been downloaded. Attach it to the WhatsApp message.', type: 'success' })
+      }
+    } catch (e) {
+      setWaToast({ message: e.message || 'Could not open WhatsApp. Please check your browser settings.', type: 'error' })
+    }
+    setWaLoading(false)
+  }
+
   const [pdfOpen, setPdfOpen] = useState(false)
   const isMobile = useIsMobile()
 
@@ -1001,6 +1068,9 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
                 Send by Email
               </button>
             )}
+            {!isNew && !isReadOnly && (
+              <WhatsAppButton phone={selectedClient?.phone} loading={waLoading} onClick={handleSendWhatsApp} />
+            )}
             {!isReadOnly && !isNew && (form.status === 'sent' || form.status === 'overdue') && (
               <button onClick={() => setShowPayModal(true)} disabled={markingPaid} style={{ ...btnStyle('#15803d'), background: '#16a34a' }}>
                 {markingPaid ? 'Marking…' : 'Mark as Paid'}
@@ -1042,6 +1112,9 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
                   <polyline points="22,6 12,13 2,6"/>
                 </svg>
               </button>
+            )}
+            {!isNew && !isReadOnly && (
+              <WhatsAppButton phone={selectedClient?.phone} loading={waLoading} onClick={handleSendWhatsApp} icon />
             )}
             {!isReadOnly && !isNew && (
               <button onClick={() => setConfirmDelete(true)} title="Delete"
@@ -1280,6 +1353,20 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
           {errors._global && (
             <p style={{ color: '#ef4444', fontSize: 12, margin: '0 0 6px' }}>{errors._global}</p>
           )}
+          {/* Row 1: Send via Email / WhatsApp */}
+          {!isNew && !isReadOnly && (
+            <div style={{ display: 'flex', gap: 10, marginBottom: 10 }}>
+              <button onClick={() => setShowEmailModal(true)}
+                style={{ flex: 1, padding: '11px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontWeight: 600, fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontFamily: 'inherit' }}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                  <polyline points="22,6 12,13 2,6"/>
+                </svg>
+                Send via Email
+              </button>
+              <WhatsAppButton phone={selectedClient?.phone} loading={waLoading} onClick={handleSendWhatsApp} mobile />
+            </div>
+          )}
           <div style={{ display: 'flex', gap: 10 }}>
             {/* Cancel / Back */}
             <button onClick={onBack}
@@ -1396,6 +1483,11 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
           </>
         )
       })()}
+
+      {/* WhatsApp send toast */}
+      {waToast && (
+        <Toast message={waToast.message} type={waToast.type} onDone={() => setWaToast(null)} />
+      )}
 
       {/* Payment method modal */}
       {showPayModal && (

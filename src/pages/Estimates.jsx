@@ -7,6 +7,9 @@ import { useAuth } from '../context/AuthContext'
 import { useTrialStatus } from '../context/TrialContext'
 import { useAppData } from '../context/AppDataContext'
 import HelpButton from '../components/HelpButton'
+import { buildPdfBuffer } from '../lib/pdfBuffer'
+import { sendPdfViaWhatsApp, buildEstimateWhatsAppMessage } from '../lib/whatsapp'
+import { WhatsAppButton } from '../components/WhatsAppButton'
 import useIsMobile from '../hooks/useIsMobile'
 
 const READONLY_MSG = 'Your trial has ended. Upgrade to continue.'
@@ -65,16 +68,16 @@ function UndoButton({ onClick, title }) {
   )
 }
 
-function RevertConfirmModal({ message, onConfirm, onCancel, confirming }) {
+function RevertConfirmModal({ title = 'Revert Status?', message, confirmLabel = 'Confirm', confirmingLabel = 'Reverting…', danger = false, onConfirm, onCancel, confirming }) {
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 3200 }}>
       <div style={{ background: '#fff', borderRadius: 14, padding: 28, width: 380, maxWidth: '92vw', boxShadow: '0 20px 60px rgba(0,0,0,0.18)' }}>
-        <h3 style={{ margin: '0 0 10px', fontSize: 17, fontWeight: 700, color: '#0f172a' }}>Revert Status?</h3>
+        <h3 style={{ margin: '0 0 10px', fontSize: 17, fontWeight: 700, color: '#0f172a' }}>{title}</h3>
         <p style={{ color: '#64748b', fontSize: 14, marginBottom: 22 }}>{message}</p>
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
           <button onClick={onCancel} disabled={confirming} style={{ padding: '9px 18px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', color: '#64748b', fontWeight: 600, fontSize: 14, cursor: confirming ? 'not-allowed' : 'pointer' }}>Cancel</button>
-          <button onClick={onConfirm} disabled={confirming} style={{ padding: '9px 18px', borderRadius: 8, border: 'none', background: '#64748b', color: '#fff', fontWeight: 600, fontSize: 14, cursor: confirming ? 'not-allowed' : 'pointer', opacity: confirming ? 0.7 : 1 }}>
-            {confirming ? 'Reverting…' : 'Confirm'}
+          <button onClick={onConfirm} disabled={confirming} style={{ padding: '9px 18px', borderRadius: 8, border: 'none', background: danger ? '#ef4444' : '#64748b', color: '#fff', fontWeight: 600, fontSize: 14, cursor: confirming ? 'not-allowed' : 'pointer', opacity: confirming ? 0.7 : 1 }}>
+            {confirming ? confirmingLabel : confirmLabel}
           </button>
         </div>
       </div>
@@ -487,7 +490,7 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
   const [deleting, setDeleting] = useState(false)
   const [pdfOpen, setPdfOpen] = useState(false)
   const [showEmailModal, setShowEmailModal] = useState(false)
-  const [undoApprove, setUndoApprove] = useState(false)
+  const [undoTarget, setUndoTarget] = useState(null) // 'approve' | 'convert' | null
   const [undoing, setUndoing] = useState(false)
 
   // Generate estimate number for new estimates
@@ -532,6 +535,8 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
   const subtotal   = form.vat_enabled ? grossTotal / 1.15 : grossTotal
   const vatAmount  = form.vat_enabled ? grossTotal - subtotal : 0
   const total      = grossTotal
+
+  const selectedClient = [...clients, ...extraClients].find(c => c.id === form.client_id)
 
   function setField(k, v) {
     setForm(p => {
@@ -775,7 +780,7 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
       // Mark estimate as converted, linking to the new invoice
       await supabase
         .from('estimates')
-        .update({ status: 'converted', converted_invoice_id: inv.id })
+        .update({ status: 'converted', converted_invoice_id: inv.id, previous_status: form.status })
         .eq('id', estimateId)
 
       setSaving(false)
@@ -803,22 +808,105 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
     }
   }
 
-  async function handleUndoApprove() {
+  async function handleUndo() {
+    if (!undoTarget) return
     setUndoing(true)
     try {
-      const { error } = await supabase
-        .from('estimates')
-        .update({ status: form.previous_status, previous_status: null })
-        .eq('id', estimate.id)
-        .eq('user_id', user.id)
-      setUndoing(false)
-      setUndoApprove(false)
-      if (error) { setErrors({ _global: error.message }); return }
-      onSaved({ id: estimate.id, status: form.previous_status, previous_status: null })
+      if (undoTarget === 'convert') {
+        const invoiceId = estimate.converted_invoice_id
+        if (invoiceId) {
+          await supabase.from('invoice_items').delete().eq('invoice_id', invoiceId)
+          await supabase.from('invoices').delete().eq('id', invoiceId).eq('user_id', user.id)
+        }
+        const revertStatus = form.previous_status || 'draft'
+        const { error } = await supabase
+          .from('estimates')
+          .update({ status: revertStatus, previous_status: null, converted_invoice_id: null })
+          .eq('id', estimate.id)
+          .eq('user_id', user.id)
+        setUndoing(false)
+        setUndoTarget(null)
+        if (error) { setErrors({ _global: error.message }); return }
+        onSaved({ id: estimate.id, status: revertStatus, previous_status: null, converted_invoice_id: null })
+      } else {
+        const { error } = await supabase
+          .from('estimates')
+          .update({ status: form.previous_status, previous_status: null })
+          .eq('id', estimate.id)
+          .eq('user_id', user.id)
+        setUndoing(false)
+        setUndoTarget(null)
+        if (error) { setErrors({ _global: error.message }); return }
+        onSaved({ id: estimate.id, status: form.previous_status, previous_status: null })
+      }
     } catch (e) {
       setUndoing(false)
       setErrors({ _global: e.message })
     }
+  }
+
+  const [waLoading, setWaLoading] = useState(false)
+  const [waToast, setWaToast] = useState(null)
+
+  async function handleSendWhatsApp() {
+    if (!selectedClient?.phone || waLoading) return
+    setWaToast(null)
+    setWaLoading(true)
+    try {
+      const pdfData = {
+        ...(estimate || {}),
+        estimate_number: form.estimate_number,
+        issue_date:      form.issue_date,
+        expiry_date:     form.expiry_date,
+        notes:           form.notes,
+        vat_enabled:     form.vat_enabled,
+        vat_rate:        form.vat_enabled ? 15 : 0,
+        subtotal,
+        vat_amount:      vatAmount,
+        total,
+        status:          form.status,
+        client_name:     selectedClient?.name || '',
+        client_company:  selectedClient?.company_name || '',
+        client_email:    selectedClient?.email || '',
+        client_phone:    selectedClient?.phone || '',
+        client_address:  selectedClient?.address || '',
+        items:           lineItems.filter(li => li.item_name.trim()),
+      }
+
+      let arrayBuffer
+      try {
+        arrayBuffer = await buildPdfBuffer(pdfData, settings, 'ESTIMATE')
+      } catch {
+        setWaToast({ message: 'Could not generate PDF. Please try again.', type: 'error' })
+        setWaLoading(false)
+        return
+      }
+
+      const blob         = new Blob([arrayBuffer], { type: 'application/pdf' })
+      const filename     = `Estimate-${form.estimate_number || 'draft'}.pdf`
+      const businessName = settings?.business_name || ''
+      const clientName   = selectedClient?.company_name || selectedClient?.name || 'there'
+      const message = buildEstimateWhatsAppMessage({
+        clientName,
+        estimateNumber: form.estimate_number,
+        amount:         fmt(total),
+        expiryDate:     form.expiry_date,
+        businessName,
+      })
+
+      const result = await sendPdfViaWhatsApp({
+        blob, filename, message,
+        phone: selectedClient.phone,
+        title: `Estimate ${form.estimate_number} from ${businessName}`,
+      })
+
+      if (result.status === 'fallback') {
+        setWaToast({ message: 'Your PDF has been downloaded. Attach it to the WhatsApp message.', type: 'success' })
+      }
+    } catch (e) {
+      setWaToast({ message: e.message || 'Could not open WhatsApp. Please check your browser settings.', type: 'error' })
+    }
+    setWaLoading(false)
   }
 
   const isMobile = useIsMobile()
@@ -860,20 +948,25 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
             <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'flex-start' : 'center', gap: isMobile ? 4 : 8, flexShrink: 0 }}>
               <StatusBadge status={form.status} />
               {form.status === 'approved' && form.previous_status && (
-                <UndoButton title="Undo Approve" onClick={() => setUndoApprove(true)} />
+                <UndoButton title="Undo Approve" onClick={() => setUndoTarget('approve')} />
               )}
               {form.status === 'converted' && (
-                <button
-                  onClick={() => estimate?.converted_invoice_id && navigate('/invoices', { state: { openId: estimate.converted_invoice_id } })}
-                  disabled={!estimate?.converted_invoice_id}
-                  style={{
-                    background: 'none', border: 'none', padding: 0, fontSize: 12, fontWeight: 600,
-                    color: '#7c3aed', textDecoration: 'underline', cursor: estimate?.converted_invoice_id ? 'pointer' : 'default',
-                    fontFamily: 'inherit',
-                  }}
-                >
-                  Converted — view invoice
-                </button>
+                <>
+                  <button
+                    onClick={() => estimate?.converted_invoice_id && navigate('/invoices', { state: { openId: estimate.converted_invoice_id } })}
+                    disabled={!estimate?.converted_invoice_id}
+                    style={{
+                      background: 'none', border: 'none', padding: 0, fontSize: 12, fontWeight: 600,
+                      color: '#7c3aed', textDecoration: 'underline', cursor: estimate?.converted_invoice_id ? 'pointer' : 'default',
+                      fontFamily: 'inherit',
+                    }}
+                  >
+                    Converted — view invoice
+                  </button>
+                  {!isReadOnly && (
+                    <UndoButton title="Undo Convert to Invoice" onClick={() => setUndoTarget('convert')} />
+                  )}
+                </>
               )}
             </div>
           )}
@@ -904,6 +997,9 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
                 </svg>
                 Send by Email
               </button>
+            )}
+            {!isNew && !isReadOnly && (
+              <WhatsAppButton phone={selectedClient?.phone} loading={waLoading} onClick={handleSendWhatsApp} />
             )}
             {!isReadOnly && (
               <button onClick={() => handleSave()} disabled={saving} style={btnStyle('#14b8a6')}>
@@ -941,6 +1037,9 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
                   <polyline points="22,6 12,13 2,6"/>
                 </svg>
               </button>
+            )}
+            {!isNew && !isReadOnly && (
+              <WhatsAppButton phone={selectedClient?.phone} loading={waLoading} onClick={handleSendWhatsApp} icon />
             )}
             {!isReadOnly && !isNew && (
               <button onClick={() => setConfirmDelete(true)} title="Delete"
@@ -1161,6 +1260,21 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
         }}>
           {errors._global && <p style={{ color: '#ef4444', fontSize: 12, margin: '0 0 6px' }}>{errors._global}</p>}
 
+          {/* Row 1: Send via Email / WhatsApp */}
+          {!isNew && !isReadOnly && (
+            <div style={{ display: 'flex', gap: 10, marginBottom: 10 }}>
+              <button onClick={() => setShowEmailModal(true)}
+                style={{ flex: 1, padding: '11px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontWeight: 600, fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontFamily: 'inherit' }}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                  <polyline points="22,6 12,13 2,6"/>
+                </svg>
+                Send via Email
+              </button>
+              <WhatsAppButton phone={selectedClient?.phone} loading={waLoading} onClick={handleSendWhatsApp} mobile />
+            </div>
+          )}
+
           {/* Convert to Invoice — full-width button above the main row */}
           {!isReadOnly && !isNew && form.status !== 'converted' && (
             <button
@@ -1206,13 +1320,32 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
       )}
 
       {/* Revert status confirmation modal */}
-      {undoApprove && (
+      {undoTarget === 'approve' && (
         <RevertConfirmModal
           message={`Revert this estimate back to ${STATUS_META[form.previous_status]?.label || form.previous_status}?`}
-          onConfirm={handleUndoApprove}
-          onCancel={() => setUndoApprove(false)}
+          onConfirm={handleUndo}
+          onCancel={() => setUndoTarget(null)}
           confirming={undoing}
         />
+      )}
+
+      {/* Undo convert-to-invoice confirmation modal */}
+      {undoTarget === 'convert' && (
+        <RevertConfirmModal
+          title="Delete Generated Invoice?"
+          message={`This will permanently delete the invoice that was created from this estimate and revert this estimate back to ${STATUS_META[form.previous_status || 'draft']?.label || 'Draft'}. This cannot be undone.`}
+          confirmLabel="Delete & Revert"
+          confirmingLabel="Deleting…"
+          danger
+          onConfirm={handleUndo}
+          onCancel={() => setUndoTarget(null)}
+          confirming={undoing}
+        />
+      )}
+
+      {/* WhatsApp send toast */}
+      {waToast && (
+        <Toast message={waToast.message} type={waToast.type} onDone={() => setWaToast(null)} />
       )}
 
       {/* Add Client modal */}

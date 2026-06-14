@@ -35,7 +35,13 @@
       "Bash(grep -l \"Buffer\" node_modules/@react-pdf/renderer/lib/*.js node_modules/@react-pdf/font/lib/*.js node_modules/fontkit/dist/*.js node_modules/restructure/dist/*.js)",
       "Bash(ls node_modules/buffer)",
       "Bash(npx --yes esbuild --bundle src/pdf/PdfDocument.jsx --jsx=automatic --outfile=/tmp/pdfdoc.js --external:*)",
-      "Bash(npx --yes esbuild --bundle src/main.jsx --jsx=automatic --outfile=/tmp/main.js --external:*)"
+      "Bash(npx --yes esbuild --bundle src/main.jsx --jsx=automatic --outfile=/tmp/main.js --external:*)",
+      "Bash(npx eslint *)",
+      "Bash(npx esbuild *)",
+      "Bash(echo \"Invoices exit=$?\")",
+      "Bash(echo \"Estimates exit=$?\")",
+      "Bash(echo \"whatsapp exit=$?\")",
+      "Bash(echo \"WhatsAppButton exit=$?\")"
     ]
   }
 }
