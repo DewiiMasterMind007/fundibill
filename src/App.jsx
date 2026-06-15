@@ -131,7 +131,7 @@ function AuthenticatedApp() {
   const { user }                       = useAuth()
   const { primaryColor, accentColor }  = useAppData()
   const trialStatus = useTrialStatus()
-  const showBanner  = trialStatus !== null && !trialStatus.isLicensed
+  const showBanner  = trialStatus !== null && !trialStatus.subscriptionActive
   const isMobile    = useIsMobile()
 
   // ── Tutorial state ─────────────────────────────────────────────────────────
@@ -219,6 +219,8 @@ function AuthenticatedApp() {
             <TrialBanner
               daysRemaining={trialStatus.daysRemaining}
               trialExpired={trialStatus.trialExpired}
+              subscriptionExpired={trialStatus.subscriptionExpired}
+              subscriptionEndDate={trialStatus.subscriptionEndDate}
             />
           )}
 
@@ -256,6 +258,8 @@ function AuthenticatedApp() {
             <TrialBanner
               daysRemaining={trialStatus.daysRemaining}
               trialExpired={trialStatus.trialExpired}
+              subscriptionExpired={trialStatus.subscriptionExpired}
+              subscriptionEndDate={trialStatus.subscriptionEndDate}
             />
           )}
 
