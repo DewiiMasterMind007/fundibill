@@ -2265,6 +2265,7 @@ function ListView({ invoices, onNew, onRecurring, onSelect, onOpenReminder, onMa
           {/* Recurring — text link on mobile, full button on desktop */}
           {isMobile ? (
             <button
+              data-tutorial="recurring"
               onClick={onRecurring}
               style={{ background: 'none', border: 'none', color: '#14b8a6', fontSize: 13, fontWeight: 600, cursor: 'pointer', padding: '4px 0', display: 'flex', alignItems: 'center', gap: 5 }}
             >
@@ -2276,6 +2277,7 @@ function ListView({ invoices, onNew, onRecurring, onSelect, onOpenReminder, onMa
             </button>
           ) : (
             <button
+              data-tutorial="recurring"
               onClick={onRecurring}
               style={{ background: '#fff', color: '#475569', border: '1px solid #e2e8f0', borderRadius: 8, padding: '10px 16px', fontSize: 14, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 7 }}
             >
@@ -2290,6 +2292,7 @@ function ListView({ invoices, onNew, onRecurring, onSelect, onOpenReminder, onMa
           {/* New Invoice button — desktop only; mobile uses the FAB below */}
           {!isMobile && (
             <button
+              data-tutorial="new-invoice"
               onClick={isReadOnly ? undefined : onNew}
               disabled={isReadOnly}
               title={isReadOnly ? READONLY_MSG : undefined}
@@ -2385,6 +2388,7 @@ function ListView({ invoices, onNew, onRecurring, onSelect, onOpenReminder, onMa
       {/* ── FAB — mobile only (New Invoice floating action button) ── */}
       {isMobile && !isReadOnly && (
         <button
+          data-tutorial="new-invoice"
           onClick={onNew}
           title="New Invoice"
           style={{

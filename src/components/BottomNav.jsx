@@ -32,10 +32,10 @@ const MoreIcon       = ()           => <Icon size={22}><circle cx="5" cy="12" r=
 // ─── Tab definitions ──────────────────────────────────────────────────────────
 
 const TABS = [
-  { path: '/dashboard', label: 'Dashboard', Icon: DashboardIcon },
-  { path: '/invoices',  label: 'Invoices',  Icon: InvoicesIcon  },
-  { path: '/estimates', label: 'Estimates', Icon: EstimatesIcon },
-  { path: '/clients',   label: 'Clients',   Icon: ClientsIcon   },
+  { path: '/dashboard', label: 'Dashboard', Icon: DashboardIcon, tutorial: 'nav-dashboard' },
+  { path: '/invoices',  label: 'Invoices',  Icon: InvoicesIcon,  tutorial: 'nav-invoices'  },
+  { path: '/estimates', label: 'Estimates', Icon: EstimatesIcon, tutorial: 'nav-estimates' },
+  { path: '/clients',   label: 'Clients',   Icon: ClientsIcon,   tutorial: 'nav-clients'   },
 ]
 
 // Routes that live in the More drawer — used to highlight the More button
@@ -124,6 +124,7 @@ export default function BottomNav({ onTutorial, primaryColor = '#14b8a6' }) {
 
         {/* Items */}
         <button
+          data-tutorial="nav-items"
           style={drawerBtn()}
           onClick={() => closeDrawerAndNavigate(() => window.location.hash = '#/items')}
           onMouseEnter={e => { e.currentTarget.style.background = '#f8fafc' }}
@@ -146,6 +147,7 @@ export default function BottomNav({ onTutorial, primaryColor = '#14b8a6' }) {
 
         {/* Settings */}
         <button
+          data-tutorial="nav-settings"
           style={drawerBtn()}
           onClick={() => closeDrawerAndNavigate(() => window.location.hash = '#/settings')}
           onMouseEnter={e => { e.currentTarget.style.background = '#f8fafc' }}
@@ -182,7 +184,7 @@ export default function BottomNav({ onTutorial, primaryColor = '#14b8a6' }) {
       </div>
 
       {/* ── Bottom tab bar ───────────────────────────────────────────────────── */}
-      <nav style={{
+      <nav data-tutorial="primary-nav" style={{
         position:      'fixed',
         bottom:        0,
         left:          0,
@@ -200,10 +202,11 @@ export default function BottomNav({ onTutorial, primaryColor = '#14b8a6' }) {
       }}>
 
         {/* ── Primary tabs ── */}
-        {TABS.map(({ path, label, Icon: TabIcon }) => (
+        {TABS.map(({ path, label, Icon: TabIcon, tutorial }) => (
           <NavLink
             key={path}
             to={path}
+            data-tutorial={tutorial}
             style={({ isActive }) => ({
               flex:            1,
               display:         'flex',
@@ -232,6 +235,7 @@ export default function BottomNav({ onTutorial, primaryColor = '#14b8a6' }) {
 
         {/* ── More tab ── */}
         <button
+          data-tutorial="nav-more"
           onClick={() => setDrawerOpen(d => !d)}
           style={{
             flex:            1,

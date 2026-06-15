@@ -450,7 +450,7 @@ export default function Dashboard() {
 
       {/* ── Stat cards ───────────────────────────────────────────────────── */}
       {/* Mobile: 2-column grid. Desktop: 3-column grid (unchanged). */}
-      <div style={{
+      <div data-tutorial="stat-cards" style={{
         display:             'grid',
         gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(3, 1fr)',
         gap:                 isMobile ? 12 : 16,

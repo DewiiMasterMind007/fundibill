@@ -140,7 +140,7 @@ export default function Sidebar({ onTutorial, primaryColor = '#14b8a6' }) {
 
   return (
     <aside
-      data-tutorial="sidebar"
+      data-tutorial="primary-nav"
       style={{
         width:      240,
         minWidth:   240,

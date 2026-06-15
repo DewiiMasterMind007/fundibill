@@ -112,6 +112,7 @@ export default function HelpButton({ page }) {
 
       {/* ── Trigger ─────────────────────────────────────────────────────────── */}
       <button
+        data-tutorial="help-button"
         onClick={() => setOpen(o => !o)}
         title={`Help — ${content.title}`}
         aria-label={`Help — ${content.title}`}

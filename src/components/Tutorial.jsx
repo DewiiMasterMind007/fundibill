@@ -1,15 +1,22 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import useIsMobile from '../hooks/useIsMobile'
 
 // ─── Step definitions ─────────────────────────────────────────────────────────
+//
+// Each step has a desktop `description`/`path`/`finder`. Steps whose target or
+// wording differs on mobile (≤768px) provide `mobileDescription`/`mobilePath`/
+// `mobileFinder` overrides — see buildSteps() below, which merges them.
 
 const STEPS = [
   {
     title: 'Welcome to FundiBill 👋',
     description:
       "This is your main navigation panel. Everything you need is here — let's take a quick tour so you can get up and running fast.",
+    mobileDescription:
+      "This is your navigation bar. Tap the icons to jump between Dashboard, Invoices, Estimates and Clients, or tap More for everything else — let's take a quick tour so you can get up and running fast.",
     path: null,
-    finder: () => document.querySelector('[data-tutorial="sidebar"]'),
+    finder: () => document.querySelector('[data-tutorial="primary-nav"]'),
   },
   {
     title: 'Your Dashboard',
@@ -23,10 +30,7 @@ const STEPS = [
     description:
       'These cards update automatically as you create and manage invoices. Use the date filter buttons above the chart to change the time period.',
     path: '/dashboard',
-    finder: () =>
-      Array.from(document.querySelectorAll('div')).find(
-        el => el.style.gridTemplateColumns?.includes('repeat(3')
-      ),
+    finder: () => document.querySelector('[data-tutorial="stat-cards"]'),
   },
   {
     title: 'Invoices',
@@ -39,21 +43,26 @@ const STEPS = [
     title: 'Creating an Invoice',
     description:
       "Click New Invoice to start a new invoice. You'll select a client, add your line items, toggle VAT if needed and set a due date. It takes less than a minute.",
+    mobileDescription:
+      "Tap the + button to start a new invoice. You'll select a client, add your line items, toggle VAT if needed and set a due date. It takes less than a minute.",
     path: '/invoices',
-    finder: () =>
-      Array.from(document.querySelectorAll('button')).find(
-        b => b.textContent.trim() === '+ New Invoice'
-      ),
+    finder: () => document.querySelector('[data-tutorial="new-invoice"]'),
   },
   {
     title: 'Recurring Invoices',
     description:
       'Got a client you invoice every month? Set up a recurring invoice and FundiBill will automatically create it for you on schedule — daily, weekly, monthly or yearly.',
     path: '/invoices',
-    finder: () =>
-      Array.from(document.querySelectorAll('button')).find(
-        b => b.textContent.trim() === 'Recurring'
-      ),
+    finder: () => document.querySelector('[data-tutorial="recurring"]'),
+  },
+  {
+    title: 'Send via WhatsApp 💬',
+    description:
+      "Open any invoice or estimate and click the green WhatsApp button next to Send by Email. FundiBill downloads the PDF and opens WhatsApp Web with a pre-filled message — just attach the downloaded PDF and hit send.",
+    mobileDescription:
+      "Open any invoice or estimate and tap the green WhatsApp button next to Send by Email. Your share panel will pop up with the PDF ready to send — tap WhatsApp to send it straight to your client.",
+    path: '/invoices',
+    finder: () => null,
   },
   {
     title: 'Estimates',
@@ -73,32 +82,39 @@ const STEPS = [
     title: 'Your Item Catalog',
     description:
       'Add your products and services here. They appear as autocomplete suggestions when you add line items to invoices — the more you add, the faster invoicing becomes.',
+    mobileDescription:
+      'Your product and service catalog lives under the More menu. Tap More, then Items, to add your products and services — they appear as autocomplete suggestions when you add line items to invoices.',
     path: '/items',
     finder: () => document.querySelector('[data-tutorial="nav-items"]'),
+    mobileFinder: () => document.querySelector('[data-tutorial="nav-more"]'),
   },
   {
     title: 'Settings',
     description:
       'Set up your business profile, logo, banking details, email settings and app theme here. Do this first before creating your first invoice so everything looks professional.',
+    mobileDescription:
+      'Your business profile, logo, banking details and email settings live under the More menu. Tap More, then Settings, and set this up first before creating your first invoice so everything looks professional.',
     path: '/settings',
     finder: () => document.querySelector('[data-tutorial="nav-settings"]'),
+    mobileFinder: () => document.querySelector('[data-tutorial="nav-more"]'),
   },
   {
     title: 'Need Help Anytime?',
     description:
       'Every page has a help button in the top right corner. Click it anytime for a quick reminder of what each feature does — no need to remember everything from this tutorial.',
+    mobileDescription:
+      'Every page has a help button in the top right corner. Tap it anytime for a quick reminder of what each feature does — no need to remember everything from this tutorial.',
     path: '/settings',
-    finder: () =>
-      Array.from(document.querySelectorAll('button')).find(
-        b => b.textContent.trim() === '?'
-      ),
+    finder: () => document.querySelector('[data-tutorial="help-button"]'),
   },
   {
     title: "You're ready to go! 🎉",
     description:
       "That's everything. Start by going to Settings to set up your business profile, then add your first client and create your first invoice. You can restart this tutorial anytime from the sidebar. Good luck!",
+    mobileDescription:
+      "That's everything. Start by going to Settings to set up your business profile, then add your first client and create your first invoice. You can restart this tutorial anytime from the More menu. Good luck!",
     path: null,
-    finder: () => document.querySelector('[data-tutorial="sidebar"]'),
+    finder: () => document.querySelector('[data-tutorial="primary-nav"]'),
     isLast: true,
   },
 ]
@@ -120,12 +136,21 @@ const OVERLAY = 'rgba(0,0,0,0.55)'
  */
 export default function Tutorial({ onClose }) {
   const navigate = useNavigate()
+  const isMobile = useIsMobile()
 
   const [step,      setStep]      = useState(0)
   const [spotlight, setSpotlight] = useState(null)   // { top, left, w, h }
   const [visible,   setVisible]   = useState(false)
 
-  const current = STEPS[step]
+  const base = STEPS[step]
+
+  // Merge mobile overrides (if any) into the step used for this render
+  const current = {
+    ...base,
+    description: (isMobile && base.mobileDescription) || base.description,
+    path:        (isMobile && base.mobilePath)         || base.path,
+    finder:      (isMobile && base.mobileFinder)       || base.finder,
+  }
 
   // ── Find and position spotlight whenever step changes ──────────────────────
   useEffect(() => {
@@ -164,7 +189,7 @@ export default function Tutorial({ onClose }) {
       cancelled = true
       clearTimeout(t1)
     }
-  }, [step]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [step, isMobile]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Escape key to close ────────────────────────────────────────────────────
   useEffect(() => {
@@ -193,23 +218,28 @@ export default function Tutorial({ onClose }) {
   // ── Popup position ─────────────────────────────────────────────────────────
   // Priority: right of spotlight → below → above → centred
   let popupTop, popupLeft
+  const popupW = Math.min(PW, vw - 20)
 
   if (!spotlight) {
     // No target found — centre the popup
     popupTop  = Math.max(10, (vh - 300) / 2)
-    popupLeft = Math.max(10, (vw - PW)  / 2)
-  } else if (sRight + PGAP + PW <= vw) {
+    popupLeft = Math.max(10, (vw - popupW) / 2)
+  } else if (sRight + PGAP + popupW <= vw) {
     // Enough room to the right (sidebar elements land here)
     popupLeft = sRight + PGAP
     popupTop  = Math.max(10, Math.min(sTop, vh - 320))
   } else if (sBottom + PGAP + 270 <= vh) {
     // Enough room below (page content elements)
     popupTop  = sBottom + PGAP
-    popupLeft = Math.max(10, Math.min(sLeft, vw - PW - 10))
-  } else {
+    popupLeft = Math.max(10, Math.min(sLeft, vw - popupW - 10))
+  } else if (sTop - PGAP - 270 >= 0) {
     // Fall back to above
     popupTop  = Math.max(10, sTop - PGAP - 270)
-    popupLeft = Math.max(10, Math.min(sLeft, vw - PW - 10))
+    popupLeft = Math.max(10, Math.min(sLeft, vw - popupW - 10))
+  } else {
+    // No room above, below or beside (e.g. a fixed bottom nav on mobile) — centre instead
+    popupTop  = Math.max(10, (vh - 300) / 2)
+    popupLeft = Math.max(10, (vw - popupW) / 2)
   }
 
   // ── Shared button styles ───────────────────────────────────────────────────
@@ -272,7 +302,7 @@ export default function Tutorial({ onClose }) {
 
       {/* ── Popup card ───────────────────────────────────────────────────── */}
       <div style={{
-        position: 'fixed', top: popupTop, left: popupLeft, width: PW,
+        position: 'fixed', top: popupTop, left: popupLeft, width: popupW,
         zIndex: 9002, background: '#ffffff', borderRadius: 14,
         boxShadow: '0 24px 64px rgba(0,0,0,0.2), 0 4px 16px rgba(0,0,0,0.1)',
         padding: '22px 24px 18px', fontFamily: 'inherit',
