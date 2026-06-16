@@ -13,7 +13,7 @@ const PLANS = [
   {
     id:       'monthly',
     name:     'Monthly',
-    price:    'R49',
+    price:    'R29',
     period:   '/month',
     note:     null,
     badge:    null,
@@ -21,9 +21,9 @@ const PLANS = [
   {
     id:       'annual',
     name:     'Annual',
-    price:    'R399',
+    price:    'R299',
     period:   '/year',
-    note:     'Save 32%',
+    note:     'Save 14%',
     badge:    'Most Popular',
   },
   {

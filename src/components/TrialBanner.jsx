@@ -31,6 +31,7 @@ export default function TrialBanner({ daysRemaining, trialExpired, subscriptionE
   const pollIntervalRef = useRef(null)
   const pollStartRef    = useRef(null)
   const selectedPlanRef = useRef(null)  // which plan the user selected (for success message)
+  const payFastUrlRef   = useRef(null)  // stored so the manual-open link can retry
 
   // Fetch the profile once so we have business_name for PayFast
   useEffect(() => {
@@ -88,10 +89,20 @@ export default function TrialBanner({ daysRemaining, trialExpired, subscriptionE
     setShowPlans(true)
   }
 
+  function openPayFast(url) {
+    if (window.db?.openExternal) {
+      window.db.openExternal(url)
+    } else {
+      // Fallback for non-Electron contexts
+      window.open(url, '_blank', 'noopener,noreferrer')
+    }
+  }
+
   function handleSelectPlan(plan) {
     selectedPlanRef.current = plan
     const url = buildPayFastURL(user, profile, plan)
-    window.db?.openExternal(url)
+    payFastUrlRef.current = url
+    openPayFast(url)
     setShowPlans(false)
     setShowHint(true)
     if (!polling && !confirmed) startPolling()
@@ -209,7 +220,22 @@ export default function TrialBanner({ daysRemaining, trialExpired, subscriptionE
             {/* Redirect hint — shown immediately after a plan is selected */}
             {showHint && !polling && (
               <span style={{ fontSize: 11, color: '#94a3b8', textAlign: 'right' }}>
-                ↗ You&apos;ll be redirected to PayFast to complete your payment securely.
+                PayFast should have opened in your browser.{' '}
+                <button
+                  onClick={() => payFastUrlRef.current && openPayFast(payFastUrlRef.current)}
+                  style={{
+                    background:     'none',
+                    border:         'none',
+                    color:          '#14b8a6',
+                    cursor:         'pointer',
+                    fontSize:       11,
+                    padding:        0,
+                    textDecoration: 'underline',
+                    fontFamily:     'inherit',
+                  }}
+                >
+                  Click here if it didn&apos;t open.
+                </button>
               </span>
             )}
 
