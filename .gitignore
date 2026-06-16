@@ -3,3 +3,5 @@ dist/
 release/
 .env
 *.log
+.claude/
+supabase/.temp/

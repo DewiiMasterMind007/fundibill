@@ -68,8 +68,8 @@ export function AuthProvider({ children }) {
     // Legacy is_licensed support
     if (profile.is_licensed === true) return true
 
-    // Active subscription within end date
-    if (profile.subscription_status === 'active' &&
+    // Active or cancelled-but-not-yet-expired subscription (user keeps access until billing period ends)
+    if (['active', 'cancelled'].includes(profile.subscription_status) &&
         profile.subscription_end_date) {
       return new Date(profile.subscription_end_date) > new Date()
     }

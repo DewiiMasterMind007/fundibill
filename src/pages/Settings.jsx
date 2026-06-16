@@ -9,6 +9,7 @@ import PasswordInput from '../components/PasswordInput'
 import { generateTestEmail, PLAIN_TEXT_FOOTER } from '../lib/emailTemplates'
 import { sendEmail } from '../lib/sendEmail'
 import useIsMobile from '../hooks/useIsMobile'
+import PlanSelectModal from '../components/PlanSelectModal'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -454,7 +455,7 @@ function InvoicePreview({ form }) {
 export default function Settings() {
   const trialStatus = useTrialStatus()
   const isReadOnly  = trialStatus?.isReadOnly ?? false
-  const { user, signOut } = useAuth()
+  const { user, signOut, currentProfile, refreshSubscription } = useAuth()
   const { refreshProfile } = useAppData()
   const isMobile = useIsMobile()
   const navigate = useNavigate()
@@ -475,6 +476,9 @@ export default function Settings() {
   const [editCategoryValue, setEditCategoryValue] = useState('')
   const [testEmailStatus, setTestEmailStatus] = useState(null)
   const [testEmailMsg, setTestEmailMsg]   = useState('')
+  const [showSubPlans,  setShowSubPlans]  = useState(false)
+  const [cancelConfirm, setCancelConfirm] = useState(false)
+  const [cancelling,    setCancelling]    = useState(false)
   const toastTimer  = useRef(null)
   const logoRef     = useRef(null)
 
@@ -688,6 +692,33 @@ export default function Settings() {
   // ── Shared focus style ────────────────────────────────────────────────────
   const focusStyle = (e) => { e.currentTarget.style.borderColor = '#14b8a6' }
   const blurStyle  = (e) => { e.currentTarget.style.borderColor = '#e2e8f0' }
+
+  // ── Subscription helpers ───────────────────────────────────────────────────
+
+  async function handleCancelSubscription() {
+    setCancelling(true)
+    try {
+      await supabase.functions.invoke('cancel-subscription', { body: {} })
+      await refreshSubscription()
+      setCancelConfirm(false)
+      showToast()
+    } catch (err) {
+      console.error('Cancel subscription error', err)
+    } finally {
+      setCancelling(false)
+    }
+  }
+
+  function handleSubSelectPlan(plan) {
+    const params = new URLSearchParams({
+      plan,
+      user_id: user?.id    || '',
+      email:   user?.email || '',
+      name:    form.business_name || '',
+    })
+    window.db?.openExternal(`https://api.fundiai.co.za/fundibill-buy.php?${params.toString()}`)
+    setShowSubPlans(false)
+  }
 
   // ── Mobile-aware input style (fontSize:16 prevents iOS zoom; 44px touch target)
   const inp = isMobile
@@ -1643,6 +1674,273 @@ export default function Settings() {
           Removing a category does not affect existing expenses that used it.
         </p>
       </Section>
+
+      {/* ── SUBSCRIPTION & BILLING ───────────────────────────────────────── */}
+      {showSubPlans && (
+        <PlanSelectModal onSelect={handleSubSelectPlan} onClose={() => setShowSubPlans(false)} />
+      )}
+      <Section
+        id="subscription" icon="💳"
+        title="Subscription & Billing"
+        description="Manage your FundiBill plan and billing"
+        isOpen={openSection === 'subscription'}
+        onToggle={() => toggleSection('subscription')}
+        isMobile={isMobile}
+      >
+        {(() => {
+          const subPlan    = trialStatus?.subscriptionPlan
+          const subActive  = trialStatus?.subscriptionActive
+          const subExpired = trialStatus?.subscriptionExpired
+          const subEndDate = trialStatus?.subscriptionEndDate
+          const dbStatus   = currentProfile?.subscription_status
+          const daysLeft   = trialStatus?.daysRemaining ?? 0
+          const trialEnded = trialStatus?.trialExpired ?? false
+
+          const fmtDate = (d) => d
+            ? new Date(d).toLocaleDateString('en-ZA', { day: 'numeric', month: 'long', year: 'numeric' })
+            : ''
+          const planLabel = { monthly: 'Monthly', annual: 'Annual', lifetime: 'Lifetime' }[subPlan] || 'Plan'
+
+          const cardStyle = (bg, border, borderColor) => ({
+            background:   bg,
+            border:       `1.5px solid ${borderColor}`,
+            borderRadius: 10,
+            padding:      16,
+            marginBottom: 16,
+          })
+          const badgeStyle = (bg, color) => ({
+            display:      'inline-block',
+            background:   bg,
+            color,
+            borderRadius: 999,
+            padding:      '3px 10px',
+            fontSize:     12,
+            fontWeight:   700,
+            marginBottom: 8,
+            letterSpacing: '0.02em',
+          })
+          const descStyle = {
+            fontSize: 13,
+            color:    '#374151',
+            margin:   '4px 0 12px',
+            lineHeight: 1.6,
+          }
+          const btnPrimary = {
+            background:   '#14b8a6',
+            color:        '#fff',
+            border:       'none',
+            borderRadius: 7,
+            padding:      isMobile ? '11px 20px' : '8px 18px',
+            fontSize:     13,
+            fontWeight:   700,
+            cursor:       'pointer',
+            boxShadow:    '0 2px 6px rgba(20,184,166,0.3)',
+          }
+          const btnRed = {
+            background:   'transparent',
+            color:        '#dc2626',
+            border:       '1.5px solid #fca5a5',
+            borderRadius: 7,
+            padding:      isMobile ? '11px 20px' : '8px 18px',
+            fontSize:     13,
+            fontWeight:   600,
+            cursor:       'pointer',
+          }
+
+          // ── Lifetime ──────────────────────────────────────────────────────
+          if (subActive && subPlan === 'lifetime') {
+            return (
+              <div style={cardStyle('#f0fdf4', '1.5px solid #bbf7d0', '#bbf7d0')}>
+                <div style={badgeStyle('#16a34a', '#fff')}>✓ Lifetime License</div>
+                <p style={descStyle}>You have lifetime access to FundiBill. No renewals or recurring charges.</p>
+              </div>
+            )
+          }
+
+          // ── Active but cancellation pending (will not renew) ──────────────
+          if (subActive && dbStatus === 'cancelled') {
+            return (
+              <div style={cardStyle('#fffbeb', '1.5px solid #fde68a', '#fde68a')}>
+                <div style={badgeStyle('#d97706', '#fff')}>⚠ Cancellation Pending</div>
+                <p style={descStyle}>
+                  Your {planLabel} subscription has been cancelled. You have full access until{' '}
+                  <strong>{fmtDate(subEndDate)}</strong>, after which your account switches to read-only.
+                </p>
+                <button style={btnPrimary} onClick={() => setShowSubPlans(true)}
+                  onMouseEnter={e => { e.currentTarget.style.background = '#0d9488' }}
+                  onMouseLeave={e => { e.currentTarget.style.background = '#14b8a6' }}>
+                  Resubscribe
+                </button>
+              </div>
+            )
+          }
+
+          // ── Active subscription ───────────────────────────────────────────
+          if (subActive) {
+            return (
+              <div style={cardStyle('#f0fdfa', '1.5px solid #99f6e4', '#99f6e4')}>
+                <div style={badgeStyle('#0d9488', '#fff')}>✓ {planLabel} — Active</div>
+                <p style={descStyle}>
+                  {subEndDate
+                    ? <>Next renewal on <strong>{fmtDate(subEndDate)}</strong>.</>
+                    : 'Your subscription is active.'}
+                </p>
+                <button style={btnRed} onClick={() => setCancelConfirm(true)}
+                  onMouseEnter={e => { e.currentTarget.style.background = '#fee2e2' }}
+                  onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}>
+                  Cancel Subscription
+                </button>
+              </div>
+            )
+          }
+
+          // ── Cancelled with no remaining access ────────────────────────────
+          if (dbStatus === 'cancelled') {
+            return (
+              <div style={cardStyle('#f8fafc', '1.5px solid #e2e8f0', '#e2e8f0')}>
+                <div style={badgeStyle('#64748b', '#fff')}>Cancelled</div>
+                <p style={descStyle}>Your subscription has ended. Resubscribe to restore full access.</p>
+                <button style={btnPrimary} onClick={() => setShowSubPlans(true)}
+                  onMouseEnter={e => { e.currentTarget.style.background = '#0d9488' }}
+                  onMouseLeave={e => { e.currentTarget.style.background = '#14b8a6' }}>
+                  Resubscribe
+                </button>
+              </div>
+            )
+          }
+
+          // ── Expired ───────────────────────────────────────────────────────
+          if (subExpired) {
+            return (
+              <div style={cardStyle('#fff1f2', '1.5px solid #fecdd3', '#fecdd3')}>
+                <div style={badgeStyle('#dc2626', '#fff')}>Expired</div>
+                <p style={descStyle}>
+                  Your {planLabel} subscription expired on <strong>{fmtDate(subEndDate)}</strong>.
+                  Renew now to restore full access.
+                </p>
+                <button style={btnPrimary} onClick={() => setShowSubPlans(true)}
+                  onMouseEnter={e => { e.currentTarget.style.background = '#0d9488' }}
+                  onMouseLeave={e => { e.currentTarget.style.background = '#14b8a6' }}>
+                  Renew Now
+                </button>
+              </div>
+            )
+          }
+
+          // ── Trial ended ───────────────────────────────────────────────────
+          if (trialEnded) {
+            return (
+              <div style={cardStyle('#fff1f2', '1.5px solid #fecdd3', '#fecdd3')}>
+                <div style={badgeStyle('#dc2626', '#fff')}>Free Trial Ended</div>
+                <p style={descStyle}>Your 7-day free trial has ended. Choose a plan to continue using FundiBill with full access.</p>
+                <button style={btnPrimary} onClick={() => setShowSubPlans(true)}
+                  onMouseEnter={e => { e.currentTarget.style.background = '#0d9488' }}
+                  onMouseLeave={e => { e.currentTarget.style.background = '#14b8a6' }}>
+                  Choose a Plan
+                </button>
+              </div>
+            )
+          }
+
+          // ── Trial active ──────────────────────────────────────────────────
+          return (
+            <div style={cardStyle('#eff6ff', '1.5px solid #bfdbfe', '#bfdbfe')}>
+              <div style={badgeStyle('#2563eb', '#fff')}>Free Trial</div>
+              <p style={descStyle}>
+                You have <strong>{daysLeft} day{daysLeft !== 1 ? 's' : ''}</strong> remaining in your free trial.
+                Choose a plan to unlock full access and keep your data.
+              </p>
+              <button style={btnPrimary} onClick={() => setShowSubPlans(true)}
+                onMouseEnter={e => { e.currentTarget.style.background = '#0d9488' }}
+                onMouseLeave={e => { e.currentTarget.style.background = '#14b8a6' }}>
+                Choose a Plan
+              </button>
+            </div>
+          )
+        })()}
+
+        <p style={{ fontSize: 12, color: '#94a3b8', marginTop: 4, lineHeight: 1.6 }}>
+          For billing history and tax invoices, log in to your PayFast account at{' '}
+          <button
+            onClick={() => window.db?.openExternal('https://www.payfast.co.za')}
+            style={{ background: 'none', border: 'none', color: '#0891b2', cursor: 'pointer', padding: 0, fontSize: 12, textDecoration: 'underline', fontFamily: 'inherit' }}
+          >
+            payfast.co.za
+          </button>.
+        </p>
+      </Section>
+
+      {/* ── Cancel subscription confirm modal ────────────────────────────── */}
+      {cancelConfirm && (
+        <div style={{
+          position:       'fixed',
+          inset:          0,
+          background:     'rgba(15,23,42,0.5)',
+          display:        'flex',
+          alignItems:     'center',
+          justifyContent: 'center',
+          zIndex:         1000,
+          padding:        16,
+        }}>
+          <div style={{
+            background:   '#fff',
+            borderRadius: 12,
+            padding:      24,
+            maxWidth:     380,
+            width:        '100%',
+            boxShadow:    '0 12px 40px rgba(0,0,0,0.25)',
+          }}>
+            <h3 style={{ margin: '0 0 8px', fontSize: 16, fontWeight: 700, color: '#0f172a' }}>
+              Cancel Subscription?
+            </h3>
+            <p style={{ margin: '0 0 6px', fontSize: 14, color: '#64748b', lineHeight: 1.6 }}>
+              Your subscription will be cancelled. You'll keep full access until the end of your current billing period.
+            </p>
+            <p style={{ margin: '0 0 20px', fontSize: 13, color: '#94a3b8', lineHeight: 1.5 }}>
+              You can resubscribe at any time from the Subscription & Billing section.
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+              <button
+                onClick={() => setCancelConfirm(false)}
+                disabled={cancelling}
+                style={{
+                  padding:      '9px 18px',
+                  borderRadius: 8,
+                  border:       '1.5px solid #e2e8f0',
+                  background:   '#fff',
+                  color:        '#374151',
+                  fontWeight:   600,
+                  fontSize:     13,
+                  cursor:       'pointer',
+                  fontFamily:   'inherit',
+                }}
+              >
+                Keep Subscription
+              </button>
+              <button
+                onClick={handleCancelSubscription}
+                disabled={cancelling}
+                style={{
+                  padding:      '9px 18px',
+                  borderRadius: 8,
+                  border:       'none',
+                  background:   cancelling ? '#94a3b8' : '#dc2626',
+                  color:        '#fff',
+                  fontWeight:   600,
+                  fontSize:     13,
+                  cursor:       cancelling ? 'wait' : 'pointer',
+                  fontFamily:   'inherit',
+                  display:      'flex',
+                  alignItems:   'center',
+                  gap:          6,
+                }}
+              >
+                {cancelling ? 'Cancelling…' : 'Yes, Cancel'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── MOBILE: Sign Out button (at bottom of scrollable content) ────── */}
       {isMobile && (
