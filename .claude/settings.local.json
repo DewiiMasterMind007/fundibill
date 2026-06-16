@@ -41,7 +41,8 @@
       "Bash(echo \"Invoices exit=$?\")",
       "Bash(echo \"Estimates exit=$?\")",
       "Bash(echo \"whatsapp exit=$?\")",
-      "Bash(echo \"WhatsAppButton exit=$?\")"
+      "Bash(echo \"WhatsAppButton exit=$?\")",
+      "Bash(del \"C:\\\\Users\\\\dewal\\\\Desktop\\\\Invoicy App\\\\src\\\\lib\\\\payfast.js\")"
     ]
   }
 }

@@ -1,8 +1,17 @@
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
-import { buildPayFastURL } from '../lib/payfast'
 import PlanSelectModal from './PlanSelectModal'
+
+function buildPayFastURL(user, profile, plan) {
+  const params = new URLSearchParams({
+    plan,
+    user_id: user?.id    || '',
+    email:   user?.email || '',
+    name:    profile?.business_name || '',
+  })
+  return `https://api.fundiai.co.za/fundibill-buy.php?${params.toString()}`
+}
 
 const POLL_INTERVAL_MS = 10_000   // check every 10 seconds
 const POLL_MAX_MS      = 600_000  // stop after 10 minutes
@@ -57,11 +66,11 @@ export default function TrialBanner({ daysRemaining, trialExpired, subscriptionE
 
       const { data } = await supabase
         .from('profiles')
-        .select('subscription_status, is_licensed')
+        .select('subscription_status')
         .eq('id', user.id)
         .maybeSingle()
 
-      if (data?.subscription_status === 'active' || data?.is_licensed === true) {
+      if (data?.subscription_status === 'active') {
         stopPolling()
         setConfirmed(true)
         await refreshSubscription()
