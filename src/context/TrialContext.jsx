@@ -6,7 +6,7 @@ const TRIAL_DAYS = 7
 const TrialCtx   = createContext(null)
 
 export function TrialProvider({ children }) {
-  const { user, currentProfile, isSubscriptionActive } = useAuth()
+  const { user, currentProfile, isSubscriptionActive, refreshSubscription } = useAuth()
   const [status, setStatus] = useState(null) // null = loading
 
   useEffect(() => {
@@ -24,16 +24,35 @@ export function TrialProvider({ children }) {
 
       if (cancelled) return
 
-      const subscriptionActive = isSubscriptionActive()
       const subscriptionPlan      = currentProfile?.subscription_plan      ?? null
       const subscriptionFrequency = currentProfile?.subscription_frequency ?? null
       const subscriptionEndDate   = currentProfile?.subscription_end_date  ?? null
+
+      // If the DB still says 'active' but the end date has already passed,
+      // correct it to 'expired' now so the webhook didn't miss it.
+      const dbStatusActive = currentProfile?.subscription_status === 'active'
+      const endDatePassed  = !!subscriptionEndDate && new Date(subscriptionEndDate) <= new Date()
+      const isNonLifetime  = subscriptionPlan && subscriptionPlan !== 'lifetime'
+      if (dbStatusActive && isNonLifetime && endDatePassed && !cancelled) {
+        await supabase
+          .from('profiles')
+          .update({ subscription_status: 'expired' })
+          .eq('id', user.id)
+        if (cancelled) return
+        await refreshSubscription()
+        // refreshSubscription updates currentProfile in AuthContext, which
+        // re-triggers this effect — return early so this pass doesn't proceed
+        // with a stale currentProfile.
+        return
+      }
+
+      const subscriptionActive = isSubscriptionActive()
 
       // A subscription that was once active but has now lapsed (monthly/annual only —
       // lifetime never expires and is handled by isSubscriptionActive() above)
       const subscriptionExpired =
         !subscriptionActive &&
-        subscriptionPlan && subscriptionPlan !== 'lifetime' &&
+        isNonLifetime &&
         !!subscriptionEndDate &&
         new Date(subscriptionEndDate) <= new Date()
 

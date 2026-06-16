@@ -30,6 +30,7 @@ export default function TrialBanner({ daysRemaining, trialExpired, subscriptionE
 
   const pollIntervalRef = useRef(null)
   const pollStartRef    = useRef(null)
+  const selectedPlanRef = useRef(null)  // which plan the user selected (for success message)
 
   // Fetch the profile once so we have business_name for PayFast
   useEffect(() => {
@@ -88,11 +89,21 @@ export default function TrialBanner({ daysRemaining, trialExpired, subscriptionE
   }
 
   function handleSelectPlan(plan) {
+    selectedPlanRef.current = plan
     const url = buildPayFastURL(user, profile, plan)
     window.db?.openExternal(url)
     setShowPlans(false)
     setShowHint(true)
     if (!polling && !confirmed) startPolling()
+  }
+
+  function successMessage() {
+    switch (selectedPlanRef.current) {
+      case 'monthly':  return '🎉 Monthly subscription activated! Full access restored.'
+      case 'annual':   return '🎉 Annual subscription activated! Full access restored.'
+      case 'lifetime': return '🎉 Lifetime license activated! Welcome to FundiBill!'
+      default:         return '🎉 Payment confirmed! Full access activated.'
+    }
   }
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -133,7 +144,7 @@ export default function TrialBanner({ daysRemaining, trialExpired, subscriptionE
           {confirmed ? (
             /* Payment success — shown for ~2.5 s before page reloads */
             <span style={{ color: '#4ade80', fontWeight: 700, fontSize: 14 }}>
-              🎉 Payment confirmed! Full access activated.
+              {successMessage()}
             </span>
           ) : subscriptionExpired ? (
             <>
