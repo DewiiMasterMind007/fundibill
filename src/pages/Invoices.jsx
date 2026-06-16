@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { useLocation } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { PdfPreviewModal } from '../pdf/PdfPreviewModal'
 import { SendEmailModal } from '../components/SendEmailModal'
 import { supabase } from '../lib/supabase'
@@ -525,6 +525,7 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
   const { user } = useAuth()
   const { dismissNotification } = useRecurringNotif()
   const { refreshClients, refreshCatalog } = useAppData()
+  const navigate = useNavigate()
   const isNew = !invoice
 
   const payTermsDays = settings?.payment_terms_days ?? 7
@@ -568,6 +569,9 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
   const [undoing, setUndoing] = useState(false)
   const [waLoading, setWaLoading] = useState(false)
   const [waToast, setWaToast] = useState(null)
+  const [sourceEstimate,    setSourceEstimate]    = useState(null) // { id, estimate_number, previous_status }
+  const [undoConvert,       setUndoConvert]       = useState(false)
+  const [undoingConvert,    setUndoingConvert]    = useState(false)
 
   const selectedClient = [...clients, ...extraClients].find(c => c.id === form.client_id)
 
@@ -616,6 +620,21 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
       }))
     }
   }, [invoice?.status, invoice?.amount_paid, invoice?.payment_date, invoice?.previous_status])
+
+  // Reverse-lookup: find the estimate this invoice was converted from (if any)
+  useEffect(() => {
+    if (isNew || !invoice?.id) return
+    let cancelled = false
+    supabase
+      .from('estimates')
+      .select('id, estimate_number, previous_status')
+      .eq('converted_invoice_id', invoice.id)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (!cancelled) setSourceEstimate(data ?? null)
+      })
+    return () => { cancelled = true }
+  }, [isNew, invoice?.id])
 
   // VAT-inclusive: unit_price is the price the client pays (VAT already inside)
   const grossTotal = lineItems.reduce((s, li) => s + (Number(li.quantity) || 0) * (Number(li.unit_price) || 0), 0)
@@ -927,6 +946,36 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
     }
   }
 
+  async function handleUndoConvert() {
+    if (!sourceEstimate) return
+    setUndoingConvert(true)
+    try {
+      // Delete the invoice (cascade removes invoice_items via FK)
+      const { error: delErr } = await supabase
+        .from('invoices')
+        .delete()
+        .eq('id', invoice.id)
+        .eq('user_id', user.id)
+      if (delErr) throw new Error(delErr.message)
+
+      // Revert the estimate back to its pre-conversion status
+      const revertStatus = sourceEstimate.previous_status || 'approved'
+      const { error: estErr } = await supabase
+        .from('estimates')
+        .update({ status: revertStatus, converted_invoice_id: null, previous_status: null })
+        .eq('id', sourceEstimate.id)
+      if (estErr) throw new Error(estErr.message)
+
+      setUndoingConvert(false)
+      setUndoConvert(false)
+      // Navigate to Estimates and open the reverted estimate
+      navigate('/estimates', { state: { openId: sourceEstimate.id } })
+    } catch (e) {
+      setUndoingConvert(false)
+      setErrors({ _global: e.message })
+    }
+  }
+
   async function handleSendWhatsApp() {
     if (waLoading) return
     setWaToast(null)
@@ -1037,6 +1086,22 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
               )}
               {isPaid && form.payment_date && (
                 <span style={{ fontSize: 12, fontWeight: 600, color: '#15803d' }}>Paid on: {form.payment_date}</span>
+              )}
+              {sourceEstimate && (
+                <>
+                  <span
+                    onClick={() => navigate('/estimates', { state: { openId: sourceEstimate.id } })}
+                    title={`View estimate ${sourceEstimate.estimate_number}`}
+                    style={{
+                      fontSize: 12, fontWeight: 600, color: '#7c3aed',
+                      cursor: 'pointer', textDecoration: 'underline',
+                      textDecorationStyle: 'dotted',
+                    }}
+                  >
+                    from approved {sourceEstimate.estimate_number}
+                  </span>
+                  <UndoButton title="Undo Convert to Invoice" onClick={() => setUndoConvert(true)} />
+                </>
               )}
             </div>
           )}
@@ -1524,6 +1589,15 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
           onConfirm={handleUndo}
           onCancel={() => setUndoTarget(null)}
           confirming={undoing}
+        />
+      )}
+
+      {undoConvert && sourceEstimate && (
+        <RevertConfirmModal
+          message={`Delete invoice ${form.invoice_number} and revert ${sourceEstimate.estimate_number} back to its previous status? This cannot be undone.`}
+          onConfirm={handleUndoConvert}
+          onCancel={() => setUndoConvert(false)}
+          confirming={undoingConvert}
         />
       )}
 

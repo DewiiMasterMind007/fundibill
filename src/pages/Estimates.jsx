@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { PdfPreviewModal } from '../pdf/PdfPreviewModal'
 import { SendEmailModal } from '../components/SendEmailModal'
 import { supabase } from '../lib/supabase'
@@ -1604,6 +1604,7 @@ export default function Estimates() {
   const trialStatus = useTrialStatus()
   const isReadOnly  = trialStatus?.isReadOnly ?? false
   const { user } = useAuth()
+  const location = useLocation()
 
   // Shared data from global cache
   const { clients, catalog, profile: settings, refreshClients } = useAppData()
@@ -1637,6 +1638,22 @@ export default function Estimates() {
   }, [user, clients])
 
   useEffect(() => { load() }, [load])
+
+  // Open a specific estimate when navigated here with state.openId
+  // (e.g. from the "Undo Convert" action on an invoice)
+  useEffect(() => {
+    const openId = location.state?.openId
+    if (!openId || loading) return
+    Promise.all([
+      supabase.from('estimates').select('*').eq('id', openId).single(),
+      supabase.from('estimate_items').select('*').eq('estimate_id', openId),
+    ]).then(([{ data: estData }, { data: itemsData }]) => {
+      if (estData) {
+        setEditing({ ...estData, items: itemsData ?? [] })
+        setView('form')
+      }
+    })
+  }, [location.state?.openId, loading])
 
   function openNew() { setEditing(null); setView('form') }
 
