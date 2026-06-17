@@ -110,10 +110,9 @@ export default function TrialBanner({ daysRemaining, trialExpired, subscriptionE
 
   function successMessage() {
     switch (selectedPlanRef.current) {
-      case 'monthly':  return '🎉 Monthly subscription activated! Full access restored.'
-      case 'annual':   return '🎉 Annual subscription activated! Full access restored.'
-      case 'lifetime': return '🎉 Lifetime license activated! Welcome to FundiBill!'
-      default:         return '🎉 Payment confirmed! Full access activated.'
+      case 'monthly': return '🎉 Monthly subscription activated! Full access restored.'
+      case 'annual':  return '🎉 Annual subscription activated! Full access restored.'
+      default:        return '🎉 Payment confirmed! Full access activated.'
     }
   }
 

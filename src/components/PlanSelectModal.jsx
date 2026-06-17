@@ -26,14 +26,6 @@ const PLANS = [
     note:     'Save 14%',
     badge:    'Most Popular',
   },
-  {
-    id:       'lifetime',
-    name:     'Lifetime',
-    price:    'R999',
-    period:   '',
-    note:     'Once off',
-    badge:    null,
-  },
 ]
 
 export default function PlanSelectModal({ onSelect, onClose }) {
