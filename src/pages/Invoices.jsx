@@ -1022,6 +1022,7 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
         amount:        fmt(total),
         dueDate:       form.due_date,
         businessName,
+        template:      settings?.whatsapp_default_message || undefined,
       })
 
       const result = await sendPdfViaWhatsApp({

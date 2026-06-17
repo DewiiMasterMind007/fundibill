@@ -19,11 +19,27 @@ export function formatPhoneForWhatsApp(phone) {
   return digits
 }
 
-export function buildInvoiceWhatsAppMessage({ clientName, invoiceNumber, amount, dueDate, businessName }) {
+export function buildInvoiceWhatsAppMessage({ clientName, invoiceNumber, amount, dueDate, businessName, template }) {
+  if (template) {
+    return template
+      .replace(/{clientName}/g,    clientName)
+      .replace(/{invoiceNumber}/g, invoiceNumber)
+      .replace(/{amount}/g,        amount)
+      .replace(/{dueDate}/g,       dueDate)
+      .replace(/{businessName}/g,  businessName)
+  }
   return `Hi ${clientName}, please find invoice ${invoiceNumber} for ${amount} attached. Due date: ${dueDate}. Thank you for your business, ${businessName}.`
 }
 
-export function buildEstimateWhatsAppMessage({ clientName, estimateNumber, amount, expiryDate, businessName }) {
+export function buildEstimateWhatsAppMessage({ clientName, estimateNumber, amount, expiryDate, businessName, template }) {
+  if (template) {
+    return template
+      .replace(/{clientName}/g,    clientName)
+      .replace(/{estimateNumber}/g, estimateNumber)
+      .replace(/{amount}/g,         amount)
+      .replace(/{expiryDate}/g,     expiryDate)
+      .replace(/{businessName}/g,   businessName)
+  }
   return `Hi ${clientName}, please find estimate ${estimateNumber} for ${amount} attached. Valid until: ${expiryDate}. Please don't hesitate to contact us. Kind regards, ${businessName}.`
 }
 

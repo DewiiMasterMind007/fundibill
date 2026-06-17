@@ -356,7 +356,7 @@ export function PdfDocument({ data, settings, docType }) {
               </View>
               <Text style={[S.cellNum, S.colQty]}>{item.quantity}</Text>
               <Text style={[S.cellNum, S.colRate]}>{fmtZAR(item.unit_price)}</Text>
-              <Text style={[S.cellNum, S.colAmount]}>{fmtZAR(item.line_total)}</Text>
+              <Text style={[S.cellNum, S.colAmount]}>{fmtZAR(item.line_total || (Number(item.quantity) * Number(item.unit_price)))}</Text>
             </View>
           ))}
         </View>

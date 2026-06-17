@@ -892,6 +892,7 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
         amount:         fmt(total),
         expiryDate:     form.expiry_date,
         businessName,
+        template:       settings?.whatsapp_default_message || undefined,
       })
 
       const result = await sendPdfViaWhatsApp({
