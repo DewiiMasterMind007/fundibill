@@ -942,137 +942,166 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
       {/* ── Header bar ── */}
       <div style={{
         background: '#fff', borderBottom: '1px solid #e2e8f0',
-        padding: isMobile ? '12px 16px' : '14px 28px',
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0,
+        padding: isMobile ? '10px 16px' : '14px 28px',
+        display: 'flex', flexDirection: isMobile ? 'column' : 'row',
+        alignItems: isMobile ? 'stretch' : 'center',
+        justifyContent: isMobile ? undefined : 'space-between',
+        gap: isMobile ? 8 : 0,
+        flexShrink: 0,
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 10 : 14, minWidth: 0, flex: 1 }}>
-          <button
-            onClick={onBack}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b', display: 'flex', alignItems: 'center', gap: 5, fontSize: 14, fontWeight: 600, flexShrink: 0 }}
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>
-            Back
-          </button>
-          <span style={{ color: '#e2e8f0', fontWeight: 300 }}>|</span>
-          {isNew ? (
-            <h2 style={{ fontSize: isMobile ? 15 : 16, fontWeight: 700, color: '#0f172a', margin: 0 }}>
-              New Estimate
-            </h2>
-          ) : isMobile ? (
-            <span style={{
-              display: 'inline-block', padding: '3px 9px', borderRadius: 6,
-              fontSize: 12, fontWeight: 700, background: '#f1f5f9', color: '#475569',
-              border: '1px solid #e2e8f0', flexShrink: 0,
-            }}>
-              {form.estimate_number}
-            </span>
-          ) : (
-            <h2 style={{ fontSize: 16, fontWeight: 700, color: '#0f172a', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              Estimate {form.estimate_number}
-            </h2>
-          )}
-          {!isNew && (
-            <div style={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: isMobile ? 4 : 8, flexShrink: 0 }}>
-              <StatusBadge status={form.status} />
-              {form.status === 'approved' && form.previous_status && (
-                <UndoButton title="Undo Approve" onClick={() => setUndoTarget('approve')} />
+
+        {/* ── Row 1: Back + (desktop: title & status) + action buttons ── */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 6 : 14, minWidth: 0, flex: isMobile ? undefined : 1 }}>
+            <button
+              onClick={onBack}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b', display: 'flex', alignItems: 'center', gap: 5, fontSize: 14, fontWeight: 600, flexShrink: 0 }}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>
+              Back
+            </button>
+            {!isMobile && (
+              <>
+                <span style={{ color: '#e2e8f0', fontWeight: 300 }}>|</span>
+                {isNew ? (
+                  <h2 style={{ fontSize: 16, fontWeight: 700, color: '#0f172a', margin: 0 }}>New Estimate</h2>
+                ) : (
+                  <h2 style={{ fontSize: 16, fontWeight: 700, color: '#0f172a', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    Estimate {form.estimate_number}
+                  </h2>
+                )}
+                {!isNew && (
+                  <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                    <StatusBadge status={form.status} />
+                    {form.status === 'approved' && form.previous_status && (
+                      <UndoButton title="Undo Approve" onClick={() => setUndoTarget('approve')} />
+                    )}
+                    {form.status === 'converted' && (
+                      <>
+                        <button
+                          onClick={() => estimate?.converted_invoice_id && navigate('/invoices', { state: { openId: estimate.converted_invoice_id } })}
+                          disabled={!estimate?.converted_invoice_id}
+                          style={{ background: 'none', border: 'none', padding: 0, fontSize: 12, fontWeight: 600, color: '#7c3aed', textDecoration: 'underline', cursor: estimate?.converted_invoice_id ? 'pointer' : 'default', fontFamily: 'inherit' }}
+                        >
+                          Converted — view invoice
+                        </button>
+                        {!isReadOnly && (
+                          <UndoButton title="Undo Convert to Invoice" onClick={() => setUndoTarget('convert')} />
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
+          {/* Desktop: full action buttons */}
+          {!isMobile && (
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+              {errors._global && <span style={{ color: '#ef4444', fontSize: 13 }}>{errors._global}</span>}
+              {isReadOnly && (
+                <span style={{ fontSize: 12, fontWeight: 600, color: '#94a3b8', background: '#f1f5f9', borderRadius: 6, padding: '4px 10px' }}>
+                  View only
+                </span>
               )}
-              {form.status === 'converted' && (
-                <>
-                  <button
-                    onClick={() => estimate?.converted_invoice_id && navigate('/invoices', { state: { openId: estimate.converted_invoice_id } })}
-                    disabled={!estimate?.converted_invoice_id}
-                    style={{
-                      background: 'none', border: 'none', padding: 0, fontSize: 12, fontWeight: 600,
-                      color: '#7c3aed', textDecoration: 'underline', cursor: estimate?.converted_invoice_id ? 'pointer' : 'default',
-                      fontFamily: 'inherit',
-                    }}
-                  >
-                    Converted — view invoice
-                  </button>
-                  {!isReadOnly && (
-                    <UndoButton title="Undo Convert to Invoice" onClick={() => setUndoTarget('convert')} />
-                  )}
-                </>
+              {!isNew && (
+                <button onClick={() => setPdfOpen(true)}
+                  style={{ padding: '9px 14px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontWeight: 600, fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                  Preview PDF
+                </button>
+              )}
+              {!isNew && !isReadOnly && (
+                <button onClick={() => setShowEmailModal(true)}
+                  style={{ padding: '9px 14px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontWeight: 600, fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                    <polyline points="22,6 12,13 2,6"/>
+                  </svg>
+                  Send by Email
+                </button>
+              )}
+              {!isNew && !isReadOnly && (
+                <WhatsAppButton loading={waLoading} onClick={handleSendWhatsApp} />
+              )}
+              {!isReadOnly && (
+                <button onClick={() => handleSave()} disabled={saving} style={btnStyle('#14b8a6')}>
+                  {saving ? 'Saving…' : 'Save Draft'}
+                </button>
+              )}
+              {!isReadOnly && !isNew && form.status !== 'converted' && (
+                <button onClick={handleConvert} disabled={saving} style={btnStyle('#7c3aed')}>
+                  {saving ? 'Converting…' : 'Convert to Invoice'}
+                </button>
+              )}
+              {!isReadOnly && !isNew && (
+                <button onClick={() => setConfirmDelete(true)}
+                  style={{ padding: '9px 12px', borderRadius: 8, border: '1px solid #fecaca', background: '#fff', color: '#dc2626', cursor: 'pointer', fontWeight: 600, fontSize: 13 }}>
+                  Delete
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Mobile: compact icon buttons */}
+          {isMobile && (
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }}>
+              {!isNew && (
+                <button onClick={() => setPdfOpen(true)} title="Preview PDF"
+                  style={{ padding: '7px', borderRadius: 7, border: '1px solid #e2e8f0', background: '#fff', color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                </button>
+              )}
+              {!isNew && !isReadOnly && (
+                <button onClick={() => setShowEmailModal(true)} title="Send by Email"
+                  style={{ padding: '7px', borderRadius: 7, border: '1px solid #e2e8f0', background: '#fff', color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                    <polyline points="22,6 12,13 2,6"/>
+                  </svg>
+                </button>
+              )}
+              {!isNew && !isReadOnly && (
+                <WhatsAppButton loading={waLoading} onClick={handleSendWhatsApp} icon />
+              )}
+              {!isReadOnly && !isNew && (
+                <button onClick={() => setConfirmDelete(true)} title="Delete"
+                  style={{ padding: '7px', borderRadius: 7, border: '1px solid #fecaca', background: '#fff', color: '#dc2626', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+                </button>
               )}
             </div>
           )}
         </div>
 
-        {/* Desktop: full action buttons in header */}
-        {!isMobile && (
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-            {errors._global && <span style={{ color: '#ef4444', fontSize: 13 }}>{errors._global}</span>}
-            {isReadOnly && (
-              <span style={{ fontSize: 12, fontWeight: 600, color: '#94a3b8', background: '#f1f5f9', borderRadius: 6, padding: '4px 10px' }}>
-                View only
-              </span>
+        {/* ── Row 2 (mobile only): number pill + status + undo chips ── */}
+        {isMobile && !isNew && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <span style={{
+              display: 'inline-block', padding: '3px 9px', borderRadius: 6,
+              fontSize: 12, fontWeight: 700, background: '#f1f5f9', color: '#475569',
+              border: '1px solid #e2e8f0',
+            }}>
+              {form.estimate_number}
+            </span>
+            <StatusBadge status={form.status} />
+            {form.status === 'approved' && form.previous_status && (
+              <UndoButton title="Undo Approve" onClick={() => setUndoTarget('approve')} />
             )}
-            {!isNew && (
-              <button onClick={() => setPdfOpen(true)}
-                style={{ padding: '9px 14px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontWeight: 600, fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-                Preview PDF
-              </button>
-            )}
-            {!isNew && !isReadOnly && (
-              <button onClick={() => setShowEmailModal(true)}
-                style={{ padding: '9px 14px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontWeight: 600, fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
-                  <polyline points="22,6 12,13 2,6"/>
-                </svg>
-                Send by Email
-              </button>
-            )}
-            {!isNew && !isReadOnly && (
-              <WhatsAppButton loading={waLoading} onClick={handleSendWhatsApp} />
-            )}
-            {!isReadOnly && (
-              <button onClick={() => handleSave()} disabled={saving} style={btnStyle('#14b8a6')}>
-                {saving ? 'Saving…' : 'Save Draft'}
-              </button>
-            )}
-            {!isReadOnly && !isNew && form.status !== 'converted' && (
-              <button onClick={handleConvert} disabled={saving} style={btnStyle('#7c3aed')}>
-                {saving ? 'Converting…' : 'Convert to Invoice'}
-              </button>
-            )}
-            {!isReadOnly && !isNew && (
-              <button onClick={() => setConfirmDelete(true)}
-                style={{ padding: '9px 12px', borderRadius: 8, border: '1px solid #fecaca', background: '#fff', color: '#dc2626', cursor: 'pointer', fontWeight: 600, fontSize: 13 }}>
-                Delete
-              </button>
-            )}
-          </div>
-        )}
-
-        {/* Mobile: compact icon buttons for PDF / Email / Delete */}
-        {isMobile && (
-          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }}>
-            {!isNew && (
-              <button onClick={() => setPdfOpen(true)} title="Preview PDF"
-                style={{ padding: '7px', borderRadius: 7, border: '1px solid #e2e8f0', background: '#fff', color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-              </button>
-            )}
-            {!isNew && !isReadOnly && (
-              <button onClick={() => setShowEmailModal(true)} title="Send by Email"
-                style={{ padding: '7px', borderRadius: 7, border: '1px solid #e2e8f0', background: '#fff', color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
-                  <polyline points="22,6 12,13 2,6"/>
-                </svg>
-              </button>
-            )}
-            {!isNew && !isReadOnly && (
-              <WhatsAppButton loading={waLoading} onClick={handleSendWhatsApp} icon />
-            )}
-            {!isReadOnly && !isNew && (
-              <button onClick={() => setConfirmDelete(true)} title="Delete"
-                style={{ padding: '7px', borderRadius: 7, border: '1px solid #fecaca', background: '#fff', color: '#dc2626', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
-              </button>
+            {form.status === 'converted' && (
+              <>
+                <button
+                  onClick={() => estimate?.converted_invoice_id && navigate('/invoices', { state: { openId: estimate.converted_invoice_id } })}
+                  disabled={!estimate?.converted_invoice_id}
+                  style={{ background: 'none', border: 'none', padding: 0, fontSize: 12, fontWeight: 600, color: '#7c3aed', textDecoration: 'underline', cursor: estimate?.converted_invoice_id ? 'pointer' : 'default', fontFamily: 'inherit', whiteSpace: 'nowrap' }}
+                >
+                  view invoice
+                </button>
+                {!isReadOnly && (
+                  <UndoButton title="Undo Convert to Invoice" onClick={() => setUndoTarget('convert')} />
+                )}
+              </>
             )}
           </div>
         )}
