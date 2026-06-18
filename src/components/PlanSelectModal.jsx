@@ -175,18 +175,16 @@ export default function PlanSelectModal({ onSelect, onClose }) {
         {/* ── Trust strip ── */}
         <div style={{
           margin:     '0 24px 22px',
-          padding:    '10px 16px',
+          padding:    '8px 0',
           background: '#f8fafc',
           borderRadius: 10,
           border:     '1px solid #e2e8f0',
-          display:    'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
+          overflow:   'hidden',
         }}>
           <img
             src="/trust-strip.png"
             alt="Guaranteed Safe & Secure Payments by PayFast — Mastercard, Visa, Apple Pay accepted"
-            style={{ width: '100%', maxWidth: 540, height: 'auto', display: 'block' }}
+            style={{ width: '100%', height: 'auto', display: 'block' }}
           />
         </div>
       </div>
