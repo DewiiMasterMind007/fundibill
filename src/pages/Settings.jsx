@@ -1892,6 +1892,23 @@ export default function Settings() {
             payfast.co.za
           </button>.
         </p>
+
+        <p style={{ fontSize: 12, color: '#94a3b8', marginTop: 8, lineHeight: 1.6 }}>
+          By subscribing you agree to the FundiBill{' '}
+          <button
+            onClick={() => window.db?.openExternal('https://fundiai.co.za/fundibill-termsofuse')}
+            style={{ background: 'none', border: 'none', color: '#0891b2', cursor: 'pointer', padding: 0, fontSize: 12, textDecoration: 'underline', fontFamily: 'inherit' }}
+          >
+            Terms of Service
+          </button>
+          {' '}and{' '}
+          <button
+            onClick={() => window.db?.openExternal('https://fundiai.co.za/privacypolicy')}
+            style={{ background: 'none', border: 'none', color: '#0891b2', cursor: 'pointer', padding: 0, fontSize: 12, textDecoration: 'underline', fontFamily: 'inherit' }}
+          >
+            Privacy Policy
+          </button>.
+        </p>
       </Section>
 
       {/* ── Cancel subscription confirm modal ────────────────────────────── */}

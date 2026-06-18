@@ -63,21 +63,33 @@ function StatusBadge({ status }) {
 }
 
 function UndoButton({ onClick, title }) {
+  const isMobile  = useIsMobile()
+  const [expanded, setExpanded] = useState(false)
+
+  function handleClick() {
+    if (!isMobile || expanded) {
+      onClick()
+      setExpanded(false)
+    } else {
+      setExpanded(true)
+    }
+  }
+
   return (
     <button
-      onClick={onClick}
+      onClick={handleClick}
       title={title}
       style={{
-        display: 'inline-flex', alignItems: 'center', gap: 4,
+        display: 'inline-flex', alignItems: 'center', gap: (!isMobile || expanded) ? 4 : 0,
         padding: '3px 9px', borderRadius: 20, fontSize: 12, fontWeight: 600,
-        border: '1px solid #cbd5e1', background: '#fff', color: '#64748b',
-        cursor: 'pointer', fontFamily: 'inherit',
+        border: '1px solid #cbd5e1', background: expanded ? '#f1f5f9' : '#fff', color: '#64748b',
+        cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.15s',
       }}
     >
       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M3 7v6h6" /><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13" />
       </svg>
-      Undo
+      {(!isMobile || expanded) && 'Undo'}
     </button>
   )
 }
@@ -463,7 +475,7 @@ function MarkAsPaidEmailModal({ invoiceNumber, amount, clientName, clientEmail, 
             Mark invoice <strong>{invoiceNumber}</strong> for <strong>{clientName || 'this client'}</strong> as paid?
           </p>
 
-          <div>
+          <div style={{ maxWidth: 220 }}>
             <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#64748b', marginBottom: 5 }}>Payment Date</label>
             <input value={paymentDate} onChange={e => setPaymentDate(e.target.value)} type="date" style={iStyle} />
           </div>
@@ -1073,11 +1085,25 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
             Back
           </button>
           <span style={{ color: '#e2e8f0', fontWeight: 300 }}>|</span>
-          <h2 style={{ fontSize: isMobile ? 15 : 16, fontWeight: 700, color: '#0f172a', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {isNew ? 'New Invoice' : `Invoice ${form.invoice_number}`}
-          </h2>
+          {isNew ? (
+            <h2 style={{ fontSize: isMobile ? 15 : 16, fontWeight: 700, color: '#0f172a', margin: 0 }}>
+              New Invoice
+            </h2>
+          ) : isMobile ? (
+            <span style={{
+              display: 'inline-block', padding: '3px 9px', borderRadius: 6,
+              fontSize: 12, fontWeight: 700, background: '#f1f5f9', color: '#475569',
+              border: '1px solid #e2e8f0', flexShrink: 0,
+            }}>
+              {form.invoice_number}
+            </span>
+          ) : (
+            <h2 style={{ fontSize: 16, fontWeight: 700, color: '#0f172a', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              Invoice {form.invoice_number}
+            </h2>
+          )}
           {!isNew && (
-            <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'flex-start' : 'center', gap: isMobile ? 4 : 8, flexShrink: 0 }}>
+            <div style={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: isMobile ? 4 : 8, flexShrink: 0 }}>
               <StatusBadge status={form.status} />
               {form.status === 'paid' && form.previous_status && (
                 <UndoButton title="Undo Mark as Paid" onClick={() => setUndoTarget('paid')} />
@@ -1086,7 +1112,7 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
                 <UndoButton title="Undo Mark as Sent" onClick={() => setUndoTarget('sent')} />
               )}
               {isPaid && form.payment_date && (
-                <span style={{ fontSize: 12, fontWeight: 600, color: '#15803d' }}>Paid on: {form.payment_date}</span>
+                <span style={{ fontSize: 12, fontWeight: 600, color: '#15803d', whiteSpace: 'nowrap' }}>Paid: {form.payment_date}</span>
               )}
               {sourceEstimate && (
                 <>
@@ -1096,10 +1122,10 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
                     style={{
                       fontSize: 12, fontWeight: 600, color: '#7c3aed',
                       cursor: 'pointer', textDecoration: 'underline',
-                      textDecorationStyle: 'dotted',
+                      textDecorationStyle: 'dotted', whiteSpace: 'nowrap',
                     }}
                   >
-                    from approved {sourceEstimate.estimate_number}
+                    {isMobile ? sourceEstimate.estimate_number : `from approved ${sourceEstimate.estimate_number}`}
                   </span>
                   <UndoButton title="Undo Convert to Invoice" onClick={() => setUndoConvert(true)} />
                 </>
@@ -1217,18 +1243,21 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
               </div>
               {/* Empty spacer — desktop only */}
               {!isMobile && <div />}
-              <div>
-                <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 6 }}>Issue Date *</label>
-                <input type="date" value={form.issue_date} onChange={e => setField('issue_date', e.target.value)} style={inputStyle(!!errors.issue_date)} />
-                {errors.issue_date && <p style={{ color: '#ef4444', fontSize: 12, marginTop: 4 }}>{errors.issue_date}</p>}
-              </div>
-              <div>
-                <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 6 }}>Due Date *</label>
-                <input type="date" value={form.due_date} onChange={e => setField('due_date', e.target.value)} style={inputStyle(!!errors.due_date)} />
-                {errors.due_date
-                  ? <p style={{ color: '#ef4444', fontSize: 12, marginTop: 4 }}>{errors.due_date}</p>
-                  : isNew && <p style={{ color: '#94a3b8', fontSize: 12, marginTop: 4 }}>Based on your {payTermsDays}-day payment terms</p>
-                }
+              {/* Dates: side by side on mobile, separate columns on desktop */}
+              <div style={{ display: isMobile ? 'grid' : 'contents', gridTemplateColumns: isMobile ? '1fr 1fr' : undefined, gap: isMobile ? 10 : undefined }}>
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 6 }}>Issue Date *</label>
+                  <input type="date" value={form.issue_date} onChange={e => setField('issue_date', e.target.value)} style={inputStyle(!!errors.issue_date)} />
+                  {errors.issue_date && <p style={{ color: '#ef4444', fontSize: 12, marginTop: 4 }}>{errors.issue_date}</p>}
+                </div>
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 6 }}>Due Date *</label>
+                  <input type="date" value={form.due_date} onChange={e => setField('due_date', e.target.value)} style={inputStyle(!!errors.due_date)} />
+                  {errors.due_date
+                    ? <p style={{ color: '#ef4444', fontSize: 12, marginTop: 4 }}>{errors.due_date}</p>
+                    : isNew && <p style={{ color: '#94a3b8', fontSize: 12, marginTop: 4 }}>Based on your {payTermsDays}-day payment terms</p>
+                  }
+                </div>
               </div>
             </div>
           </div>
