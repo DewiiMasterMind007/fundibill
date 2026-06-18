@@ -1277,15 +1277,15 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
               {/* Empty spacer — desktop only */}
               {!isMobile && <div />}
               {/* Dates: side by side on mobile, separate columns on desktop */}
-              <div style={{ display: isMobile ? 'grid' : 'contents', gridTemplateColumns: isMobile ? '1fr 1fr' : undefined, gap: isMobile ? 10 : undefined }}>
-                <div>
+              <div style={{ display: isMobile ? 'grid' : 'contents', gridTemplateColumns: isMobile ? '1fr 1fr' : undefined, gap: isMobile ? 10 : undefined, minWidth: 0 }}>
+                <div style={{ minWidth: 0 }}>
                   <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 6 }}>Issue Date *</label>
-                  <input type="date" value={form.issue_date} onChange={e => setField('issue_date', e.target.value)} style={inputStyle(!!errors.issue_date)} />
+                  <input type="date" value={form.issue_date} onChange={e => setField('issue_date', e.target.value)} style={{ ...inputStyle(!!errors.issue_date), maxWidth: '100%' }} />
                   {errors.issue_date && <p style={{ color: '#ef4444', fontSize: 12, marginTop: 4 }}>{errors.issue_date}</p>}
                 </div>
-                <div>
+                <div style={{ minWidth: 0 }}>
                   <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 6 }}>Due Date *</label>
-                  <input type="date" value={form.due_date} onChange={e => setField('due_date', e.target.value)} style={inputStyle(!!errors.due_date)} />
+                  <input type="date" value={form.due_date} onChange={e => setField('due_date', e.target.value)} style={{ ...inputStyle(!!errors.due_date), maxWidth: '100%' }} />
                   {errors.due_date
                     ? <p style={{ color: '#ef4444', fontSize: 12, marginTop: 4 }}>{errors.due_date}</p>
                     : isNew && <p style={{ color: '#94a3b8', fontSize: 12, marginTop: 4 }}>Based on your {payTermsDays}-day payment terms</p>

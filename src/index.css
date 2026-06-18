@@ -70,6 +70,8 @@ body {
      all inline fontSize styles across the entire app on mobile. */
   input, textarea, select {
     font-size: 16px !important;
+    max-width: 100%;
+    min-width: 0;
   }
 
   .sidebar {
