@@ -464,6 +464,7 @@ export default function Clients() {
   const [loading,       setLoading]      = useState(!appLoaded)
   const [opError,       setOpError]      = useState('')
   const [search,        setSearch]       = useState('')
+  const [clientStats,   setClientStats]  = useState({})
 
   // Detail view
   const [selected,      setSelected]     = useState(null)
@@ -485,6 +486,27 @@ export default function Clients() {
 
   // Once the global cache has loaded, clear our local loading flag
   useEffect(() => { if (appLoaded) setLoading(false) }, [appLoaded])
+
+  // Fetch invoice count + total per client for the list columns
+  useEffect(() => {
+    if (!appLoaded || !user || clients.length === 0) return
+    async function fetchStats() {
+      const { data } = await supabase
+        .from('invoices')
+        .select('client_id, total')
+        .eq('user_id', user.id)
+      if (!data) return
+      const stats = {}
+      for (const inv of data) {
+        if (!inv.client_id) continue
+        if (!stats[inv.client_id]) stats[inv.client_id] = { count: 0, total: 0 }
+        stats[inv.client_id].count += 1
+        stats[inv.client_id].total += Number(inv.total) || 0
+      }
+      setClientStats(stats)
+    }
+    fetchStats()
+  }, [appLoaded, clients, user])
 
   // ── Load per-client docs (invoices + estimates) ───────────────────────────
 
@@ -896,16 +918,16 @@ export default function Clients() {
                           {client.phone || <span style={{ color: '#cbd5e1' }}>—</span>}
                         </td>
                         <td style={{ padding: '14px 16px', textAlign: 'center' }}>
-                          {client.invoice_count > 0 ? (
+                          {(clientStats[client.id]?.count ?? 0) > 0 ? (
                             <span style={{ background: '#f0fdf4', color: '#166534', fontSize: 12, fontWeight: 700, padding: '2px 9px', borderRadius: 999, border: '1px solid #dcfce7' }}>
-                              {client.invoice_count}
+                              {clientStats[client.id].count}
                             </span>
                           ) : (
                             <span style={{ color: '#cbd5e1', fontSize: 13 }}>—</span>
                           )}
                         </td>
-                        <td style={{ padding: '14px 16px', fontSize: 13, fontWeight: 600, color: client.total_invoiced > 0 ? '#0f172a' : '#cbd5e1', whiteSpace: 'nowrap' }}>
-                          {client.total_invoiced > 0 ? formatZAR(client.total_invoiced) : '—'}
+                        <td style={{ padding: '14px 16px', fontSize: 13, fontWeight: 600, color: (clientStats[client.id]?.total ?? 0) > 0 ? '#0f172a' : '#cbd5e1', whiteSpace: 'nowrap' }}>
+                          {(clientStats[client.id]?.total ?? 0) > 0 ? formatZAR(clientStats[client.id].total) : '—'}
                         </td>
                         <td style={{ padding: '14px 12px', color: '#cbd5e1', textAlign: 'center' }}>
                           <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
