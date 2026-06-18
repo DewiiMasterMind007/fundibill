@@ -65,6 +65,13 @@ body {
     max-width: 100%;
   }
 
+  /* Prevent iOS from auto-zooming when an input is focused.
+     iOS zooms whenever a focused input has font-size < 16px — this overrides
+     all inline fontSize styles across the entire app on mobile. */
+  input, textarea, select {
+    font-size: 16px !important;
+  }
+
   .sidebar {
     display: none;
   }

@@ -28,10 +28,13 @@ export default function TrialBanner({ daysRemaining, trialExpired, subscriptionE
   const [polling,  setPolling]          = useState(false)  // waiting for webhook
   const [confirmed, setConfirmed]       = useState(false)  // payment confirmed!
 
-  const pollIntervalRef = useRef(null)
-  const pollStartRef    = useRef(null)
-  const selectedPlanRef = useRef(null)  // which plan the user selected (for success message)
-  const payFastUrlRef   = useRef(null)  // stored so the manual-open link can retry
+  const pollIntervalRef    = useRef(null)
+  const pollStartRef       = useRef(null)
+  const selectedPlanRef    = useRef(null)  // which plan the user selected (for success message)
+  const payFastUrlRef      = useRef(null)  // stored so the manual-open link can retry
+  const tooltipTimeoutRef  = useRef(null)
+
+  const [showTrialTooltip, setShowTrialTooltip] = useState(false)
 
   // Fetch the profile once so we have business_name for PayFast
   useEffect(() => {
@@ -44,8 +47,11 @@ export default function TrialBanner({ daysRemaining, trialExpired, subscriptionE
       .then(({ data }) => setProfile(data))
   }, [user])
 
-  // Clean up the interval if the component unmounts mid-poll
-  useEffect(() => () => clearInterval(pollIntervalRef.current), [])
+  // Clean up the interval and tooltip timeout if the component unmounts mid-poll
+  useEffect(() => () => {
+    clearInterval(pollIntervalRef.current)
+    clearTimeout(tooltipTimeoutRef.current)
+  }, [])
 
   // ── Polling ───────────────────────────────────────────────────────────────
 
@@ -106,6 +112,15 @@ export default function TrialBanner({ daysRemaining, trialExpired, subscriptionE
     setShowPlans(false)
     setShowHint(true)
     if (!polling && !confirmed) startPolling()
+  }
+
+  function handleDaysBadgeClick() {
+    const next = !showTrialTooltip
+    setShowTrialTooltip(next)
+    clearTimeout(tooltipTimeoutRef.current)
+    if (next) {
+      tooltipTimeoutRef.current = setTimeout(() => setShowTrialTooltip(false), 3000)
+    }
   }
 
   function successMessage() {
@@ -177,17 +192,46 @@ export default function TrialBanner({ daysRemaining, trialExpired, subscriptionE
           ) : (
             <>
               <span style={{ fontSize: 15 }}>⏳</span>
-              <span style={{
-                background:   urgent ? '#dc2626' : '#d97706',
-                color:        '#fff',
-                borderRadius: 4,
-                padding:      '2px 8px',
-                fontWeight:   700,
-                fontSize:     12,
-              }}>
-                {daysRemaining} day{daysRemaining !== 1 ? 's' : ''}
-              </span>
-              <span style={{ color: '#94a3b8', fontWeight: 400 }}>left in your FundiBill free trial</span>
+              <div style={{ position: 'relative', display: 'inline-flex' }}>
+                <button
+                  onClick={handleDaysBadgeClick}
+                  style={{
+                    background:    urgent ? '#dc2626' : '#d97706',
+                    color:         '#fff',
+                    borderRadius:  4,
+                    padding:       '3px 10px',
+                    fontWeight:    700,
+                    fontSize:      12,
+                    border:        'none',
+                    cursor:        'pointer',
+                    animation:     'trialPulse 2s ease-in-out infinite',
+                    letterSpacing: '0.02em',
+                  }}
+                >
+                  {daysRemaining} Day{daysRemaining !== 1 ? 's' : ''}
+                </button>
+                {showTrialTooltip && (
+                  <div style={{
+                    position:      'absolute',
+                    top:           'calc(100% + 8px)',
+                    left:          '50%',
+                    transform:     'translateX(-50%)',
+                    background:    '#1e293b',
+                    color:         '#f1f5f9',
+                    fontSize:      12,
+                    fontWeight:    500,
+                    padding:       '7px 12px',
+                    borderRadius:  8,
+                    whiteSpace:    'nowrap',
+                    zIndex:        100,
+                    boxShadow:     '0 4px 16px rgba(0,0,0,0.35)',
+                    pointerEvents: 'none',
+                    border:        '1px solid rgba(255,255,255,0.08)',
+                  }}>
+                    Your trial will expire in {daysRemaining} day{daysRemaining !== 1 ? 's' : ''}
+                  </div>
+                )}
+              </div>
             </>
           )}
         </span>
@@ -254,7 +298,13 @@ export default function TrialBanner({ daysRemaining, trialExpired, subscriptionE
           </div>
         )}
 
-        <style>{`@keyframes bannerSpin { to { transform: rotate(360deg); } }`}</style>
+        <style>{`
+          @keyframes bannerSpin  { to { transform: rotate(360deg); } }
+          @keyframes trialPulse  {
+            0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(217,119,6,0.5); }
+            50%       { opacity: 0.9; box-shadow: 0 0 0 5px rgba(217,119,6,0); }
+          }
+        `}</style>
       </div>
     </>
   )

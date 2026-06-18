@@ -250,6 +250,28 @@ export default function Auth() {
             {isRegister ? 'Sign in' : 'Register'}
           </button>
         </p>
+
+        {/* Legal disclaimer */}
+        <p style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', textAlign: 'center', margin: '18px 0 0', lineHeight: 1.6 }}>
+          By using FundiBill you agree to our{' '}
+          <a
+            href="https://fundiai.co.za/fundibill-termsofuse"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ color: 'rgba(255,255,255,0.65)', textDecoration: 'underline', textUnderlineOffset: 2 }}
+          >
+            terms of service
+          </a>
+          {' '}and{' '}
+          <a
+            href="https://fundiai.co.za/privacypolicy"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ color: 'rgba(255,255,255,0.65)', textDecoration: 'underline', textUnderlineOffset: 2 }}
+          >
+            privacy policy
+          </a>
+        </p>
           </>
         )}
 
