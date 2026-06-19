@@ -20,8 +20,8 @@ const HELP = {
     title: 'Dashboard',
     bullets: [
       'View your total revenue, outstanding amounts and overdue invoices at a glance.',
-      'Use the date filters to see revenue for the last 7 days, 30 days, 3 months or this year.',
-      'The bar chart shows your monthly revenue trend.',
+      'Use the date filters to see revenue for the last 7, 30 or 90 days, or choose a custom date range.',
+      'The bar chart shows your monthly revenue trend. You can scroll over each month to see your stats.',
       'Stat cards update automatically as you create and manage invoices.',
     ],
   },
@@ -33,7 +33,7 @@ const HELP = {
       'Toggle VAT (15%) on or off per invoice using the VAT checkbox.',
       'Mark an invoice as paid once payment is received.',
       'Download a PDF of any invoice using the Preview PDF button.',
-      'Send an invoice directly to your client via email using the Send by Email button.',
+      'Send an invoice directly to your client via WhatsApp or Email.',
       'Overdue invoices are detected automatically based on the due date.',
       'Use Recurring Invoices to automatically generate invoices on a set schedule.',
     ],
@@ -45,7 +45,7 @@ const HELP = {
       'Add line items the same way as invoices, with VAT toggle support.',
       'Approve an estimate to confirm it with your client.',
       'Convert an approved estimate to an invoice with one click.',
-      'Download or send estimates to clients via email.',
+      'Send an estimate directly to your client via WhatsApp or Email.',
     ],
   },
   clients: {

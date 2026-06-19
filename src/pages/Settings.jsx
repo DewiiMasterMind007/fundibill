@@ -1263,8 +1263,7 @@ export default function Settings() {
             }}>
               <span style={{ fontSize: 16, lineHeight: 1.4 }}>ℹ️</span>
               <p style={{ fontSize: 13, color: '#92400e', margin: 0, lineHeight: 1.6 }}>
-                Gmail sending is not yet supported. We're working on it and will notify you when this feature becomes available.
-                In the meantime, use Custom SMTP with your cPanel or business email.
+                Use the WhatsApp button to share your Invoice, and select "Gmail" in your share options.
               </p>
             </div>
 
