@@ -476,6 +476,7 @@ export default function Clients() {
   const [panelOpen,     setPanelOpen]    = useState(false)
   const [editingClient, setEditing]      = useState(null)
   const [form,          setForm]         = useState(EMPTY_FORM)
+  const [originalForm,  setOriginalForm] = useState(EMPTY_FORM)
   const [errors,        setErrors]       = useState({})
   const [saving,        setSaving]       = useState(false)
 
@@ -555,19 +556,22 @@ export default function Clients() {
   function openAdd() {
     setEditing(null)
     setForm(EMPTY_FORM)
+    setOriginalForm(EMPTY_FORM)
     setErrors({})
     setPanelOpen(true)
   }
 
   function openEdit(client) {
     setEditing(client)
-    setForm({
+    const initial = {
       company_name: client.company_name ?? client.name ?? '',
       email:        client.email        ?? '',
       phone:        client.phone        ?? '',
       address:      client.address      ?? '',
       website:      client.website      ?? '',
-    })
+    }
+    setForm(initial)
+    setOriginalForm(initial)
     setErrors({})
     setPanelOpen(true)
   }
@@ -591,6 +595,8 @@ export default function Clients() {
     setSelected(client)
     setConfirmDelete(true)
   }
+
+  const hasChanges = JSON.stringify(form) !== JSON.stringify(originalForm)
 
   // ── Save ──────────────────────────────────────────────────────────────────
 
@@ -1371,17 +1377,37 @@ export default function Clients() {
               {editingClient ? 'Update the client details below' : 'Fill in the details to add a new client'}
             </p>
           </div>
-          <button
-            onClick={closePanel}
-            style={{
-              background:     '#f1f5f9', border: 'none', borderRadius: '50%',
-              width:          32, height: 32, cursor: 'pointer',
-              display:        'flex', alignItems: 'center', justifyContent: 'center',
-              color:          '#64748b', fontSize: 18, lineHeight: 1, flexShrink: 0,
-            }}
-          >
-            ×
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+            {hasChanges && (
+              <button
+                onClick={handleSave}
+                disabled={saving}
+                style={{
+                  height: 34, padding: '0 14px', border: 'none', borderRadius: 8,
+                  background: saving ? '#5eead4' : '#14b8a6',
+                  color: '#fff', fontWeight: 700, fontSize: 13,
+                  cursor: saving ? 'wait' : 'pointer',
+                  display: 'flex', alignItems: 'center', gap: 6,
+                  boxShadow: '0 2px 8px rgba(20,184,166,0.3)',
+                  whiteSpace: 'nowrap', fontFamily: 'inherit',
+                }}
+              >
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#fff', flexShrink: 0 }} />
+                {saving ? 'Saving…' : 'Save'}
+              </button>
+            )}
+            <button
+              onClick={closePanel}
+              style={{
+                background:     '#f1f5f9', border: 'none', borderRadius: '50%',
+                width:          32, height: 32, cursor: 'pointer',
+                display:        'flex', alignItems: 'center', justifyContent: 'center',
+                color:          '#64748b', fontSize: 18, lineHeight: 1, flexShrink: 0,
+              }}
+            >
+              ×
+            </button>
+          </div>
         </div>
 
         {/* Panel body */}

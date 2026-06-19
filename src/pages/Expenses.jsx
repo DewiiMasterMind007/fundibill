@@ -138,10 +138,11 @@ function ExpensePanel({ expense, categories, userId, onClose, onSaved, isMobile 
             <label style={{ display: 'block', fontSize: 13, fontWeight: 500, color: '#374151', marginBottom: 5 }}>Date <span style={{ color: '#ef4444' }}>*</span></label>
             <input ref={firstRef} type="date" value={form.date} onChange={e => setField('date', e.target.value)}
               style={{
-                padding: '6px 10px', borderRadius: 7, fontSize: 13,
-                border: `1.5px solid ${errors.date ? '#fca5a5' : '#e2e8f0'}`,
-                background: '#fff', color: '#0f172a', outline: 'none', cursor: 'pointer',
-                minWidth: 0, maxWidth: '100%', boxSizing: 'border-box', width: '100%',
+                ...INPUT_S,
+                borderColor: errors.date ? '#fca5a5' : '#e2e8f0',
+                WebkitAppearance: 'none',
+                appearance: 'none',
+                cursor: 'pointer',
               }}
               onFocus={e => { e.target.style.borderColor = '#14b8a6' }}
               onBlur={e => { e.target.style.borderColor = errors.date ? '#fca5a5' : '#e2e8f0' }} />
