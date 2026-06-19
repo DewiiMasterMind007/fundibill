@@ -1043,6 +1043,13 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
         title: `Invoice ${form.invoice_number} from ${businessName}`,
       })
 
+      // Mark invoice as sent when WhatsApp is initiated (draft → sent)
+      if (invoice?.id && (form.status === 'draft')) {
+        await supabase.from('invoices').update({ status: 'sent', sent_from_app: true }).eq('id', invoice.id)
+        onSaved({ id: invoice.id, status: 'sent', sent_from_app: true })
+        setForm(p => ({ ...p, status: 'sent' }))
+      }
+
       if (result.status === 'fallback') {
         setWaToast({ message: 'Your PDF has been downloaded. Attach it to the WhatsApp message.', type: 'success' })
       }
@@ -1255,8 +1262,8 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
       <div style={{
         flex: 1, overflowY: 'auto',
         padding: isMobile ? 16 : '28px 40px',
-        // Extra bottom padding on mobile so content isn't hidden behind the fixed action bar
-        paddingBottom: isMobile ? 88 : undefined,
+        // Extra bottom padding on mobile so content isn't hidden behind the 2-row fixed action bar
+        paddingBottom: isMobile ? 160 : undefined,
       }}>
         <div style={{ maxWidth: 860, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: isMobile ? 14 : 20 }}>
 
@@ -2030,52 +2037,110 @@ function RecurringForm({ recurringInvoice, clients, catalog, settings, onBack, o
 
 function RecurringList({ recurring, clients, onNew, onEdit, onPauseResume, onDelete, onBack, isReadOnly }) {
   const [confirmDeleteId, setConfirmDeleteId] = useState(null)
+  const isMobile = useIsMobile()
 
   const clientMap = {}
   for (const c of clients) clientMap[c.id] = c
 
+  const emptyState = (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '56px 0', color: '#94a3b8' }}>
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#cbd5e1" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginBottom: 12 }}>
+        <path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/>
+        <path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>
+      </svg>
+      <p style={{ fontSize: 14, margin: 0 }}>No recurring invoices yet</p>
+      <p style={{ fontSize: 12, marginTop: 4 }}>Tap "+ New Recurring Invoice" to set one up.</p>
+    </div>
+  )
+
   return (
-    <div style={{ padding: 32, height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20, flexShrink: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+    <div style={{ padding: isMobile ? 16 : 32, height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column' }}>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: isMobile ? 16 : 20, flexShrink: 0, gap: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 14 }}>
           <button onClick={onBack} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b', display: 'flex', alignItems: 'center', gap: 5, fontSize: 14, fontWeight: 600 }}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>
-            Invoices
+            {!isMobile && 'Invoices'}
           </button>
-          <span style={{ color: '#e2e8f0', fontWeight: 300 }}>|</span>
-          <div>
-            <h1 style={{ fontSize: 24, fontWeight: 700, color: '#0f172a', margin: 0 }}>Recurring Invoices</h1>
-          </div>
+          {!isMobile && <span style={{ color: '#e2e8f0', fontWeight: 300 }}>|</span>}
+          <h1 style={{ fontSize: isMobile ? 18 : 24, fontWeight: 700, color: '#0f172a', margin: 0 }}>Recurring Invoices</h1>
         </div>
         <button
           onClick={isReadOnly ? undefined : onNew}
           disabled={isReadOnly}
           title={isReadOnly ? READONLY_MSG : undefined}
-          style={{ background: '#14b8a6', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 18px', fontSize: 14, fontWeight: 600, cursor: isReadOnly ? 'not-allowed' : 'pointer', opacity: isReadOnly ? 0.45 : 1 }}
+          style={{ background: '#14b8a6', color: '#fff', border: 'none', borderRadius: 8, padding: isMobile ? '8px 12px' : '10px 18px', fontSize: isMobile ? 13 : 14, fontWeight: 600, cursor: isReadOnly ? 'not-allowed' : 'pointer', opacity: isReadOnly ? 0.45 : 1, whiteSpace: 'nowrap' }}
         >
-          + New Recurring Invoice
+          + New{isMobile ? '' : ' Recurring Invoice'}
         </button>
       </div>
 
-      <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.04)', overflow: 'hidden', flex: 1, display: 'flex', flexDirection: 'column' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 90px 115px 115px 80px 170px', columnGap: 16, padding: '12px 20px', borderBottom: '1px solid #f1f5f9', background: '#f8fafc', flexShrink: 0 }}>
-          {['Client', 'Interval', 'Next Send', 'Last Sent', 'Status', 'Actions'].map(h => (
-            <span key={h} style={{ fontSize: 12, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</span>
-          ))}
-        </div>
-
+      {isMobile ? (
+        /* ── Mobile: card list ── */
         <div style={{ flex: 1, overflowY: 'auto' }}>
-          {recurring.length === 0 ? (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '56px 0', color: '#94a3b8' }}>
-              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#cbd5e1" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginBottom: 12 }}>
-                <path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/>
-                <path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>
-              </svg>
-              <p style={{ fontSize: 14, margin: 0 }}>No recurring invoices yet</p>
-              <p style={{ fontSize: 12, marginTop: 4 }}>Click "+ New Recurring Invoice" to set one up.</p>
-            </div>
-          ) : (
-            recurring.map(rec => {
+          {recurring.length === 0 ? emptyState : recurring.map(rec => {
+            const client   = clientMap[rec.client_id]
+            const isActive = rec.is_active !== false
+            return (
+              <div key={rec.id} style={{ background: '#fff', borderRadius: 10, border: '1px solid #f1f5f9', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', padding: '14px 16px', marginBottom: 10 }}>
+                {/* Client + status */}
+                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 10 }}>
+                  <div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: '#0f172a' }}>{client?.company_name || client?.name || '—'}</div>
+                    {client?.company_name && client.name && client.company_name !== client.name && (
+                      <div style={{ fontSize: 12, color: '#94a3b8' }}>{client.name}</div>
+                    )}
+                  </div>
+                  <span style={{ display: 'inline-block', padding: '3px 10px', borderRadius: 20, fontSize: 12, fontWeight: 600, background: isActive ? '#dcfce7' : '#f1f5f9', color: isActive ? '#15803d' : '#475569', flexShrink: 0 }}>
+                    {isActive ? 'Active' : 'Paused'}
+                  </span>
+                </div>
+                {/* Details row */}
+                <div style={{ display: 'flex', gap: 16, marginBottom: 12, flexWrap: 'wrap' }}>
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }}>Interval</div>
+                    <div style={{ fontSize: 13, color: '#475569' }}>{intervalLabel(rec.interval)}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }}>Next Send</div>
+                    <div style={{ fontSize: 13, color: '#475569' }}>{rec.next_send_date || '—'}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }}>Last Sent</div>
+                    <div style={{ fontSize: 13, color: '#475569' }}>{rec.last_sent_date || '—'}</div>
+                  </div>
+                </div>
+                {/* Action buttons */}
+                {!isReadOnly && (
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button onClick={() => onEdit(rec)}
+                      style={{ flex: 1, padding: '8px', borderRadius: 7, border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                      Edit
+                    </button>
+                    <button onClick={() => onPauseResume(rec)}
+                      style={{ flex: 1, padding: '8px', borderRadius: 7, border: `1px solid ${isActive ? '#fde68a' : '#bbf7d0'}`, background: isActive ? '#fefce8' : '#f0fdf4', color: isActive ? '#92400e' : '#15803d', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                      {isActive ? 'Pause' : 'Resume'}
+                    </button>
+                    <button onClick={() => setConfirmDeleteId(rec.id)}
+                      style={{ padding: '8px 12px', borderRadius: 7, border: '1px solid #fecaca', background: '#fff', color: '#dc2626', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                      Delete
+                    </button>
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      ) : (
+        /* ── Desktop: table ── */
+        <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.04)', overflow: 'hidden', flex: 1, display: 'flex', flexDirection: 'column' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 90px 115px 115px 80px 170px', columnGap: 16, padding: '12px 20px', borderBottom: '1px solid #f1f5f9', background: '#f8fafc', flexShrink: 0 }}>
+            {['Client', 'Interval', 'Next Send', 'Last Sent', 'Status', 'Actions'].map(h => (
+              <span key={h} style={{ fontSize: 12, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</span>
+            ))}
+          </div>
+          <div style={{ flex: 1, overflowY: 'auto' }}>
+            {recurring.length === 0 ? emptyState : recurring.map(rec => {
               const client   = clientMap[rec.client_id]
               const isActive = rec.is_active !== false
               return (
@@ -2089,53 +2154,34 @@ function RecurringList({ recurring, clients, onNew, onEdit, onPauseResume, onDel
                   <span style={{ fontSize: 13, color: '#475569' }}>{intervalLabel(rec.interval)}</span>
                   <span style={{ fontSize: 13, color: '#475569' }}>{rec.next_send_date || '—'}</span>
                   <span style={{ fontSize: 13, color: '#475569' }}>{rec.last_sent_date || '—'}</span>
-                  <span style={{
-                    display: 'inline-block', padding: '3px 10px', borderRadius: 20, fontSize: 12, fontWeight: 600,
-                    background: isActive ? '#dcfce7' : '#f1f5f9',
-                    color:      isActive ? '#15803d' : '#475569',
-                  }}>
+                  <span style={{ display: 'inline-block', padding: '3px 10px', borderRadius: 20, fontSize: 12, fontWeight: 600, background: isActive ? '#dcfce7' : '#f1f5f9', color: isActive ? '#15803d' : '#475569' }}>
                     {isActive ? 'Active' : 'Paused'}
                   </span>
                   <div style={{ display: 'flex', gap: 6 }}>
                     {!isReadOnly && (
                       <>
-                        <button onClick={() => onEdit(rec)}
-                          style={{ padding: '5px 10px', borderRadius: 6, border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
-                          Edit
-                        </button>
-                        <button onClick={() => onPauseResume(rec)}
-                          style={{ padding: '5px 10px', borderRadius: 6, border: `1px solid ${isActive ? '#fde68a' : '#bbf7d0'}`, background: isActive ? '#fefce8' : '#f0fdf4', color: isActive ? '#92400e' : '#15803d', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
-                          {isActive ? 'Pause' : 'Resume'}
-                        </button>
-                        <button onClick={() => setConfirmDeleteId(rec.id)}
-                          style={{ padding: '5px 10px', borderRadius: 6, border: '1px solid #fecaca', background: '#fff', color: '#dc2626', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
-                          Delete
-                        </button>
+                        <button onClick={() => onEdit(rec)} style={{ padding: '5px 10px', borderRadius: 6, border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>Edit</button>
+                        <button onClick={() => onPauseResume(rec)} style={{ padding: '5px 10px', borderRadius: 6, border: `1px solid ${isActive ? '#fde68a' : '#bbf7d0'}`, background: isActive ? '#fefce8' : '#f0fdf4', color: isActive ? '#92400e' : '#15803d', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>{isActive ? 'Pause' : 'Resume'}</button>
+                        <button onClick={() => setConfirmDeleteId(rec.id)} style={{ padding: '5px 10px', borderRadius: 6, border: '1px solid #fecaca', background: '#fff', color: '#dc2626', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>Delete</button>
                       </>
                     )}
                   </div>
                 </div>
               )
-            })
-          )}
+            })}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Delete confirmation */}
       {confirmDeleteId && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }}>
-          <div style={{ background: '#fff', borderRadius: 14, padding: 28, width: 380, boxShadow: '0 20px 60px rgba(0,0,0,0.18)' }}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000, padding: 16 }}>
+          <div style={{ background: '#fff', borderRadius: 14, padding: 28, width: '100%', maxWidth: 380, boxShadow: '0 20px 60px rgba(0,0,0,0.18)' }}>
             <h3 style={{ margin: '0 0 10px', fontSize: 17, fontWeight: 700, color: '#0f172a' }}>Delete Recurring Invoice?</h3>
             <p style={{ color: '#64748b', fontSize: 14, marginBottom: 22 }}>This cannot be undone. No further invoices will be generated.</p>
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-              <button onClick={() => setConfirmDeleteId(null)}
-                style={{ padding: '9px 18px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', color: '#64748b', fontWeight: 600, fontSize: 14, cursor: 'pointer' }}>
-                Cancel
-              </button>
-              <button onClick={() => { onDelete(confirmDeleteId); setConfirmDeleteId(null) }}
-                style={{ padding: '9px 18px', borderRadius: 8, border: 'none', background: '#ef4444', color: '#fff', fontWeight: 600, fontSize: 14, cursor: 'pointer' }}>
-                Delete
-              </button>
+              <button onClick={() => setConfirmDeleteId(null)} style={{ padding: '9px 18px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', color: '#64748b', fontWeight: 600, fontSize: 14, cursor: 'pointer' }}>Cancel</button>
+              <button onClick={() => { onDelete(confirmDeleteId); setConfirmDeleteId(null) }} style={{ padding: '9px 18px', borderRadius: 8, border: 'none', background: '#ef4444', color: '#fff', fontWeight: 600, fontSize: 14, cursor: 'pointer' }}>Delete</button>
             </div>
           </div>
         </div>

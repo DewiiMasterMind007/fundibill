@@ -354,7 +354,7 @@ function MobileClientCard({ client, onEdit, onViewInvoices, onViewEstimates, onD
 
   return (
     <div
-      onClick={() => onEdit(client)}
+      onClick={() => onViewInvoices(client)}
       style={{
         background:   '#fff',
         borderRadius: 8,

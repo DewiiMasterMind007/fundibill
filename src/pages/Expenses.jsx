@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { useTrialStatus } from '../context/TrialContext'
+import useIsMobile from '../hooks/useIsMobile'
 
 const READONLY_MSG = 'Your trial has ended. Upgrade to continue.'
 
@@ -234,6 +235,7 @@ export default function Expenses() {
   const { user }    = useAuth()
   const trialStatus = useTrialStatus()
   const isReadOnly  = trialStatus?.isReadOnly ?? false
+  const isMobile    = useIsMobile()
   const [expenses, setExpenses]         = useState([])
   const [loading, setLoading]           = useState(true)
   const [panelOpen, setPanelOpen]       = useState(false)
@@ -292,7 +294,7 @@ export default function Expenses() {
   const totalVisible = visible.reduce((s, e) => s + (Number(e.amount) || 0), 0)
 
   return (
-    <div style={{ padding: 32, height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', overflow: 'hidden', position: 'relative' }}>
+    <div style={{ padding: isMobile ? 16 : 32, height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', overflow: 'hidden', position: 'relative' }}>
       <style>{`@keyframes fadeSlideUp { from { opacity: 0; transform: translateX(-50%) translateY(12px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }`}</style>
 
       {opError && (
@@ -336,16 +338,9 @@ export default function Expenses() {
         </div>
       )}
 
-      {/* Table */}
-      <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, boxShadow: '0 1px 3px rgba(0,0,0,0.04)', overflow: 'hidden', flex: 1, display: 'flex', flexDirection: 'column' }}>
-        {/* Table header */}
-        <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr 160px 130px 50px', padding: '12px 20px', borderBottom: '1px solid #f1f5f9', background: '#f8fafc', flexShrink: 0 }}>
-          {['Date', 'Description', 'Category', 'Amount', ''].map(h => (
-            <span key={h} style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</span>
-          ))}
-        </div>
-
-        {/* Rows */}
+      {/* Expenses list */}
+      {isMobile ? (
+        /* ── Mobile: card list ── */
         <div style={{ flex: 1, overflowY: 'auto' }}>
           {loading ? (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '60px 0', color: '#94a3b8', fontSize: 14 }}>Loading…</div>
@@ -355,47 +350,103 @@ export default function Expenses() {
                 <rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/>
               </svg>
               <p style={{ fontSize: 15, fontWeight: 700, color: '#64748b', marginBottom: 4 }}>{search ? `No results for "${search}"` : 'No expenses yet'}</p>
-              <p style={{ fontSize: 13 }}>{search ? 'Try a different search term.' : 'Click "New Expense" to add your first expense.'}</p>
+              <p style={{ fontSize: 13 }}>{search ? 'Try a different search term.' : 'Tap "New Expense" to add your first expense.'}</p>
             </div>
           ) : (
             <>
-              {visible.map((exp, i) => (
+              {visible.map(exp => (
                 <div key={exp.id}
-                  style={{ display: 'grid', gridTemplateColumns: '120px 1fr 160px 130px 50px', padding: '14px 20px', borderBottom: '1px solid #f9fafb', alignItems: 'center', cursor: isReadOnly ? 'default' : 'pointer' }}
-                  onMouseEnter={e => { if (!isReadOnly) e.currentTarget.style.background = '#f8fafc' }}
-                  onMouseLeave={e => e.currentTarget.style.background = '#fff'}
-                  onClick={isReadOnly ? undefined : () => openEdit(exp)}>
-                  <span style={{ fontSize: 13, color: '#64748b' }}>{exp.date}</span>
-                  <div>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: '#0f172a' }}>{exp.description}</div>
-                    {exp.notes && <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>{exp.notes}</div>}
+                  onClick={isReadOnly ? undefined : () => openEdit(exp)}
+                  style={{ background: '#fff', borderRadius: 10, border: '1px solid #f1f5f9', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', padding: '14px 16px', marginBottom: 10, cursor: isReadOnly ? 'default' : 'pointer' }}>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: '#0f172a', marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{exp.description}</div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: 12, color: '#94a3b8' }}>{exp.date}</span>
+                        <CategoryBadge category={exp.category} />
+                      </div>
+                      {exp.notes && <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 4 }}>{exp.notes}</div>}
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+                      <span style={{ fontSize: 15, fontWeight: 700, color: '#ef4444' }}>{fmt(exp.amount)}</span>
+                      {!isReadOnly && (
+                        <button
+                          onClick={e => { e.stopPropagation(); setDeleteTarget(exp) }}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', display: 'flex', alignItems: 'center', padding: 4, borderRadius: 6 }}
+                          onMouseEnter={e => { e.currentTarget.style.color = '#dc2626' }}
+                          onMouseLeave={e => { e.currentTarget.style.color = '#94a3b8' }}>
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+                        </button>
+                      )}
+                    </div>
                   </div>
-                  <CategoryBadge category={exp.category} />
-                  <span style={{ fontSize: 13, fontWeight: 600, color: '#ef4444' }}>{fmt(exp.amount)}</span>
-                  {!isReadOnly && (
-                    <button
-                      onClick={e => { e.stopPropagation(); setDeleteTarget(exp) }}
-                      title={READONLY_MSG}
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 4, borderRadius: 6 }}
-                      onMouseEnter={e => { e.currentTarget.style.color = '#dc2626'; e.currentTarget.style.background = '#fee2e2' }}
-                      onMouseLeave={e => { e.currentTarget.style.color = '#94a3b8'; e.currentTarget.style.background = 'none' }}>
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
-                    </button>
-                  )}
                 </div>
               ))}
-              {/* Total row */}
-              <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr 160px 130px 50px', padding: '12px 20px', borderTop: '2px solid #e2e8f0', background: '#f8fafc', flexShrink: 0 }}>
-                <span />
-                <span style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>{search ? `Showing ${visible.length} of ${expenses.length}` : `${expenses.length} expense${expenses.length !== 1 ? 's' : ''}`}</span>
-                <span />
+              <div style={{ padding: '12px 4px', display: 'flex', justifyContent: 'space-between', borderTop: '1px solid #e2e8f0', marginTop: 4 }}>
+                <span style={{ fontSize: 13, color: '#64748b' }}>{search ? `${visible.length} of ${expenses.length} expenses` : `${expenses.length} expense${expenses.length !== 1 ? 's' : ''}`}</span>
                 <span style={{ fontSize: 14, fontWeight: 700, color: '#ef4444' }}>{fmt(totalVisible)}</span>
-                <span />
               </div>
             </>
           )}
         </div>
-      </div>
+      ) : (
+        /* ── Desktop: table ── */
+        <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, boxShadow: '0 1px 3px rgba(0,0,0,0.04)', overflow: 'hidden', flex: 1, display: 'flex', flexDirection: 'column' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr 160px 130px 50px', padding: '12px 20px', borderBottom: '1px solid #f1f5f9', background: '#f8fafc', flexShrink: 0 }}>
+            {['Date', 'Description', 'Category', 'Amount', ''].map(h => (
+              <span key={h} style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</span>
+            ))}
+          </div>
+          <div style={{ flex: 1, overflowY: 'auto' }}>
+            {loading ? (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '60px 0', color: '#94a3b8', fontSize: 14 }}>Loading…</div>
+            ) : visible.length === 0 ? (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '60px 20px', color: '#94a3b8' }}>
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#e2e8f0" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" style={{ marginBottom: 16 }}>
+                  <rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/>
+                </svg>
+                <p style={{ fontSize: 15, fontWeight: 700, color: '#64748b', marginBottom: 4 }}>{search ? `No results for "${search}"` : 'No expenses yet'}</p>
+                <p style={{ fontSize: 13 }}>{search ? 'Try a different search term.' : 'Click "New Expense" to add your first expense.'}</p>
+              </div>
+            ) : (
+              <>
+                {visible.map(exp => (
+                  <div key={exp.id}
+                    style={{ display: 'grid', gridTemplateColumns: '120px 1fr 160px 130px 50px', padding: '14px 20px', borderBottom: '1px solid #f9fafb', alignItems: 'center', cursor: isReadOnly ? 'default' : 'pointer' }}
+                    onMouseEnter={e => { if (!isReadOnly) e.currentTarget.style.background = '#f8fafc' }}
+                    onMouseLeave={e => e.currentTarget.style.background = '#fff'}
+                    onClick={isReadOnly ? undefined : () => openEdit(exp)}>
+                    <span style={{ fontSize: 13, color: '#64748b' }}>{exp.date}</span>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: '#0f172a' }}>{exp.description}</div>
+                      {exp.notes && <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>{exp.notes}</div>}
+                    </div>
+                    <CategoryBadge category={exp.category} />
+                    <span style={{ fontSize: 13, fontWeight: 600, color: '#ef4444' }}>{fmt(exp.amount)}</span>
+                    {!isReadOnly && (
+                      <button
+                        onClick={e => { e.stopPropagation(); setDeleteTarget(exp) }}
+                        title={READONLY_MSG}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 4, borderRadius: 6 }}
+                        onMouseEnter={e => { e.currentTarget.style.color = '#dc2626'; e.currentTarget.style.background = '#fee2e2' }}
+                        onMouseLeave={e => { e.currentTarget.style.color = '#94a3b8'; e.currentTarget.style.background = 'none' }}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+                      </button>
+                    )}
+                  </div>
+                ))}
+                <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr 160px 130px 50px', padding: '12px 20px', borderTop: '2px solid #e2e8f0', background: '#f8fafc', flexShrink: 0 }}>
+                  <span />
+                  <span style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>{search ? `Showing ${visible.length} of ${expenses.length}` : `${expenses.length} expense${expenses.length !== 1 ? 's' : ''}`}</span>
+                  <span />
+                  <span style={{ fontSize: 14, fontWeight: 700, color: '#ef4444' }}>{fmt(totalVisible)}</span>
+                  <span />
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Slide-in panel */}
       {panelOpen && (

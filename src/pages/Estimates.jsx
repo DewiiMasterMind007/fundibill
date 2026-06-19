@@ -913,6 +913,13 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
         title: `Estimate ${form.estimate_number} from ${businessName}`,
       })
 
+      // Mark estimate as sent when WhatsApp is initiated (draft → sent)
+      if (estimate?.id && form.status === 'draft') {
+        await supabase.from('estimates').update({ status: 'sent' }).eq('id', estimate.id)
+        onSaved({ id: estimate.id, status: 'sent' })
+        setForm(p => ({ ...p, status: 'sent' }))
+      }
+
       if (result.status === 'fallback') {
         setWaToast({ message: 'Your PDF has been downloaded. Attach it to the WhatsApp message.', type: 'success' })
       }
@@ -1458,6 +1465,13 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
               docType="ESTIMATE"
               clientEmail={selectedClient?.email || ''}
               onClose={() => setShowEmailModal(false)}
+              onSent={async () => {
+                if (estimate?.id && form.status === 'draft') {
+                  await supabase.from('estimates').update({ status: 'sent' }).eq('id', estimate.id)
+                  onSaved({ id: estimate.id, status: 'sent' })
+                  setForm(p => ({ ...p, status: 'sent' }))
+                }
+              }}
             />
           </>
         )
@@ -1468,13 +1482,18 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
 
 // ─── List View ────────────────────────────────────────────────────────────────
 
-const STATUS_TABS = ['all', 'draft', 'sent', 'approved', 'rejected', 'converted']
+const STATUS_TABS = ['all', 'draft', 'sent', 'approved', 'rejected']
 
 function ListView({ estimates, onNew, onSelect, onApprove, onDelete, isReadOnly }) {
   const [tab, setTab] = useState('all')
   const isMobile      = useIsMobile()
 
-  const filtered = tab === 'all' ? estimates : estimates.filter(e => e.status === tab)
+  // 'approved' tab shows both approved and converted estimates
+  const filtered = tab === 'all'
+    ? estimates
+    : tab === 'approved'
+      ? estimates.filter(e => e.status === 'approved' || e.status === 'converted')
+      : estimates.filter(e => e.status === tab)
 
   const tabStyle = (active) => ({
     padding:    isMobile ? '5px 12px' : '6px 14px',
