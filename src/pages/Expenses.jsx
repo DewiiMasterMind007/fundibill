@@ -57,7 +57,7 @@ const INPUT_S = {
   transition: 'border-color 0.15s',
 }
 
-function ExpensePanel({ expense, categories, userId, onClose, onSaved }) {
+function ExpensePanel({ expense, categories, userId, onClose, onSaved, isMobile }) {
   const isNew = !expense
   const [form, setForm] = useState(() => expense
     ? { date: expense.date, description: expense.description, category: expense.category || '', amount: expense.amount, notes: expense.notes || '' }
@@ -115,9 +115,9 @@ function ExpensePanel({ expense, categories, userId, onClose, onSaved }) {
       <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 40, background: 'rgba(15,23,42,0.3)', backdropFilter: 'blur(2px)' }} />
 
       {/* Panel */}
-      <div style={{ position: 'fixed', top: 0, right: 0, width: 440, height: '100%', background: '#fff', boxShadow: '-4px 0 32px rgba(0,0,0,0.1)', zIndex: 50, display: 'flex', flexDirection: 'column' }}>
+      <div style={{ position: 'fixed', top: 0, right: 0, width: isMobile ? '100%' : 440, height: '100%', background: '#fff', boxShadow: '-4px 0 32px rgba(0,0,0,0.1)', zIndex: 50, display: 'flex', flexDirection: 'column' }}>
         {/* Header */}
-        <div style={{ padding: '20px 24px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+        <div style={{ padding: isMobile ? '16px 20px' : '20px 24px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
           <div>
             <h2 style={{ fontSize: 17, fontWeight: 700, color: '#0f172a', margin: 0 }}>{isNew ? 'New Expense' : 'Edit Expense'}</h2>
             <p style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>{isNew ? 'Record a new business expense' : 'Update expense details'}</p>
@@ -126,7 +126,7 @@ function ExpensePanel({ expense, categories, userId, onClose, onSaved }) {
         </div>
 
         {/* Body */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: 24 }}>
+        <div style={{ flex: 1, overflowY: 'auto', padding: isMobile ? 20 : 24 }}>
           {errors._global && (
             <div style={{ background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: 8, padding: '10px 14px', marginBottom: 16, fontSize: 13, color: '#dc2626' }}>
               ⚠ {errors._global}
@@ -137,7 +137,12 @@ function ExpensePanel({ expense, categories, userId, onClose, onSaved }) {
           <div style={{ marginBottom: 16 }}>
             <label style={{ display: 'block', fontSize: 13, fontWeight: 500, color: '#374151', marginBottom: 5 }}>Date <span style={{ color: '#ef4444' }}>*</span></label>
             <input ref={firstRef} type="date" value={form.date} onChange={e => setField('date', e.target.value)}
-              style={{ ...INPUT_S, borderColor: errors.date ? '#fca5a5' : '#e2e8f0' }}
+              style={{
+                padding: '6px 10px', borderRadius: 7, fontSize: 13,
+                border: `1.5px solid ${errors.date ? '#fca5a5' : '#e2e8f0'}`,
+                background: '#fff', color: '#0f172a', outline: 'none', cursor: 'pointer',
+                minWidth: 0, maxWidth: '100%', boxSizing: 'border-box', width: '100%',
+              }}
               onFocus={e => { e.target.style.borderColor = '#14b8a6' }}
               onBlur={e => { e.target.style.borderColor = errors.date ? '#fca5a5' : '#e2e8f0' }} />
             {errors.date && <p style={{ margin: '4px 0 0', fontSize: 12, color: '#ef4444' }}>⚠ {errors.date}</p>}
@@ -186,7 +191,10 @@ function ExpensePanel({ expense, categories, userId, onClose, onSaved }) {
         </div>
 
         {/* Footer */}
-        <div style={{ padding: '16px 24px', borderTop: '1px solid #f1f5f9', display: 'flex', gap: 10, flexShrink: 0 }}>
+        <div style={{
+          padding: isMobile ? '16px 20px calc(16px + 64px)' : '16px 24px',
+          borderTop: '1px solid #f1f5f9', display: 'flex', gap: 10, flexShrink: 0,
+        }}>
           <button onClick={onClose} style={{ flex: 1, background: '#f8fafc', border: '1.5px solid #e2e8f0', color: '#374151', borderRadius: 8, padding: '10px 0', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
           <button onClick={handleSave} disabled={saving} style={{ flex: 2, background: saving ? '#5eead4' : '#14b8a6', border: 'none', color: '#fff', borderRadius: 8, padding: '10px 0', fontSize: 14, fontWeight: 600, cursor: saving ? 'wait' : 'pointer', boxShadow: saving ? 'none' : '0 2px 6px rgba(20,184,166,0.3)' }}>
             {saving ? 'Saving…' : isNew ? 'Add Expense' : 'Save Changes'}
@@ -460,6 +468,7 @@ export default function Expenses() {
           userId={user?.id}
           onClose={closePanel}
           onSaved={handleSaved}
+          isMobile={isMobile}
         />
       )}
 

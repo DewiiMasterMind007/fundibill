@@ -95,8 +95,24 @@ const HELP = {
 
 export default function HelpButton({ page }) {
   const [open, setOpen] = useState(false)
+  const [dropPos, setDropPos] = useState({ top: 0, right: 16, width: 360 })
   const wrapRef = useRef(null)
+  const btnRef  = useRef(null)
   const content = HELP[page]
+
+  function handleToggle() {
+    if (!open && btnRef.current) {
+      const r   = btnRef.current.getBoundingClientRect()
+      const vw  = window.innerWidth
+      const w   = Math.min(360, vw - 32)
+      // Right-align to button's right edge, but don't let left edge go off-screen
+      const idealLeft = r.right - w
+      const left      = Math.max(8, idealLeft)
+      const right     = vw - left - w
+      setDropPos({ top: r.bottom + 8, right: Math.max(0, right), width: w })
+    }
+    setOpen(o => !o)
+  }
 
   // Close on click outside
   useEffect(() => {
@@ -123,8 +139,9 @@ export default function HelpButton({ page }) {
 
       {/* ── Trigger ─────────────────────────────────────────────────────────── */}
       <button
+        ref={btnRef}
         data-tutorial="help-button"
-        onClick={() => setOpen(o => !o)}
+        onClick={handleToggle}
         title={`Help — ${content.title}`}
         aria-label={`Help — ${content.title}`}
         style={{
@@ -156,18 +173,17 @@ export default function HelpButton({ page }) {
         ?
       </button>
 
-      {/* ── Dropdown panel ──────────────────────────────────────────────────── */}
+      {/* ── Dropdown panel (position: fixed so it never clips off-screen) ───── */}
       {open && (
         <div
           role="dialog"
           aria-label={`Help — ${content.title}`}
           style={{
-            position:     'absolute',
-            top:          'calc(100% + 8px)',
-            right:        0,
+            position:     'fixed',
+            top:          dropPos.top,
+            right:        dropPos.right,
             zIndex:       1000,
-            width:        360,
-            maxWidth:     'calc(100vw - 32px)',
+            width:        dropPos.width,
             maxHeight:    420,
             overflowY:    'auto',
             background:   '#ffffff',
