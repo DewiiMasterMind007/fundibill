@@ -1684,7 +1684,8 @@ function RecurringForm({ recurringInvoice, clients, catalog, settings, onBack, o
   const { user } = useAuth()
   const { refresh: refreshNotifications } = useRecurringNotif()
   const { refreshClients } = useAppData()
-  const isNew = !recurringInvoice
+  const isNew    = !recurringInvoice
+  const isMobile = useIsMobile()
 
   const defaultSubject = `Invoice from ${settings?.business_name || 'us'}`
   const defaultMessage = `Dear [client name], please find your invoice attached. Thank you for your business.`
@@ -1880,95 +1881,164 @@ function RecurringForm({ recurringInvoice, clients, catalog, settings, onBack, o
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#f8fafc' }}>
-      {/* Header bar */}
-      <div style={{ background: '#fff', borderBottom: '1px solid #e2e8f0', padding: '14px 28px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+      {/* ── Header bar ── */}
+      <div style={{
+        background: '#fff', borderBottom: '1px solid #e2e8f0',
+        padding: isMobile ? '10px 16px' : '14px 28px',
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        flexShrink: 0,
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 14 }}>
           <button onClick={onBack} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b', display: 'flex', alignItems: 'center', gap: 5, fontSize: 14, fontWeight: 600 }}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>
             Back
           </button>
-          <span style={{ color: '#e2e8f0', fontWeight: 300 }}>|</span>
-          <h2 style={{ fontSize: 16, fontWeight: 700, color: '#0f172a', margin: 0 }}>
+          {!isMobile && <span style={{ color: '#e2e8f0', fontWeight: 300 }}>|</span>}
+          <h2 style={{ fontSize: isMobile ? 14 : 16, fontWeight: 700, color: '#0f172a', margin: 0 }}>
             {isNew ? 'New Recurring Invoice' : 'Edit Recurring Invoice'}
           </h2>
         </div>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-          {errors._global && <span style={{ color: '#ef4444', fontSize: 13 }}>{errors._global}</span>}
+          {!isMobile && errors._global && <span style={{ color: '#ef4444', fontSize: 13 }}>{errors._global}</span>}
           {!isReadOnly && (
             <button onClick={handleSave} disabled={saving}
-              style={{ padding: '9px 18px', borderRadius: 8, border: 'none', background: '#14b8a6', color: '#fff', fontWeight: 600, fontSize: 13, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1 }}>
+              style={{ padding: isMobile ? '8px 14px' : '9px 18px', borderRadius: 8, border: 'none', background: '#14b8a6', color: '#fff', fontWeight: 600, fontSize: 13, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1 }}>
               {saving ? 'Saving…' : 'Save'}
             </button>
           )}
         </div>
       </div>
 
-      {/* Body */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '28px 40px' }}>
-        <div style={{ maxWidth: 860, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 20 }}>
+      {/* ── Body ── */}
+      <div style={{
+        flex: 1, overflowY: 'auto',
+        padding: isMobile ? 16 : '28px 40px',
+        paddingBottom: isMobile ? 32 : undefined,
+      }}>
+        <div style={{ maxWidth: 860, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: isMobile ? 14 : 20 }}>
+
+          {isMobile && errors._global && (
+            <p style={{ color: '#ef4444', fontSize: 13, margin: 0 }}>{errors._global}</p>
+          )}
 
           {/* Details */}
-          <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0', padding: 24 }}>
-            <h3 style={{ margin: '0 0 16px', fontSize: 14, fontWeight: 700, color: '#0f172a' }}>Details</h3>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
-              <div style={{ gridColumn: '1 / -1' }}>
+          <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0', padding: isMobile ? 16 : 24 }}>
+            <h3 style={{ margin: `0 0 ${isMobile ? 12 : 16}px`, fontSize: 14, fontWeight: 700, color: '#0f172a' }}>Details</h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? 14 : 20 }}>
+              <div>
                 <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 6 }}>Client *</label>
                 <ClientSelector clients={[...clients, ...extraClients]} value={form.client_id} onChange={v => setField('client_id', v)} onAddNewClient={() => setShowAddClient(true)} />
                 {errors.client_id && <p style={{ color: '#ef4444', fontSize: 12, marginTop: 4 }}>{errors.client_id}</p>}
               </div>
-              <div>
-                <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 6 }}>Recurrence Interval</label>
-                <select value={form.interval} onChange={e => setField('interval', e.target.value)} style={selectStyle}>
-                  {INTERVALS.map(iv => <option key={iv} value={iv}>{intervalLabel(iv)}</option>)}
-                </select>
-              </div>
-              <div>
-                <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 6 }}>
-                  {isNew ? 'First Send Date *' : 'Next Send Date *'}
-                </label>
-                <input type="date" value={form.next_send_date} onChange={e => setField('next_send_date', e.target.value)} style={inputStyle(!!errors.next_send_date)} />
-                {errors.next_send_date && <p style={{ color: '#ef4444', fontSize: 12, marginTop: 4 }}>{errors.next_send_date}</p>}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: isMobile ? 10 : 20 }}>
+                <div style={{ minWidth: 0 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 6 }}>Recurrence Interval</label>
+                  <select value={form.interval} onChange={e => setField('interval', e.target.value)} style={{ ...selectStyle, maxWidth: '100%' }}>
+                    {INTERVALS.map(iv => <option key={iv} value={iv}>{intervalLabel(iv)}</option>)}
+                  </select>
+                </div>
+                <div style={{ minWidth: 0 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 6 }}>
+                    {isNew ? 'First Send Date *' : 'Next Send Date *'}
+                  </label>
+                  <input type="date" value={form.next_send_date} onChange={e => setField('next_send_date', e.target.value)} style={{ ...inputStyle(!!errors.next_send_date), maxWidth: '100%' }} />
+                  {errors.next_send_date && <p style={{ color: '#ef4444', fontSize: 12, marginTop: 4 }}>{errors.next_send_date}</p>}
+                </div>
               </div>
             </div>
           </div>
 
           {/* Line Items */}
           <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0', overflow: 'hidden' }}>
-            <div style={{ padding: '16px 20px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ padding: isMobile ? '12px 16px' : '16px 20px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: '#0f172a' }}>Line Items</h3>
               {errors.items && <span style={{ color: '#ef4444', fontSize: 12 }}>{errors.items}</span>}
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '2fr 2fr 80px 110px 24px', gap: 8, padding: '8px 20px', background: '#f8fafc', borderBottom: '1px solid #f1f5f9' }}>
-              {['Item', 'Description', 'Qty', 'Unit Price', ''].map(h => (
-                <span key={h} style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</span>
-              ))}
-            </div>
-            {lineItems.map(li => (
-              <div key={li._key} style={{ display: 'grid', gridTemplateColumns: '2fr 2fr 80px 110px 24px', gap: 8, padding: '8px 20px', borderBottom: '1px solid #f9fafb', alignItems: 'start' }}>
-                <AutocompleteInput
-                  value={li.item_name}
-                  onChange={(val, item) => { if (item) selectCatalogItem(li._key, item); else updateLine(li._key, 'item_name', val) }}
-                  catalog={catalog}
-                  placeholder="Item name"
-                />
-                <textarea value={li.description} onChange={e => updateLine(li._key, 'description', e.target.value)}
-                  placeholder="Description" rows={2}
-                  style={{ padding: '7px 10px', borderRadius: 7, fontSize: 13, border: '1px solid #e2e8f0', background: '#f8fafc', color: '#0f172a', outline: 'none', width: '100%', boxSizing: 'border-box', resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.4 }} />
-                <input type="number" min="0" step="1" value={li.quantity} onChange={e => updateLine(li._key, 'quantity', e.target.value)}
-                  style={{ padding: '7px 8px', borderRadius: 7, fontSize: 13, border: '1px solid #e2e8f0', background: '#f8fafc', color: '#0f172a', outline: 'none', width: '100%', boxSizing: 'border-box', textAlign: 'right', marginTop: 1 }} />
-                <input type="number" min="0" step="0.01" value={li.unit_price} onChange={e => updateLine(li._key, 'unit_price', e.target.value)} placeholder="0.00"
-                  style={{ padding: '7px 8px', borderRadius: 7, fontSize: 13, border: '1px solid #e2e8f0', background: '#f8fafc', color: '#0f172a', outline: 'none', width: '100%', boxSizing: 'border-box', textAlign: 'right', marginTop: 1 }} />
-                <button onClick={() => removeLine(li._key)} disabled={lineItems.length === 1}
-                  style={{ background: 'none', border: 'none', cursor: lineItems.length === 1 ? 'default' : 'pointer', color: '#94a3b8', padding: 0, display: 'flex', alignItems: 'center', marginTop: 6 }}>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+
+            {isMobile ? (
+              /* Mobile: stacked card per line item */
+              <div style={{ padding: '8px 12px' }}>
+                {lineItems.map((li, idx) => (
+                  <div key={li._key} style={{ border: '1px solid #e2e8f0', borderRadius: 8, padding: 12, marginBottom: 10, background: '#f8fafc', position: 'relative' }}>
+                    <button onClick={() => removeLine(li._key)} disabled={lineItems.length === 1}
+                      style={{ position: 'absolute', top: 8, right: 8, background: 'none', border: 'none', cursor: lineItems.length === 1 ? 'default' : 'pointer', color: '#94a3b8', padding: 4, display: 'flex' }}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                    </button>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', marginBottom: 8 }}>Item {idx + 1}</div>
+                    <div style={{ marginBottom: 8 }}>
+                      <label style={{ fontSize: 11, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4 }}>Item Name</label>
+                      <AutocompleteInput value={li.item_name}
+                        onChange={(val, item) => { if (item) selectCatalogItem(li._key, item); else updateLine(li._key, 'item_name', val) }}
+                        catalog={catalog} placeholder="Item name" />
+                    </div>
+                    <div style={{ marginBottom: 8 }}>
+                      <label style={{ fontSize: 11, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4 }}>Description</label>
+                      <textarea value={li.description} onChange={e => updateLine(li._key, 'description', e.target.value)}
+                        placeholder="Description" rows={2}
+                        style={{ padding: '7px 10px', borderRadius: 7, fontSize: 13, border: '1px solid #e2e8f0', background: '#fff', color: '#0f172a', outline: 'none', width: '100%', boxSizing: 'border-box', resize: 'vertical', fontFamily: 'inherit' }} />
+                    </div>
+                    <div style={{ display: 'flex', gap: 10 }}>
+                      <div style={{ flex: 1 }}>
+                        <label style={{ fontSize: 11, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4 }}>Qty</label>
+                        <input type="number" min="0" step="1" value={li.quantity} onChange={e => updateLine(li._key, 'quantity', e.target.value)}
+                          style={{ padding: '7px 8px', borderRadius: 7, fontSize: 13, border: '1px solid #e2e8f0', background: '#fff', color: '#0f172a', outline: 'none', width: '100%', boxSizing: 'border-box', textAlign: 'right' }} />
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <label style={{ fontSize: 11, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4 }}>Unit Price</label>
+                        <input type="number" min="0" step="0.01" value={li.unit_price} onChange={e => updateLine(li._key, 'unit_price', e.target.value)} placeholder="0.00"
+                          style={{ padding: '7px 8px', borderRadius: 7, fontSize: 13, border: '1px solid #e2e8f0', background: '#fff', color: '#0f172a', outline: 'none', width: '100%', boxSizing: 'border-box', textAlign: 'right' }} />
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <label style={{ fontSize: 11, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4 }}>Total</label>
+                        <div style={{ padding: '7px 8px', fontSize: 13, fontWeight: 600, color: '#0f172a', textAlign: 'right' }}>
+                          {fmt((Number(li.quantity) || 0) * (Number(li.unit_price) || 0))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                <button onClick={addLine}
+                  style={{ display: 'block', width: '100%', padding: '11px', border: '1.5px dashed #14b8a6', borderRadius: 8, background: '#f0fdfa', color: '#14b8a6', fontWeight: 600, fontSize: 14, cursor: 'pointer', marginBottom: 4 }}>
+                  + Add Line Item
                 </button>
               </div>
-            ))}
-            <div style={{ padding: '12px 20px', borderTop: '1px solid #f1f5f9', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
-              <button onClick={addLine} style={{ background: 'none', border: 'none', color: '#14b8a6', fontWeight: 600, fontSize: 13, cursor: 'pointer', padding: 0 }}>
-                + Add Line
-              </button>
-              <div style={{ minWidth: 280 }}>
+            ) : (
+              /* Desktop: grid table */
+              <>
+                <div style={{ display: 'grid', gridTemplateColumns: '2fr 2fr 80px 110px 24px', gap: 8, padding: '8px 20px', background: '#f8fafc', borderBottom: '1px solid #f1f5f9' }}>
+                  {['Item', 'Description', 'Qty', 'Unit Price', ''].map(h => (
+                    <span key={h} style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</span>
+                  ))}
+                </div>
+                {lineItems.map(li => (
+                  <div key={li._key} style={{ display: 'grid', gridTemplateColumns: '2fr 2fr 80px 110px 24px', gap: 8, padding: '8px 20px', borderBottom: '1px solid #f9fafb', alignItems: 'start' }}>
+                    <AutocompleteInput value={li.item_name}
+                      onChange={(val, item) => { if (item) selectCatalogItem(li._key, item); else updateLine(li._key, 'item_name', val) }}
+                      catalog={catalog} placeholder="Item name" />
+                    <textarea value={li.description} onChange={e => updateLine(li._key, 'description', e.target.value)}
+                      placeholder="Description" rows={2}
+                      style={{ padding: '7px 10px', borderRadius: 7, fontSize: 13, border: '1px solid #e2e8f0', background: '#f8fafc', color: '#0f172a', outline: 'none', width: '100%', boxSizing: 'border-box', resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.4 }} />
+                    <input type="number" min="0" step="1" value={li.quantity} onChange={e => updateLine(li._key, 'quantity', e.target.value)}
+                      style={{ padding: '7px 8px', borderRadius: 7, fontSize: 13, border: '1px solid #e2e8f0', background: '#f8fafc', color: '#0f172a', outline: 'none', width: '100%', boxSizing: 'border-box', textAlign: 'right', marginTop: 1 }} />
+                    <input type="number" min="0" step="0.01" value={li.unit_price} onChange={e => updateLine(li._key, 'unit_price', e.target.value)} placeholder="0.00"
+                      style={{ padding: '7px 8px', borderRadius: 7, fontSize: 13, border: '1px solid #e2e8f0', background: '#f8fafc', color: '#0f172a', outline: 'none', width: '100%', boxSizing: 'border-box', textAlign: 'right', marginTop: 1 }} />
+                    <button onClick={() => removeLine(li._key)} disabled={lineItems.length === 1}
+                      style={{ background: 'none', border: 'none', cursor: lineItems.length === 1 ? 'default' : 'pointer', color: '#94a3b8', padding: 0, display: 'flex', alignItems: 'center', marginTop: 6 }}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                    </button>
+                  </div>
+                ))}
+              </>
+            )}
+
+            {/* VAT + Total footer */}
+            <div style={{ padding: isMobile ? '12px 16px' : '12px 20px', borderTop: '1px solid #f1f5f9', display: 'flex', alignItems: 'flex-start', justifyContent: isMobile ? 'space-between' : 'space-between' }}>
+              {!isMobile && (
+                <button onClick={addLine} style={{ background: 'none', border: 'none', color: '#14b8a6', fontWeight: 600, fontSize: 13, cursor: 'pointer', padding: 0 }}>
+                  + Add Line
+                </button>
+              )}
+              <div style={{ minWidth: isMobile ? undefined : 280, width: isMobile ? '100%' : undefined }}>
                 {form.vat_enabled && (
                   <>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, fontSize: 13, color: '#64748b' }}>
@@ -1998,9 +2068,9 @@ function RecurringForm({ recurringInvoice, clients, catalog, settings, onBack, o
             </div>
           </div>
 
-          {/* Email */}
-          <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0', padding: 24 }}>
-            <h3 style={{ margin: '0 0 16px', fontSize: 14, fontWeight: 700, color: '#0f172a' }}>Email Settings</h3>
+          {/* Email Settings */}
+          <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0', padding: isMobile ? 16 : 24 }}>
+            <h3 style={{ margin: `0 0 ${isMobile ? 12 : 16}px`, fontSize: 14, fontWeight: 700, color: '#0f172a' }}>Email Settings</h3>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
               <div>
                 <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 6 }}>Subject</label>
@@ -2008,7 +2078,7 @@ function RecurringForm({ recurringInvoice, clients, catalog, settings, onBack, o
               </div>
               <div>
                 <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 6 }}>Message</label>
-                <textarea value={form.email_message} onChange={e => setField('email_message', e.target.value)} rows={5}
+                <textarea value={form.email_message} onChange={e => setField('email_message', e.target.value)} rows={isMobile ? 4 : 5}
                   style={{ width: '100%', padding: '10px 12px', borderRadius: 8, fontSize: 14, border: '1px solid #e2e8f0', background: '#f8fafc', color: '#0f172a', outline: 'none', resize: 'vertical', boxSizing: 'border-box', fontFamily: 'inherit' }}
                   placeholder="Dear [client name], please find your invoice attached…" />
               </div>
@@ -2016,8 +2086,8 @@ function RecurringForm({ recurringInvoice, clients, catalog, settings, onBack, o
           </div>
 
           {/* Notes */}
-          <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0', padding: 24 }}>
-            <h3 style={{ margin: '0 0 12px', fontSize: 14, fontWeight: 700, color: '#0f172a' }}>Notes</h3>
+          <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0', padding: isMobile ? 16 : 24 }}>
+            <h3 style={{ margin: `0 0 ${isMobile ? 10 : 12}px`, fontSize: 14, fontWeight: 700, color: '#0f172a' }}>Notes</h3>
             <textarea value={form.notes} onChange={e => setField('notes', e.target.value)} placeholder="Any additional notes…" rows={3}
               style={{ width: '100%', padding: '10px 12px', borderRadius: 8, fontSize: 14, border: '1px solid #e2e8f0', background: '#f8fafc', color: '#0f172a', outline: 'none', resize: 'vertical', boxSizing: 'border-box', fontFamily: 'inherit' }} />
           </div>

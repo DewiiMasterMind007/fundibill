@@ -35,7 +35,7 @@ const STATUS_META = {
   sent:      { label: 'Sent',      bg: '#dbeafe', color: '#1d4ed8' },
   approved:  { label: 'Approved',  bg: '#dcfce7', color: '#15803d' },
   rejected:  { label: 'Rejected',  bg: '#fee2e2', color: '#dc2626' },
-  converted: { label: 'Converted', bg: '#ede9fe', color: '#7c3aed' },
+  converted: { label: 'Approved', bg: '#dcfce7', color: '#15803d' },
 }
 
 function StatusBadge({ status }) {
@@ -120,7 +120,7 @@ function MobileEstimateCard({ est, onSelect, onApprove, onDelete, isReadOnly }) 
       disabled: !canApprove || isReadOnly,
     },
     {
-      label:    'Convert to Invoice',
+      label:    'Approve Estimate',
       fn:       canConvert && !isReadOnly ? () => { setMenuOpen(false); onSelect(est) } : null,
       disabled: !canConvert || isReadOnly,
       note:     'Opens form',
@@ -988,12 +988,12 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
                         <button
                           onClick={() => estimate?.converted_invoice_id && navigate('/invoices', { state: { openId: estimate.converted_invoice_id } })}
                           disabled={!estimate?.converted_invoice_id}
-                          style={{ background: 'none', border: 'none', padding: 0, fontSize: 12, fontWeight: 600, color: '#7c3aed', textDecoration: 'underline', cursor: estimate?.converted_invoice_id ? 'pointer' : 'default', fontFamily: 'inherit' }}
+                          style={{ background: 'none', border: 'none', padding: 0, fontSize: 12, fontWeight: 600, color: '#15803d', textDecoration: 'underline', cursor: estimate?.converted_invoice_id ? 'pointer' : 'default', fontFamily: 'inherit' }}
                         >
-                          Converted — view invoice
+                          Approved — view invoice
                         </button>
                         {!isReadOnly && (
-                          <UndoButton title="Undo Convert to Invoice" onClick={() => setUndoTarget('convert')} />
+                          <UndoButton title="Undo Approve Estimate" onClick={() => setUndoTarget('convert')} />
                         )}
                       </>
                     )}
@@ -1038,8 +1038,8 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
                 </button>
               )}
               {!isReadOnly && !isNew && form.status !== 'converted' && (
-                <button onClick={handleConvert} disabled={saving} style={btnStyle('#7c3aed')}>
-                  {saving ? 'Converting…' : 'Convert to Invoice'}
+                <button onClick={handleConvert} disabled={saving} style={btnStyle('#15803d')}>
+                  {saving ? 'Approving…' : 'Approve Estimate'}
                 </button>
               )}
               {!isReadOnly && !isNew && (
@@ -1101,12 +1101,12 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
                 <button
                   onClick={() => estimate?.converted_invoice_id && navigate('/invoices', { state: { openId: estimate.converted_invoice_id } })}
                   disabled={!estimate?.converted_invoice_id}
-                  style={{ background: 'none', border: 'none', padding: 0, fontSize: 12, fontWeight: 600, color: '#7c3aed', textDecoration: 'underline', cursor: estimate?.converted_invoice_id ? 'pointer' : 'default', fontFamily: 'inherit', whiteSpace: 'nowrap' }}
+                  style={{ background: 'none', border: 'none', padding: 0, fontSize: 12, fontWeight: 600, color: '#15803d', textDecoration: 'underline', cursor: estimate?.converted_invoice_id ? 'pointer' : 'default', fontFamily: 'inherit', whiteSpace: 'nowrap' }}
                 >
                   view invoice
                 </button>
                 {!isReadOnly && (
-                  <UndoButton title="Undo Convert to Invoice" onClick={() => setUndoTarget('convert')} />
+                  <UndoButton title="Undo Approve Estimate" onClick={() => setUndoTarget('convert')} />
                 )}
               </>
             )}
@@ -1341,13 +1341,13 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
             </div>
           )}
 
-          {/* Convert to Invoice — full-width button above the main row */}
+          {/* Approve Estimate — full-width button above the main row */}
           {!isReadOnly && !isNew && form.status !== 'converted' && (
             <button
               onClick={handleConvert}
               disabled={saving}
-              style={{ display: 'block', width: '100%', padding: '11px', borderRadius: 8, border: 'none', background: '#7c3aed', color: '#fff', fontWeight: 600, fontSize: 14, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1, fontFamily: 'inherit', marginBottom: 8 }}>
-              {saving ? 'Converting…' : 'Convert to Invoice'}
+              style={{ display: 'block', width: '100%', padding: '11px', borderRadius: 8, border: 'none', background: '#15803d', color: '#fff', fontWeight: 600, fontSize: 14, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1, fontFamily: 'inherit', marginBottom: 8 }}>
+              {saving ? 'Approving…' : 'Approve Estimate'}
             </button>
           )}
 
@@ -1482,7 +1482,7 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
 
 // ─── List View ────────────────────────────────────────────────────────────────
 
-const STATUS_TABS = ['all', 'draft', 'sent', 'approved', 'rejected']
+const STATUS_TABS = ['all', 'draft', 'sent', 'approved']
 
 function ListView({ estimates, onNew, onSelect, onApprove, onDelete, isReadOnly }) {
   const [tab, setTab] = useState('all')

@@ -341,7 +341,7 @@ export default function Expenses() {
       {/* Expenses list */}
       {isMobile ? (
         /* ── Mobile: card list ── */
-        <div style={{ flex: 1, overflowY: 'auto' }}>
+        <div style={{ flex: 1, overflowY: 'auto', paddingBottom: 80 }}>
           {loading ? (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '60px 0', color: '#94a3b8', fontSize: 14 }}>Loading…</div>
           ) : visible.length === 0 ? (
