@@ -904,7 +904,7 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
         amount:         fmt(total),
         expiryDate:     form.expiry_date,
         businessName,
-        template:       settings?.whatsapp_default_message || undefined,
+        template:       settings?.whatsapp_estimate_message || settings?.whatsapp_default_message || undefined,
       })
 
       const result = await sendPdfViaWhatsApp({
@@ -1143,16 +1143,16 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
               </div>
               {/* Empty spacer — desktop only */}
               {!isMobile && <div />}
-              {/* Dates: side by side on mobile, separate columns on desktop */}
-              <div style={{ display: isMobile ? 'grid' : 'contents', gridTemplateColumns: isMobile ? '1fr 1fr' : undefined, gap: isMobile ? 10 : undefined, minWidth: 0 }}>
-                <div style={{ minWidth: 0 }}>
+              {/* Dates: side by side via inner 2-col grid, spans full row */}
+              <div style={{ gridColumn: '1 / -1', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: isMobile ? 10 : 20, minWidth: 0, overflow: 'hidden' }}>
+                <div style={{ minWidth: 0, overflow: 'hidden' }}>
                   <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 6 }}>Issue Date *</label>
-                  <input type="date" value={form.issue_date} onChange={e => setField('issue_date', e.target.value)} style={{ ...inputStyle(!!errors.issue_date), maxWidth: '100%' }} />
+                  <input type="date" value={form.issue_date} onChange={e => setField('issue_date', e.target.value)} style={{ ...inputStyle(!!errors.issue_date), width: '100%', minWidth: 0 }} />
                   {errors.issue_date && <p style={{ color: '#ef4444', fontSize: 12, marginTop: 4 }}>{errors.issue_date}</p>}
                 </div>
-                <div style={{ minWidth: 0 }}>
+                <div style={{ minWidth: 0, overflow: 'hidden' }}>
                   <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 6 }}>Expiry Date *</label>
-                  <input type="date" value={form.expiry_date} onChange={e => setField('expiry_date', e.target.value)} style={{ ...inputStyle(!!errors.expiry_date), maxWidth: '100%' }} />
+                  <input type="date" value={form.expiry_date} onChange={e => setField('expiry_date', e.target.value)} style={{ ...inputStyle(!!errors.expiry_date), width: '100%', minWidth: 0 }} />
                   {errors.expiry_date && <p style={{ color: '#ef4444', fontSize: 12, marginTop: 4 }}>{errors.expiry_date}</p>}
                 </div>
               </div>

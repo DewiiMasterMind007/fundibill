@@ -310,15 +310,16 @@ export default function Dashboard() {
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div style={{
-      padding:     isMobile ? 16 : 32,
-      paddingTop:  isMobile ? 16 : 32,
-      height:      '100%',
-      width:       '100%',
-      maxWidth:    '100%',
-      boxSizing:   'border-box',
-      overflowY:   'auto',
-      overflowX:   'hidden',
-      background:  '#f8fafc',
+      padding:        isMobile ? 16 : 32,
+      paddingTop:     isMobile ? 16 : 32,
+      paddingBottom:  isMobile ? 88 : 32,
+      height:         '100%',
+      width:          '100%',
+      maxWidth:       '100%',
+      boxSizing:      'border-box',
+      overflowY:      'auto',
+      overflowX:      'hidden',
+      background:     '#f8fafc',
     }}>
       {/* pulse animation + hide scrollbar on filter strip */}
       <style>{`

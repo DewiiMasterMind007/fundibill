@@ -47,8 +47,9 @@ const DEFAULTS = {
   smtp_user:                '',
   smtp_password:            '',
   smtp_from_name:           '',
-  whatsapp_default_message: '',
-  payment_terms_days:       7,
+  whatsapp_default_message:  '',
+  whatsapp_estimate_message: '',
+  payment_terms_days:        7,
 }
 
 const SUPABASE_COL = {
@@ -74,8 +75,9 @@ const SUPABASE_COL = {
   smtp_user:                'smtp_user',
   smtp_password:            'smtp_password',
   smtp_from_name:           'smtp_from_name',
-  whatsapp_default_message: 'whatsapp_default_message',
-  payment_terms_days:       'payment_terms_days',
+  whatsapp_default_message:  'whatsapp_default_message',
+  whatsapp_estimate_message: 'whatsapp_estimate_message',
+  payment_terms_days:        'payment_terms_days',
 }
 
 const BUILTIN_METHODS = ['Cash', 'EFT / Bank Transfer', 'Credit Card', 'Debit Card']
@@ -296,6 +298,47 @@ function Field({ label, hint, children, style = {} }) {
         )}
       </label>
       {children}
+    </div>
+  )
+}
+
+// ─── Placeholder textarea ────────────────────────────────────────────────────
+
+function PlaceholderTextarea({ value, onChange, placeholder, placeholders, inpStyle, onFocus, onBlur }) {
+  const ref = useRef(null)
+
+  function insert(tag) {
+    const el = ref.current
+    if (!el) return
+    const start = el.selectionStart ?? value.length
+    const end   = el.selectionEnd   ?? value.length
+    const next  = value.slice(0, start) + tag + value.slice(end)
+    onChange(next)
+    requestAnimationFrame(() => {
+      el.focus()
+      el.selectionStart = el.selectionEnd = start + tag.length
+    })
+  }
+
+  return (
+    <div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+        {placeholders.map(({ label, tag }) => (
+          <button key={tag} type="button" onClick={() => insert(tag)}
+            style={{ padding: '4px 11px', borderRadius: 20, border: '1.5px solid #14b8a6', background: '#f0fdfa', color: '#0d9488', fontSize: 12, fontWeight: 600, cursor: 'pointer', lineHeight: 1.4 }}>
+            {label}
+          </button>
+        ))}
+      </div>
+      <textarea
+        ref={ref}
+        style={{ ...inpStyle, minHeight: 110, resize: 'vertical', fontFamily: 'inherit' }}
+        value={value}
+        placeholder={placeholder}
+        onChange={e => onChange(e.target.value)}
+        onFocus={onFocus}
+        onBlur={onBlur}
+      />
     </div>
   )
 }
@@ -533,8 +576,9 @@ export default function Settings() {
         smtp_user:                profile.smtp_user                ?? DEFAULTS.smtp_user,
         smtp_password:            profile.smtp_password            ?? DEFAULTS.smtp_password,
         smtp_from_name:           profile.smtp_from_name           ?? DEFAULTS.smtp_from_name,
-        whatsapp_default_message: profile.whatsapp_default_message ?? DEFAULTS.whatsapp_default_message,
-        payment_terms_days:       profile.payment_terms_days       ?? DEFAULTS.payment_terms_days,
+        whatsapp_default_message:  profile.whatsapp_default_message  ?? DEFAULTS.whatsapp_default_message,
+        whatsapp_estimate_message: profile.whatsapp_estimate_message ?? DEFAULTS.whatsapp_estimate_message,
+        payment_terms_days:        profile.payment_terms_days        ?? DEFAULTS.payment_terms_days,
       }
       setForm(merged)
       // Snapshot the freshly-loaded values as the "original" baseline for
@@ -1164,26 +1208,50 @@ export default function Settings() {
         </div>
 
         {form.email_provider === 'whatsapp' ? (
-          <div>
-            <p style={{ fontSize: 13, color: '#64748b', margin: '0 0 12px', lineHeight: 1.6 }}>
-              Set a default message that pre-fills the WhatsApp text box when sending an invoice or estimate.
-              Use these placeholders: <code style={{ background: '#f1f5f9', padding: '1px 5px', borderRadius: 4, fontSize: 12 }}>{'{clientName}'}</code>{' '}
-              <code style={{ background: '#f1f5f9', padding: '1px 5px', borderRadius: 4, fontSize: 12 }}>{'{invoiceNumber}'}</code>{' '}
-              <code style={{ background: '#f1f5f9', padding: '1px 5px', borderRadius: 4, fontSize: 12 }}>{'{estimateNumber}'}</code>{' '}
-              <code style={{ background: '#f1f5f9', padding: '1px 5px', borderRadius: 4, fontSize: 12 }}>{'{amount}'}</code>{' '}
-              <code style={{ background: '#f1f5f9', padding: '1px 5px', borderRadius: 4, fontSize: 12 }}>{'{dueDate}'}</code>{' '}
-              <code style={{ background: '#f1f5f9', padding: '1px 5px', borderRadius: 4, fontSize: 12 }}>{'{expiryDate}'}</code>{' '}
-              <code style={{ background: '#f1f5f9', padding: '1px 5px', borderRadius: 4, fontSize: 12 }}>{'{businessName}'}</code>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+            <p style={{ fontSize: 13, color: '#64748b', margin: 0, lineHeight: 1.6 }}>
+              Set default messages that pre-fill the WhatsApp text box. Click a tag below each textarea to insert it where your cursor is.
             </p>
-            <Field label="Default WhatsApp Message">
-              <textarea
-                style={{ ...inp, minHeight: 110, resize: 'vertical', fontFamily: 'inherit' }}
+
+            {/* Invoice message */}
+            <div style={{ background: '#f8fafc', borderRadius: 10, border: '1px solid #e2e8f0', padding: 16 }}>
+              <p style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', margin: '0 0 12px' }}>Invoice Default Message</p>
+              <PlaceholderTextarea
                 value={form.whatsapp_default_message}
+                onChange={v => setForm(p => ({ ...p, whatsapp_default_message: v }))}
                 placeholder={`Hi {clientName}, please find invoice {invoiceNumber} for {amount} attached. Due date: {dueDate}. Thank you, {businessName}.`}
-                onChange={handleChange('whatsapp_default_message')}
-                onBlur={blurStyle} onFocus={focusStyle}
+                inpStyle={inp}
+                onFocus={focusStyle}
+                onBlur={blurStyle}
+                placeholders={[
+                  { label: 'Client Name',    tag: '{clientName}' },
+                  { label: 'Invoice #',      tag: '{invoiceNumber}' },
+                  { label: 'Amount',         tag: '{amount}' },
+                  { label: 'Due Date',       tag: '{dueDate}' },
+                  { label: 'Business Name',  tag: '{businessName}' },
+                ]}
               />
-            </Field>
+            </div>
+
+            {/* Estimate message */}
+            <div style={{ background: '#f8fafc', borderRadius: 10, border: '1px solid #e2e8f0', padding: 16 }}>
+              <p style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', margin: '0 0 12px' }}>Estimate Default Message</p>
+              <PlaceholderTextarea
+                value={form.whatsapp_estimate_message}
+                onChange={v => setForm(p => ({ ...p, whatsapp_estimate_message: v }))}
+                placeholder={`Hi {clientName}, please find estimate {estimateNumber} for {amount} attached. Valid until: {expiryDate}. Thank you, {businessName}.`}
+                inpStyle={inp}
+                onFocus={focusStyle}
+                onBlur={blurStyle}
+                placeholders={[
+                  { label: 'Client Name',    tag: '{clientName}' },
+                  { label: 'Estimate #',     tag: '{estimateNumber}' },
+                  { label: 'Amount',         tag: '{amount}' },
+                  { label: 'Expiry Date',    tag: '{expiryDate}' },
+                  { label: 'Business Name',  tag: '{businessName}' },
+                ]}
+              />
+            </div>
           </div>
         ) : form.email_provider === 'gmail' ? (
           <>

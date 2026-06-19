@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { useTrialStatus } from '../context/TrialContext'
 import useIsMobile from '../hooks/useIsMobile'
+import HelpButton from '../components/HelpButton'
 
 const READONLY_MSG = 'Your trial has ended. Upgrade to continue.'
 
@@ -312,14 +313,17 @@ export default function Expenses() {
             {loading ? 'Loading…' : `${expenses.length} expense${expenses.length !== 1 ? 's' : ''} · Total: ${fmt(expenses.reduce((s, e) => s + (Number(e.amount) || 0), 0))}`}
           </p>
         </div>
-        <button
-          onClick={isReadOnly ? undefined : openAdd}
-          disabled={isReadOnly}
-          title={isReadOnly ? READONLY_MSG : undefined}
-          style={{ background: '#14b8a6', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 18px', fontSize: 14, fontWeight: 600, cursor: isReadOnly ? 'not-allowed' : 'pointer', opacity: isReadOnly ? 0.45 : 1, display: 'flex', alignItems: 'center', gap: 7, boxShadow: isReadOnly ? 'none' : '0 2px 8px rgba(20,184,166,0.3)', flexShrink: 0 }}>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-          New Expense
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+          <HelpButton page="expenses" />
+          <button
+            onClick={isReadOnly ? undefined : openAdd}
+            disabled={isReadOnly}
+            title={isReadOnly ? READONLY_MSG : undefined}
+            style={{ background: '#14b8a6', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 18px', fontSize: 14, fontWeight: 600, cursor: isReadOnly ? 'not-allowed' : 'pointer', opacity: isReadOnly ? 0.45 : 1, display: 'flex', alignItems: 'center', gap: 7, boxShadow: isReadOnly ? 'none' : '0 2px 8px rgba(20,184,166,0.3)' }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            New Expense
+          </button>
+        </div>
       </div>
 
       {/* Search bar */}

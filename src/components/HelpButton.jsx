@@ -66,6 +66,17 @@ const HELP = {
       'New items typed during invoice creation are automatically saved here.',
     ],
   },
+  expenses: {
+    title: 'Expenses',
+    bullets: [
+      'Track all your business expenses here to keep your finances in order.',
+      'Add an expense by clicking "New Expense" and filling in the details.',
+      'Assign a category to each expense — categories can be managed in Settings.',
+      'Use the search bar to find expenses by description or category.',
+      'The total shown updates based on your current search filter.',
+      'Delete an expense by clicking the trash icon on the right.',
+    ],
+  },
   settings: {
     title: 'Settings',
     bullets: [
