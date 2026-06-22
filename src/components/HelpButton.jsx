@@ -43,9 +43,8 @@ const HELP = {
     bullets: [
       'Create a quote or estimate for a client before work begins.',
       'Add line items the same way as invoices, with VAT toggle support.',
-      'Approve an estimate to confirm it with your client.',
-      'Convert an approved estimate to an invoice with one click.',
-      'Send an estimate directly to your client via WhatsApp or Email.',
+      'Once an estimate is approved, it will automatically convert to an invoice and list the estimate under "Approved".',
+      'Download or send estimates to your clients using Email or WhatsApp.',
     ],
   },
   clients: {
