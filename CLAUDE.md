@@ -70,7 +70,7 @@ FundiBill is a South African desktop invoicing application built for small busin
 │   ├── lib/
 │   │   ├── supabase.js         — Supabase client (VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY)
 │   │   ├── auth.js             — Thin wrappers: signIn, signUp, signOut, getSession, onAuthStateChange
-│   │   ├── payfast.js          — buildPayFastURL() → opens fundiai.co.za/invoicy-buy.php in browser
+│   │   ├── payfast.js          — buildPayFastURL() → opens api.fundibill.online/fundibill-buy.php in browser
 │   │   └── emailTemplates.js   — generateInvoiceEmail, generateEstimateEmail, generateReminderEmail,
 │   │                             generateTestEmail, PLAIN_TEXT_FOOTER (all return full HTML strings)
 │   │
@@ -270,7 +270,7 @@ Same columns as `invoice_items` but FK → estimates.
 ## External Services & Files
 
 ### PayFast (payment processor)
-- PHP page hosted at `https://fundiai.co.za/invoicy-buy.php`
+- PHP page hosted at `https://api.fundibill.online/fundibill-buy.php`
 - When user clicks "Buy FundiBill Lifetime Access — R99", `buildPayFastURL()` appends `user_id`, `email`, and `business_name` as URL params, then opens the URL in the system browser via `window.db.openExternal()`
 - The PHP page handles PayFast form generation server-side
 - On successful payment, a PayFast ITN webhook hits a PHP endpoint which sets `profiles.is_licensed = true` for the user's Supabase row
@@ -348,7 +348,7 @@ The Electron main process uses `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` vi
 
 - **Trial:** `profiles.trial_start` set on first login. 7 days. After expiry: `isReadOnly = true` (all save/create/delete actions show "trial ended" tooltip or are disabled).
 - **License key format:** `FNDBY-XXXX-XXXX-XXXX` — 5-char prefix + 3 × 4-char base-36 segments. SEG3 is a checksum: `toSeg(fnv1a32("FNDBY" + SEG1 + SEG2))`. Validated client-side in `LicenseModal` + stored in `licenses` table; `is_licensed` on profile is the source of truth for access.
-- **PayFast flow:** PHP at `fundiai.co.za` handles merchant signature. ITN webhook sets `profiles.is_licensed = true`. `TrialBanner` polls every 10s for up to 10 minutes after Buy click.
+- **PayFast flow:** PHP at `api.fundibill.online` handles merchant signature. ITN webhook sets `profiles.is_licensed = true`. `TrialBanner` polls every 10s for up to 10 minutes after Buy click.
 - **Key generator:** `key-generator.html` — internal browser tool; not deployed; uses same algorithm as `electron/license.js`.
 
 ---
@@ -370,7 +370,7 @@ The Electron main process uses `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` vi
 
 ### HTML template (`emailTemplates.js`):
 - `baseTemplate()` — outer chrome: coloured header → white body → FundiBill footer
-- Footer: "Sent by **FundiBill** — SA Built Invoicing Software" + `fundiai.co.za/fundibill` link (disclaimer line removed)
+- Footer: "Sent by **FundiBill** — SA Built Invoicing Software" + `fundibill.online` link (disclaimer line removed)
 - All emails include `PLAIN_TEXT_FOOTER` as the plain-text fallback footer
 - `primaryColor` from user's profile drives the header and accent colour
 
@@ -415,7 +415,7 @@ The `reminder_opted_in` and `reminder_sent_at` columns still exist in `invoices`
 - **`estimate_items` has no `user_id` column** — same as above.
 - **`profiles.terms` vs `terms_conditions`** — The Supabase column is named `terms` but the Settings form field is called `terms_conditions`. The `SUPABASE_COL` mapping handles this: `terms_conditions: 'terms'`.
 - **`smtp_port` must be `null` not `""`** — The column is integer. The save handler explicitly converts empty strings to `null`.
-- **PayFast URL** — `src/lib/payfast.js` points to `fundiai.co.za/invoicy-buy.php`. Do not change this URL.
+- **PayFast URL** — `src/lib/payfast.js` points to `api.fundibill.online/fundibill-buy.php`. Do not change this URL.
 - **Logo base64 data URLs** — Stripped by most email clients for security. Only `https://` logo URLs are used in emails; base64/local paths are filtered to empty string before generating email HTML.
 - **`src/utils/pdf.js` (jsPDF)** — Legacy file, currently unused in the active flow. `PdfPreviewModal` and `PdfDocument` use `@react-pdf/renderer`. Do not delete — kept as reference.
 - **Recurring invoice future scheduling** — Only the FIRST invoice is created by the frontend save flow. Subsequent invoices for monthly/weekly/etc. recurrence require a backend trigger (edge function + pg_cron) that has NOT been implemented yet.

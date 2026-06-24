@@ -100,7 +100,7 @@ export default function Auth() {
     setResetError('')
     setResetLoading(true)
     const { error: err } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: 'https://fundibill.vercel.app/reset-password',
+      redirectTo: 'https://app.fundibill.online/reset-password',
     })
     setResetLoading(false)
     if (err) {
@@ -473,7 +473,7 @@ export default function Auth() {
             <p style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', textAlign: 'center', margin: '18px 0 0', lineHeight: 1.6 }}>
               By using FundiBill you agree to our{' '}
               <a
-                href="https://fundiai.co.za/fundibill-termsofuse"
+                href="https://fundibill.online/terms"
                 target="_blank" rel="noopener noreferrer"
                 style={{ color: 'rgba(255,255,255,0.65)', textDecoration: 'underline', textUnderlineOffset: 2 }}
               >
@@ -481,7 +481,7 @@ export default function Auth() {
               </a>
               {' '}and{' '}
               <a
-                href="https://fundiai.co.za/privacypolicy"
+                href="https://fundibill.online/privacy"
                 target="_blank" rel="noopener noreferrer"
                 style={{ color: 'rgba(255,255,255,0.65)', textDecoration: 'underline', textUnderlineOffset: 2 }}
               >

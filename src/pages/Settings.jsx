@@ -763,7 +763,7 @@ export default function Settings() {
       email:   user?.email || '',
       name:    form.business_name || '',
     })
-    window.db?.openExternal(`https://api.fundiai.co.za/fundibill-buy.php?${params.toString()}`)
+    window.db?.openExternal(`https://api.fundibill.online/fundibill-buy.php?${params.toString()}`)
     setShowSubPlans(false)
   }
 
@@ -1963,14 +1963,14 @@ export default function Settings() {
         <p style={{ fontSize: 12, color: '#94a3b8', marginTop: 8, lineHeight: 1.6 }}>
           By subscribing you agree to the FundiBill{' '}
           <button
-            onClick={() => window.db?.openExternal('https://fundiai.co.za/fundibill-termsofuse')}
+            onClick={() => window.db?.openExternal('https://fundibill.online/terms')}
             style={{ background: 'none', border: 'none', color: '#0891b2', cursor: 'pointer', padding: 0, fontSize: 12, textDecoration: 'underline', fontFamily: 'inherit' }}
           >
             Terms of Service
           </button>
           {' '}and{' '}
           <button
-            onClick={() => window.db?.openExternal('https://fundiai.co.za/privacypolicy')}
+            onClick={() => window.db?.openExternal('https://fundibill.online/privacy')}
             style={{ background: 'none', border: 'none', color: '#0891b2', cursor: 'pointer', padding: 0, fontSize: 12, textDecoration: 'underline', fontFamily: 'inherit' }}
           >
             Privacy Policy

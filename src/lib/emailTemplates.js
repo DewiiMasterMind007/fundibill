@@ -39,7 +39,7 @@ function fmtAmount(n) {
  * that display only the text part still see the FundiBill attribution.
  */
 export const PLAIN_TEXT_FOOTER =
-  '\n\n---\nSent by FundiBill - SA Built Invoicing Software | fundiai.co.za/fundibill'
+  '\n\n---\nSent by FundiBill - SA Built Invoicing Software | fundibill.online'
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
@@ -150,8 +150,8 @@ function baseTemplate({ primaryColor, logoUrl, businessName, bodyHtml }) {
               </p>
               <p style="margin:0;font-size:12px;color:#94a3b8;
                           font-family:Arial,Helvetica,sans-serif;">
-                <a href="https://fundiai.co.za/fundibill"
-                   style="color:#14b8a6;text-decoration:none;">fundiai.co.za/fundibill</a>
+                <a href="https://fundibill.online"
+                   style="color:#14b8a6;text-decoration:none;">fundibill.online</a>
               </p>
             </td>
           </tr>

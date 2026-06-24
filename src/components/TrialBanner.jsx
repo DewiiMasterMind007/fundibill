@@ -10,7 +10,7 @@ function buildPayFastURL(user, profile, plan) {
     email:   user?.email || '',
     name:    profile?.business_name || '',
   })
-  return `https://api.fundiai.co.za/fundibill-buy.php?${params.toString()}`
+  return `https://api.fundibill.online/fundibill-buy.php?${params.toString()}`
 }
 
 const POLL_INTERVAL_MS = 10_000   // check every 10 seconds

@@ -23,7 +23,7 @@ export default defineConfig({
         display: 'standalone',
         orientation: 'portrait',
         scope: '/',
-        start_url: '/',
+        start_url: 'https://app.fundibill.online',
         icons: [
           {
             src: 'icon-192.png',

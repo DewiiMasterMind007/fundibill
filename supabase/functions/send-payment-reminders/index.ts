@@ -163,8 +163,8 @@ function buildReminderHtml(d: ReminderEmailData): string {
               </p>
               <p style="margin:0;font-size:12px;color:#94a3b8;
                           font-family:Arial,Helvetica,sans-serif;">
-                <a href="https://fundiai.co.za/fundibill"
-                   style="color:#14b8a6;text-decoration:none;">fundiai.co.za/fundibill</a>
+                <a href="https://fundibill.online"
+                   style="color:#14b8a6;text-decoration:none;">fundibill.online</a>
               </p>
             </td>
           </tr>
@@ -197,7 +197,7 @@ function buildReminderText(d: ReminderEmailData): string {
     d.businessName,
     '',
     '---',
-    'Sent by FundiBill - SA Built Invoicing Software | fundiai.co.za/fundibill',
+    'Sent by FundiBill - SA Built Invoicing Software | fundibill.online',
   ].join('\n')
 }
 
