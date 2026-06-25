@@ -70,7 +70,7 @@ export default function Auth() {
       if (msg.includes('Email not confirmed') || msg.includes('email_not_confirmed')) {
         setIsUnverified(true)
         setError(
-          'Please verify your email address before logging in. Check your inbox for a confirmation email from noreply@fundiai.co.za'
+          'Please verify your email address before logging in. Check your inbox for a confirmation email from noreply@fundibill.online'
         )
       } else {
         setError(msg)
