@@ -65,14 +65,16 @@ export function AuthProvider({ children }) {
     // Lifetime license
     if (profile.subscription_plan === 'lifetime') return true
 
-    // Legacy is_licensed support
-    if (profile.is_licensed === true) return true
-
-    // Active or cancelled-but-not-yet-expired subscription (user keeps access until billing period ends)
+    // Active or cancelled-but-not-yet-expired subscription
+    // (cancelled users keep access until subscription_end_date)
     if (['active', 'cancelled'].includes(profile.subscription_status) &&
         profile.subscription_end_date) {
       return new Date(profile.subscription_end_date) > new Date()
     }
+
+    // Legacy is_licensed: only honoured when no subscription record exists
+    // (one-time licence holders from before the subscription system)
+    if (profile.is_licensed === true && !profile.subscription_status) return true
 
     return false
   }, [currentProfile])
