@@ -745,12 +745,14 @@ export default function Settings() {
   async function handleCancelSubscription() {
     setCancelling(true)
     try {
-      await supabase.functions.invoke('cancel-subscription', { body: {} })
+      const { error } = await supabase.functions.invoke('cancel-subscription', { body: {} })
+      if (error) throw error
       await refreshSubscription()
       setCancelConfirm(false)
-      showToast()
+      showToast('Subscription cancelled.')
     } catch (err) {
       console.error('Cancel subscription error', err)
+      alert('Could not cancel subscription. Please try again or contact support.')
     } finally {
       setCancelling(false)
     }
