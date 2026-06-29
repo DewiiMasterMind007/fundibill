@@ -25,10 +25,31 @@ export default function Auth() {
   const [resendError,    setResendError]    = useState('')
   const [resendCooldown, setResendCooldown] = useState(0)
 
-  // Password reset
+  // Password reset (send email)
   const [resetSent,    setResetSent]    = useState(false)
   const [resetError,   setResetError]   = useState('')
   const [resetLoading, setResetLoading] = useState(false)
+
+  // Recovery token (from email link)
+  const [recoveryToken,        setRecoveryToken]        = useState(null)
+  const [recoveryRefreshToken, setRecoveryRefreshToken] = useState(null)
+  const [newPassword,          setNewPassword]          = useState('')
+  const [confirmNewPassword,   setConfirmNewPassword]   = useState('')
+  const [resetNewLoading,      setResetNewLoading]      = useState(false)
+  const [resetNewError,        setResetNewError]        = useState('')
+  const [resetNewSuccess,      setResetNewSuccess]      = useState(false)
+
+  // Detect recovery token in URL hash on mount
+  useEffect(() => {
+    const hashParams = new URLSearchParams(window.location.hash.substring(1))
+    const accessToken = hashParams.get('access_token')
+    const tokenType   = hashParams.get('type')
+    if (tokenType === 'recovery' && accessToken) {
+      setRecoveryToken(accessToken)
+      setRecoveryRefreshToken(hashParams.get('refresh_token') || '')
+      window.history.replaceState(null, null, window.location.pathname)
+    }
+  }, [])
 
   const isRegister = mode === 'register'
   const isForgot   = mode === 'forgot'
@@ -100,13 +121,42 @@ export default function Auth() {
     setResetError('')
     setResetLoading(true)
     const { error: err } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: 'https://app.fundibill.online/reset-password',
+      redirectTo: 'https://app.fundibill.online',
     })
     setResetLoading(false)
     if (err) {
       setResetError(err.message)
     } else {
       setResetSent(true)
+    }
+  }
+
+  async function handleSetNewPassword(e) {
+    e.preventDefault()
+    setResetNewError('')
+    if (newPassword.length < 8) {
+      setResetNewError('Password must be at least 8 characters.')
+      return
+    }
+    if (newPassword !== confirmNewPassword) {
+      setResetNewError('Passwords do not match.')
+      return
+    }
+    setResetNewLoading(true)
+    try {
+      const { error: sessionErr } = await supabase.auth.setSession({
+        access_token:  recoveryToken,
+        refresh_token: recoveryRefreshToken,
+      })
+      if (sessionErr) throw sessionErr
+      const { error: updateErr } = await supabase.auth.updateUser({ password: newPassword })
+      if (updateErr) throw updateErr
+      await supabase.auth.signOut()
+      setResetNewSuccess(true)
+    } catch (err) {
+      setResetNewError(err.message || 'Something went wrong. Please try again.')
+    } finally {
+      setResetNewLoading(false)
     }
   }
 
@@ -184,8 +234,105 @@ export default function Auth() {
           />
         </div>
 
-        {/* ── SIGNUP SUCCESS SCREEN ── */}
-        {registered ? (
+        {/* ── RECOVERY: SET NEW PASSWORD SCREEN ── */}
+        {recoveryToken ? (
+          resetNewSuccess ? (
+            <div style={{ textAlign: 'center', padding: '8px 0 16px' }}>
+              <div style={{ fontSize: 48, marginBottom: 16 }}>✅</div>
+              <h2 style={{
+                fontSize: 20, fontWeight: 700, color: '#ffffff', margin: '0 0 12px',
+                textShadow: '0 1px 6px rgba(0,0,0,0.2)',
+              }}>
+                Password updated successfully!
+              </h2>
+              <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.82)', lineHeight: 1.7, margin: '0 0 28px' }}>
+                Your new password has been saved. You can now sign in with your new password.
+              </p>
+              <button
+                onClick={() => {
+                  setRecoveryToken(null)
+                  setResetNewSuccess(false)
+                  setNewPassword('')
+                  setConfirmNewPassword('')
+                  setMode('login')
+                }}
+                style={{
+                  width: '100%', padding: '12px 0', borderRadius: 10,
+                  background: '#ffffff', color: '#0d9488',
+                  border: 'none', fontSize: 15, fontWeight: 700,
+                  cursor: 'pointer', boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
+                  fontFamily: 'inherit',
+                }}
+              >
+                Continue to App
+              </button>
+            </div>
+          ) : (
+            <>
+              <h1 style={{ fontSize: 20, fontWeight: 700, color: '#ffffff', margin: '0 0 4px', textShadow: '0 1px 4px rgba(0,0,0,0.15)' }}>
+                Set New Password
+              </h1>
+              <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.72)', margin: '0 0 24px', lineHeight: 1.5 }}>
+                Enter your new password below.
+              </p>
+
+              <form onSubmit={handleSetNewPassword} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.85)', marginBottom: 6 }}>
+                    New Password
+                  </label>
+                  <PasswordInput
+                    className="fb-input"
+                    required autoComplete="new-password"
+                    value={newPassword} onChange={e => setNewPassword(e.target.value)}
+                    placeholder="At least 8 characters"
+                    style={INPUT} onFocus={focusStyle} onBlur={blurStyle}
+                    iconColor="rgba(255,255,255,0.55)" iconHoverColor="rgba(255,255,255,0.9)"
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.85)', marginBottom: 6 }}>
+                    Confirm Password
+                  </label>
+                  <PasswordInput
+                    className="fb-input"
+                    required autoComplete="new-password"
+                    value={confirmNewPassword} onChange={e => setConfirmNewPassword(e.target.value)}
+                    placeholder="••••••••"
+                    style={INPUT} onFocus={focusStyle} onBlur={blurStyle}
+                    iconColor="rgba(255,255,255,0.55)" iconHoverColor="rgba(255,255,255,0.9)"
+                  />
+                </div>
+
+                {resetNewError && (
+                  <div style={{
+                    background: 'rgba(239,68,68,0.22)', border: '1px solid rgba(239,68,68,0.45)',
+                    backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)',
+                    borderRadius: 9, padding: '10px 14px', fontSize: 13, color: '#fca5a5',
+                  }}>
+                    {resetNewError}
+                  </div>
+                )}
+
+                <button
+                  type="submit" disabled={resetNewLoading}
+                  style={{
+                    marginTop: 4,
+                    background: resetNewLoading ? 'rgba(255,255,255,0.70)' : '#ffffff',
+                    color: '#0d9488', border: 'none', borderRadius: 10,
+                    padding: '12px 0', fontSize: 15, fontWeight: 700,
+                    cursor: resetNewLoading ? 'wait' : 'pointer',
+                    boxShadow: resetNewLoading ? 'none' : '0 4px 20px rgba(0,0,0,0.15)',
+                    transition: 'background 0.15s', fontFamily: 'inherit',
+                  }}
+                >
+                  {resetNewLoading ? 'Updating…' : 'Update Password'}
+                </button>
+              </form>
+            </>
+          )
+
+        ) : registered ? (
           <div style={{ textAlign: 'center', padding: '8px 0 16px' }}>
             <div style={{ fontSize: 48, marginBottom: 16 }}>✅</div>
             <h2 style={{
