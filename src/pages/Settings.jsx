@@ -32,7 +32,7 @@ const DEFAULTS = {
   accent_color:            '#0f172a',
   text_color:              '#1e293b',
   invoice_prefix:          'INV-',
-  estimate_prefix:         'EST-',
+  estimate_prefix:         'QT-',
   starting_invoice_number:  1,
   starting_estimate_number: 1,
   default_payment_terms:   '30',
@@ -54,6 +54,8 @@ const DEFAULTS = {
   email_quote_message:       '',
   email_overdue_message:     '',
   payment_terms_days:        7,
+  discounts_enabled:         false,
+  discount_type:             'percent',
 }
 
 const SUPABASE_COL = {
@@ -86,6 +88,8 @@ const SUPABASE_COL = {
   email_quote_message:       'email_quote_message',
   email_overdue_message:     'email_overdue_message',
   payment_terms_days:        'payment_terms_days',
+  discounts_enabled:         'discounts_enabled',
+  discount_type:             'discount_type',
 }
 
 const BUILTIN_METHODS = ['Cash', 'EFT / Bank Transfer', 'Credit Card', 'Debit Card']
@@ -591,6 +595,8 @@ export default function Settings() {
         email_quote_message:       profile.email_quote_message       ?? DEFAULTS.email_quote_message,
         email_overdue_message:     profile.email_overdue_message     ?? DEFAULTS.email_overdue_message,
         payment_terms_days:        profile.payment_terms_days        ?? DEFAULTS.payment_terms_days,
+        discounts_enabled:         profile.discounts_enabled         ?? DEFAULTS.discounts_enabled,
+        discount_type:             profile.discount_type             ?? DEFAULTS.discount_type,
       }
       setForm(merged)
       // Snapshot the freshly-loaded values as the "original" baseline for
@@ -1097,12 +1103,12 @@ export default function Settings() {
             </div>
           </Field>
 
-          <Field label="Estimate Prefix">
+          <Field label="Quote Prefix">
             <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
               <input
                 style={{ ...inp, borderRadius: '8px 0 0 8px', flex: 1 }}
                 value={form.estimate_prefix}
-                placeholder="EST-"
+                placeholder="QT-"
                 onChange={handleChange('estimate_prefix')}
                 onBlur={blurStyle} onFocus={focusStyle}
               />
@@ -1113,7 +1119,7 @@ export default function Settings() {
                 fontFamily: 'ui-monospace, Consolas, monospace', whiteSpace: 'nowrap',
                 minHeight: isMobile ? 44 : undefined, display: 'flex', alignItems: 'center',
               }}>
-                {(form.estimate_prefix || 'EST-')}{String(form.starting_estimate_number || 1).padStart(4, '0')}
+                {(form.estimate_prefix || 'QT-')}{String(form.starting_estimate_number || 1).padStart(4, '0')}
               </div>
             </div>
           </Field>
@@ -1137,6 +1143,39 @@ export default function Settings() {
               onFocus={focusStyle}
             />
           </Field>
+
+          {/* Discount */}
+          <div style={{ gridColumn: isMobile ? undefined : '1 / -1', display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', userSelect: 'none' }}>
+              <input
+                type="checkbox"
+                checked={!!form.discounts_enabled}
+                onChange={e => setForm(p => ({ ...p, discounts_enabled: e.target.checked }))}
+                style={{ width: 16, height: 16, accentColor: form.primary_color || '#14b8a6', cursor: 'pointer' }}
+              />
+              <span style={{ fontSize: 14, fontWeight: 500, color: '#374151' }}>Enable discounts on invoices and quotes</span>
+            </label>
+            {form.discounts_enabled && (
+              <div style={{ marginLeft: 26, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                {[
+                  { id: 'percent', label: '% Percentage discount' },
+                  { id: 'fixed',   label: 'R Fixed amount discount' },
+                ].map(opt => (
+                  <label key={opt.id} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, fontWeight: 500, color: form.discount_type === opt.id ? '#0f172a' : '#64748b' }}>
+                    <input
+                      type="radio"
+                      name="discount_type"
+                      value={opt.id}
+                      checked={form.discount_type === opt.id}
+                      onChange={() => setForm(p => ({ ...p, discount_type: opt.id }))}
+                      style={{ accentColor: form.primary_color || '#14b8a6' }}
+                    />
+                    {opt.label}
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
 
         </div>
       </Section>
@@ -1179,18 +1218,18 @@ export default function Settings() {
         </div>
       </Section>
 
-      {/* ── WHATSAPP ─────────────────────────────────────────────────────── */}
+      {/* ── NOTIFICATIONS & MESSAGES ─────────────────────────────────────── */}
       <Section
         id="whatsapp" icon="💬"
-        title="WhatsApp Settings"
-        description="Default message templates that pre-fill the WhatsApp share dialog"
+        title="Notifications & Messages"
+        description="Default message templates for emails and WhatsApp sharing"
         isOpen={openSection === 'whatsapp'}
         onToggle={() => toggleSection('whatsapp')}
         isMobile={isMobile}
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
           <p style={{ fontSize: 13, color: '#64748b', margin: 0, lineHeight: 1.6 }}>
-            Set default messages that pre-fill the WhatsApp text box. Click a tag below each textarea to insert it where your cursor is.
+            These templates pre-fill the message body when sharing via email or WhatsApp. Click a tag to insert it at your cursor.
           </p>
 
           {/* Invoice message */}
@@ -1219,7 +1258,7 @@ export default function Settings() {
             <PlaceholderTextarea
               value={form.whatsapp_estimate_message}
               onChange={v => setForm(p => ({ ...p, whatsapp_estimate_message: v }))}
-              placeholder={`Hi {clientName}, please find quote {quoteNumber} for {amount} attached. Valid until: {expiryDate}. Thank you, {businessName}.`}
+              placeholder={`Hi {clientName}, please find your estimate {quoteNumber} attached for the amount of {amount}. This quote/estimate is valid until {expiryDate}. Thank you for your business! Kind regards, {businessName}`}
               inpStyle={inp}
               onFocus={focusStyle}
               onBlur={blurStyle}
@@ -1232,6 +1271,26 @@ export default function Settings() {
               ]}
             />
           </div>
+
+          {/* Overdue reminder message */}
+          <div style={{ background: '#f8fafc', borderRadius: 10, border: '1px solid #e2e8f0', padding: 16 }}>
+            <p style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', margin: '0 0 12px' }}>Overdue Reminder Message</p>
+            <PlaceholderTextarea
+              value={form.email_overdue_message}
+              onChange={v => setForm(p => ({ ...p, email_overdue_message: v }))}
+              placeholder={`Hi {clientName}, this is a friendly reminder that invoice {invoiceNumber} for {amount} was due on {dueDate} and is now overdue. Please arrange payment at your earliest convenience. Kind regards, {businessName}`}
+              inpStyle={inp}
+              onFocus={focusStyle}
+              onBlur={blurStyle}
+              placeholders={[
+                { label: 'Client Name',    tag: '{clientName}' },
+                { label: 'Invoice #',      tag: '{invoiceNumber}' },
+                { label: 'Amount',         tag: '{amount}' },
+                { label: 'Due Date',       tag: '{dueDate}' },
+                { label: 'Business Name',  tag: '{businessName}' },
+              ]}
+            />
+          </div>
         </div>
       </Section>
 
@@ -1239,7 +1298,7 @@ export default function Settings() {
       <Section
         id="email" icon="📧"
         title="Email Settings"
-        description="SMTP configuration and default email templates for sending invoices"
+        description="SMTP configuration for sending invoices and quotes by email"
         isOpen={openSection === 'email'}
         onToggle={() => toggleSection('email')}
         isMobile={isMobile}
@@ -1466,73 +1525,6 @@ export default function Settings() {
         </div>
         )}
 
-        {/* ── Email message templates ──────────────────────────────────────── */}
-        <div style={{ marginTop: 28 }}>
-          <p style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', margin: '0 0 4px' }}>Default Email Messages</p>
-          <p style={{ fontSize: 13, color: '#64748b', margin: '0 0 20px', lineHeight: 1.6 }}>
-            These messages pre-fill the email body when sharing an invoice or quote. Click a tag to insert it at your cursor.
-          </p>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-
-            <div style={{ background: '#f8fafc', borderRadius: 10, border: '1px solid #e2e8f0', padding: 16 }}>
-              <p style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', margin: '0 0 12px' }}>Invoice Email</p>
-              <PlaceholderTextarea
-                value={form.email_invoice_message}
-                onChange={v => setForm(p => ({ ...p, email_invoice_message: v }))}
-                placeholder={`Hi {clientName},\n\nPlease find invoice {invoiceNumber} for {amount} attached.\n\nDue date: {dueDate}.\n\nKind regards,\n{businessName}`}
-                inpStyle={inp}
-                onFocus={focusStyle}
-                onBlur={blurStyle}
-                placeholders={[
-                  { label: 'Client Name',   tag: '{clientName}' },
-                  { label: 'Invoice #',     tag: '{invoiceNumber}' },
-                  { label: 'Amount',        tag: '{amount}' },
-                  { label: 'Due Date',      tag: '{dueDate}' },
-                  { label: 'Business Name', tag: '{businessName}' },
-                ]}
-              />
-            </div>
-
-            <div style={{ background: '#f8fafc', borderRadius: 10, border: '1px solid #e2e8f0', padding: 16 }}>
-              <p style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', margin: '0 0 12px' }}>Quote Email</p>
-              <PlaceholderTextarea
-                value={form.email_quote_message}
-                onChange={v => setForm(p => ({ ...p, email_quote_message: v }))}
-                placeholder={`Hi {clientName},\n\nPlease find quote {quoteNumber} for {amount} attached.\n\nValid until: {expiryDate}.\n\nKind regards,\n{businessName}`}
-                inpStyle={inp}
-                onFocus={focusStyle}
-                onBlur={blurStyle}
-                placeholders={[
-                  { label: 'Client Name',   tag: '{clientName}' },
-                  { label: 'Quote #',       tag: '{quoteNumber}' },
-                  { label: 'Amount',        tag: '{amount}' },
-                  { label: 'Expiry Date',   tag: '{expiryDate}' },
-                  { label: 'Business Name', tag: '{businessName}' },
-                ]}
-              />
-            </div>
-
-            <div style={{ background: '#f8fafc', borderRadius: 10, border: '1px solid #e2e8f0', padding: 16 }}>
-              <p style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', margin: '0 0 12px' }}>Overdue Invoice Reminder Email</p>
-              <PlaceholderTextarea
-                value={form.email_overdue_message}
-                onChange={v => setForm(p => ({ ...p, email_overdue_message: v }))}
-                placeholder={`Hi {clientName},\n\nThis is a friendly reminder that invoice {invoiceNumber} for {amount} is now overdue.\n\nPlease arrange payment at your earliest convenience.\n\nKind regards,\n{businessName}`}
-                inpStyle={inp}
-                onFocus={focusStyle}
-                onBlur={blurStyle}
-                placeholders={[
-                  { label: 'Client Name',   tag: '{clientName}' },
-                  { label: 'Invoice #',     tag: '{invoiceNumber}' },
-                  { label: 'Amount',        tag: '{amount}' },
-                  { label: 'Due Date',      tag: '{dueDate}' },
-                  { label: 'Business Name', tag: '{businessName}' },
-                ]}
-              />
-            </div>
-
-          </div>
-        </div>
       </Section>
 
       {/* ── PAYMENT & REMINDERS ─────────────────────────────────────────── */}

@@ -620,12 +620,14 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
       client_id:      invoice?.client_id || '',
       issue_date:     issueDate,
       due_date:       invoice?.due_date || addDays(issueDate, termsDays),
-      notes:          invoice?.notes || '',
-      vat_enabled:    invoice?.vat_enabled ?? false,
-      amount_paid:    invoice?.amount_paid ?? 0,
-      status:         invoice?.status || 'draft',
+      notes:           invoice?.notes || '',
+      vat_enabled:     invoice?.vat_enabled ?? false,
+      amount_paid:     invoice?.amount_paid ?? 0,
+      status:          invoice?.status || 'draft',
       payment_date:    invoice?.payment_date || '',
       previous_status: invoice?.previous_status || null,
+      discount_value:  invoice?.discount_value ?? 0,
+      discount_type:   invoice?.discount_type || settings?.discount_type || 'percent',
     }
   })
 
@@ -739,10 +741,16 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
   }, [isNew, invoice?.id])
 
   // VAT-inclusive: unit_price is the price the client pays (VAT already inside)
-  const grossTotal = lineItems.reduce((s, li) => s + (Number(li.quantity) || 0) * (Number(li.unit_price) || 0), 0)
-  const subtotal   = form.vat_enabled ? grossTotal / 1.15 : grossTotal
-  const vatAmount  = form.vat_enabled ? grossTotal - subtotal : 0
-  const total      = grossTotal
+  const grossTotal    = lineItems.reduce((s, li) => s + (Number(li.quantity) || 0) * (Number(li.unit_price) || 0), 0)
+  const discountsOn   = !!settings?.discounts_enabled
+  const discountValue = discountsOn ? (Number(form.discount_value) || 0) : 0
+  const discountAmt   = discountsOn
+    ? (form.discount_type === 'percent' ? grossTotal * (discountValue / 100) : discountValue)
+    : 0
+  const discountedTotal = Math.max(0, grossTotal - discountAmt)
+  const subtotal   = form.vat_enabled ? discountedTotal / 1.15 : discountedTotal
+  const vatAmount  = form.vat_enabled ? discountedTotal - subtotal : 0
+  const total      = discountedTotal
   const balanceDue = Math.max(0, total - (Number(form.amount_paid) || 0))
 
   function setField(k, v) {
@@ -820,6 +828,8 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
       total,
       amount_paid:    Number(form.amount_paid) || 0,
       status:         overrideStatus || form.status,
+      discount_value: discountsOn ? (Number(form.discount_value) || 0) : 0,
+      discount_type:  discountsOn ? (form.discount_type || 'percent') : null,
     }
 
     if (overrideStatus && overrideStatus !== form.status) {
@@ -1548,6 +1558,25 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
               )}
               {/* Totals */}
               <div style={{ minWidth: isMobile ? '100%' : 280 }}>
+                {discountsOn && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                    <label style={{ fontSize: 13, color: '#64748b', fontWeight: 600, whiteSpace: 'nowrap', marginRight: 8 }}>
+                      Discount {form.discount_type === 'percent' ? '(%)' : '(R)'}
+                    </label>
+                    <input
+                      type="number" min="0" step={form.discount_type === 'percent' ? '0.1' : '0.01'}
+                      max={form.discount_type === 'percent' ? 100 : undefined}
+                      value={form.discount_value}
+                      onChange={e => setField('discount_value', e.target.value)}
+                      style={{ width: 90, padding: '5px 8px', borderRadius: 7, fontSize: 13, border: '1px solid #e2e8f0', background: '#fff', color: '#0f172a', outline: 'none', textAlign: 'right' }}
+                    />
+                  </div>
+                )}
+                {discountsOn && discountAmt > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, fontSize: 13, color: '#dc2626' }}>
+                    <span>Discount</span><span>- {fmt(discountAmt)}</span>
+                  </div>
+                )}
                 {form.vat_enabled && (
                   <>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, fontSize: 13, color: '#64748b' }}>

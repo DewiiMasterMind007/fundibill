@@ -81,11 +81,12 @@ const HELP = {
     bullets: [
       'Set your business name, logo, address and contact details.',
       'Your logo and business name appear on all PDF invoices and estimates.',
-      'Set your invoice and estimate number prefixes (e.g. INV-, EST-).',
+      'Set your invoice and quote number prefixes (e.g. INV-, QT-).',
       'Add your banking details and terms & conditions for PDF footers.',
       'Configure your SMTP email settings to send invoices from your own email address.',
       "Use the color picker to change the app's accent colour.",
       'Click Send Test Email to verify your email settings are working.',
+      'Enable Discounts in Document Settings to add a discount field to every invoice and quote — choose between a percentage (%) or fixed rand (R) amount. The discount is shown as a separate line on the PDF.',
     ],
   },
 }

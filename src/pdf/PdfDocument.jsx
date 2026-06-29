@@ -164,6 +164,11 @@ export function PdfDocument({ data, settings, docType }) {
   const amountPaid   = Number(data.amount_paid) || 0
   const total        = Number(data.total)        || 0
   const balanceDue   = Math.max(0, total - amountPaid)
+  const grossTotal   = (data.items || []).reduce((s, i) => s + (Number(i.quantity) || 0) * (Number(i.unit_price) || 0), 0)
+  const discountValue = Number(data.discount_value) || 0
+  const discountAmt  = discountValue > 0
+    ? (data.discount_type === 'percent' ? grossTotal * (discountValue / 100) : discountValue)
+    : 0
   const logoSrc      = settings?._logoSrc || null
   const bankingText  = formatBankingDetails(settings?.banking_details)
 
@@ -364,6 +369,12 @@ export function PdfDocument({ data, settings, docType }) {
         {/* ── Totals — kept together on the same page ──────────────────────── */}
         <View wrap={false} style={S.totalsOuter}>
           <View style={S.totalsBlock}>
+            {discountAmt > 0 && (
+              <TotRow
+                label={data.discount_type === 'percent' ? `Discount (${discountValue}%)` : 'Discount'}
+                value={`-${fmtZAR(discountAmt)}`}
+              />
+            )}
             {Number(data.vat_enabled) ? (
               <>
                 <TotRow label="Subtotal" value={fmtZAR(data.subtotal)} />

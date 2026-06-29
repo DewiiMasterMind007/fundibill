@@ -484,6 +484,8 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
       vat_enabled: estimate?.vat_enabled ?? false,
       status: estimate?.status || 'draft',
       previous_status: estimate?.previous_status || null,
+      discount_value: estimate?.discount_value ?? 0,
+      discount_type:  estimate?.discount_type || settings?.discount_type || 'percent',
     }
   })
 
@@ -504,10 +506,17 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
   const [undoTarget, setUndoTarget] = useState(null) // 'approve' | 'convert' | null
   const [undoing, setUndoing] = useState(false)
   const [showShareDialog, setShowShareDialog] = useState(false)
+  const [convertedInvoiceNumber, setConvertedInvoiceNumber] = useState(null)
   const shareDialogRef = useRef(null)
   const currentEstimateIdRef = useRef(estimate?.id)
 
   useEffect(() => { currentEstimateIdRef.current = estimate?.id }, [estimate?.id])
+
+  useEffect(() => {
+    if (!estimate?.converted_invoice_id) { setConvertedInvoiceNumber(null); return }
+    supabase.from('invoices').select('invoice_number').eq('id', estimate.converted_invoice_id).single()
+      .then(({ data }) => setConvertedInvoiceNumber(data?.invoice_number ?? null))
+  }, [estimate?.converted_invoice_id])
 
   // Close share dialog when clicking outside
   useEffect(() => {
@@ -559,10 +568,16 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
   }, [estimate?.status, estimate?.previous_status])
 
   // VAT-inclusive: unit_price is the price the client pays (VAT already inside)
-  const grossTotal = lineItems.reduce((s, i) => s + (Number(i.quantity) || 0) * (Number(i.unit_price) || 0), 0)
-  const subtotal   = form.vat_enabled ? grossTotal / 1.15 : grossTotal
-  const vatAmount  = form.vat_enabled ? grossTotal - subtotal : 0
-  const total      = grossTotal
+  const grossTotal    = lineItems.reduce((s, i) => s + (Number(i.quantity) || 0) * (Number(i.unit_price) || 0), 0)
+  const discountsOn   = !!settings?.discounts_enabled
+  const discountValue = discountsOn ? (Number(form.discount_value) || 0) : 0
+  const discountAmt   = discountsOn
+    ? (form.discount_type === 'percent' ? grossTotal * (discountValue / 100) : discountValue)
+    : 0
+  const discountedTotal = Math.max(0, grossTotal - discountAmt)
+  const subtotal   = form.vat_enabled ? discountedTotal / 1.15 : discountedTotal
+  const vatAmount  = form.vat_enabled ? discountedTotal - subtotal : 0
+  const total      = discountedTotal
 
   const selectedClient = [...clients, ...extraClients].find(c => c.id === form.client_id)
 
@@ -644,6 +659,8 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
       vat_amount: vatAmount,
       total,
       status: overrideStatus || form.status,
+      discount_value: discountsOn ? (Number(form.discount_value) || 0) : 0,
+      discount_type:  discountsOn ? (form.discount_type || 'percent') : null,
     }
 
     const items = lineItems
@@ -1023,7 +1040,7 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
                           disabled={!estimate?.converted_invoice_id}
                           style={{ background: 'none', border: 'none', padding: 0, fontSize: 12, fontWeight: 600, color: '#15803d', textDecoration: 'underline', cursor: estimate?.converted_invoice_id ? 'pointer' : 'default', fontFamily: 'inherit' }}
                         >
-                          Approved — view invoice
+                          {convertedInvoiceNumber ? `View ${convertedInvoiceNumber}` : 'View invoice'}
                         </button>
                         {!isReadOnly && (
                           <UndoButton title="Undo Approve Quote" onClick={() => setUndoTarget('convert')} />
@@ -1158,7 +1175,7 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
                   disabled={!estimate?.converted_invoice_id}
                   style={{ background: 'none', border: 'none', padding: 0, fontSize: 12, fontWeight: 600, color: '#15803d', textDecoration: 'underline', cursor: estimate?.converted_invoice_id ? 'pointer' : 'default', fontFamily: 'inherit', whiteSpace: 'nowrap' }}
                 >
-                  view invoice
+                  {convertedInvoiceNumber ? `View ${convertedInvoiceNumber}` : 'View invoice'}
                 </button>
                 {!isReadOnly && (
                   <UndoButton title="Undo Approve Quote" onClick={() => setUndoTarget('convert')} />
@@ -1323,6 +1340,25 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
                 </button>
               )}
               <div style={{ minWidth: isMobile ? '100%' : 280 }}>
+                {discountsOn && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                    <label style={{ fontSize: 13, color: '#64748b', fontWeight: 600, whiteSpace: 'nowrap', marginRight: 8 }}>
+                      Discount {form.discount_type === 'percent' ? '(%)' : '(R)'}
+                    </label>
+                    <input
+                      type="number" min="0" step={form.discount_type === 'percent' ? '0.1' : '0.01'}
+                      max={form.discount_type === 'percent' ? 100 : undefined}
+                      value={form.discount_value}
+                      onChange={e => setField('discount_value', e.target.value)}
+                      style={{ width: 90, padding: '5px 8px', borderRadius: 7, fontSize: 13, border: '1px solid #e2e8f0', background: '#fff', color: '#0f172a', outline: 'none', textAlign: 'right' }}
+                    />
+                  </div>
+                )}
+                {discountsOn && discountAmt > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, fontSize: 13, color: '#dc2626' }}>
+                    <span>Discount</span><span>- {fmt(discountAmt)}</span>
+                  </div>
+                )}
                 {form.vat_enabled && (
                   <>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, fontSize: 13, color: '#64748b' }}>
