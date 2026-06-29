@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, useCallback } from 'react'
+import { createContext, useContext, useEffect, useRef, useState, useCallback } from 'react'
 import { getSession, onAuthStateChange, signIn, signOut, signUp } from '../lib/auth'
 import { supabase } from '../lib/supabase'
 
@@ -14,15 +14,19 @@ export function AuthProvider({ children }) {
   const [loading,        setLoading]        = useState(true)
   const [currentProfile, setCurrentProfile] = useState(null)
   const [recoveryMode,   setRecoveryMode]   = useState(false)
+  // Ref mirrors recoveryMode so the onAuthStateChange closure always reads the
+  // current value — state updates are async and the callback captures a stale copy.
+  const recoveryModeRef = useRef(false)
 
   useEffect(() => {
     // Synchronously check for a password-recovery token in the URL hash BEFORE
     // we hydrate the session. Supabase auto-processes this hash on client init
     // which would log the user straight into the app — we intercept it here.
-    const hashParams  = new URLSearchParams(window.location.hash.substring(1))
-    const isRecovery  = hashParams.get('type') === 'recovery' && !!hashParams.get('access_token')
+    const hashParams = new URLSearchParams(window.location.hash.substring(1))
+    const isRecovery = hashParams.get('type') === 'recovery' && !!hashParams.get('access_token')
 
     if (isRecovery) {
+      recoveryModeRef.current = true
       setRecoveryMode(true)
       setLoading(false)
       // Do NOT clear the hash here — Supabase's detectSessionInUrl reads it
@@ -48,10 +52,17 @@ export function AuthProvider({ children }) {
         // Supabase has now read the hash and established the session internally.
         // Clear the token from the address bar and show the reset-password screen.
         window.history.replaceState(null, null, window.location.pathname)
+        recoveryModeRef.current = true
         setRecoveryMode(true)
         setLoading(false)
         return
       }
+
+      // Block any follow-up auth events (e.g. SIGNED_IN after PASSWORD_RECOVERY)
+      // while in recovery mode — they would navigate the user into the main app
+      // before they have set their new password.
+      if (recoveryModeRef.current) return
+
       const incoming = session?.user ?? null
       setSession(session)
       setUser(prev => {
@@ -112,7 +123,7 @@ export function AuthProvider({ children }) {
     refreshSubscription,
     isSubscriptionActive,
     recoveryMode,
-    clearRecoveryMode: () => setRecoveryMode(false),
+    clearRecoveryMode: () => { recoveryModeRef.current = false; setRecoveryMode(false) },
     signIn:  (email, password) => signIn(email, password),
     signUp:  (email, password) => signUp(email, password),
     signOut: ()                => signOut(),
