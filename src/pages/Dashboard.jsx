@@ -135,12 +135,29 @@ function StatusBadge({ status }) {
   )
 }
 
+// ── Personalised greeting ─────────────────────────────────────────────────────
+
+const DAY_GREETINGS = [
+  (n) => `Happy Sunday${n ? ', ' + n : ''}! Rest up — big week ahead.`,
+  (n) => `It's Monday${n ? ', ' + n : ''}! It's a good day to make more money.`,
+  (n) => `Good Tuesday${n ? ', ' + n : ''}! Let's get those invoices out.`,
+  (n) => `Happy Wednesday${n ? ', ' + n : ''}! You're halfway through the week.`,
+  (n) => `Thursday already${n ? ', ' + n : ''}! Finish strong this week.`,
+  (n) => `Happy Friday${n ? ', ' + n : ''}! Finish off this week strong.`,
+  (n) => `It's Saturday${n ? ', ' + n : ''}! Even weekends are for winners.`,
+]
+
+function getDailyGreeting(name) {
+  const day = new Date().getDay() // 0 = Sunday
+  return DAY_GREETINGS[day](name || '')
+}
+
 // ── Main dashboard ────────────────────────────────────────────────────────────
 
 export default function Dashboard() {
   const navigate  = useNavigate()
   const { user }  = useAuth()
-  const { clients: cachedClients } = useAppData()
+  const { clients: cachedClients, profile } = useAppData()
   const isMobile  = useIsMobile()
 
   const [filterKey,    setFilterKey]    = useState('30d')
@@ -341,7 +358,7 @@ export default function Dashboard() {
         {!isMobile && (
           <div>
             <h1 style={{ fontSize: 24, fontWeight: 800, color: '#0f172a', margin: 0, marginBottom: 4 }}>Dashboard</h1>
-            <p style={{ color: '#64748b', fontSize: 14, margin: 0 }}>Welcome back! Here&apos;s what&apos;s happening.</p>
+            <p style={{ color: '#64748b', fontSize: 14, margin: 0 }}>{getDailyGreeting(profile?.name)}</p>
           </div>
         )}
 

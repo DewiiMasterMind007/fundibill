@@ -12,7 +12,6 @@ import { generateReminderEmail, generatePaymentConfirmationEmail, PLAIN_TEXT_FOO
 import { sendEmail } from '../lib/sendEmail'
 import { buildPdfBuffer } from '../lib/pdfBuffer'
 import { sendPdfViaWhatsApp, buildInvoiceWhatsAppMessage } from '../lib/whatsapp'
-import { WhatsAppButton } from '../components/WhatsAppButton'
 import useIsMobile from '../hooks/useIsMobile'
 
 const READONLY_MSG = 'Your trial has ended. Upgrade to continue.'
@@ -43,6 +42,77 @@ const calcNextSendDate = (dateStr, interval) => {
   else if (interval === 'monthly') d.setMonth(d.getMonth() + 1)
   else if (interval === 'yearly')  d.setFullYear(d.getFullYear() + 1)
   return d.toISOString().slice(0, 10)
+}
+
+// ─── Confetti ─────────────────────────────────────────────────────────────────
+
+const CONFETTI_COLORS = ['#0891b2', '#0d9488', '#16a34a', '#f59e0b', '#ec4899', '#8b5cf6', '#f97316']
+
+function ConfettiExplosion({ onDone }) {
+  const canvasRef = useRef(null)
+
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    canvas.width  = window.innerWidth
+    canvas.height = window.innerHeight
+
+    const particles = Array.from({ length: 160 }, () => ({
+      x:    Math.random() * canvas.width,
+      y:    Math.random() * canvas.height * 0.4 - canvas.height * 0.1,
+      vx:   (Math.random() - 0.5) * 10,
+      vy:   Math.random() * -12 - 4,
+      w:    Math.random() * 10 + 5,
+      h:    Math.random() * 6 + 3,
+      rot:  Math.random() * Math.PI * 2,
+      rotV: (Math.random() - 0.5) * 0.25,
+      color: CONFETTI_COLORS[Math.floor(Math.random() * CONFETTI_COLORS.length)],
+      alpha: 1,
+    }))
+
+    let frame
+    let elapsed = 0
+    const DURATION = 2800
+
+    function tick() {
+      elapsed += 16
+      ctx.clearRect(0, 0, canvas.width, canvas.height)
+      const fade = Math.max(0, 1 - Math.pow(elapsed / DURATION, 2))
+
+      for (const p of particles) {
+        p.x  += p.vx
+        p.vy += 0.35
+        p.y  += p.vy
+        p.rot += p.rotV
+        p.alpha = fade
+
+        ctx.save()
+        ctx.globalAlpha = p.alpha
+        ctx.translate(p.x, p.y)
+        ctx.rotate(p.rot)
+        ctx.fillStyle = p.color
+        ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h)
+        ctx.restore()
+      }
+
+      if (elapsed < DURATION) {
+        frame = requestAnimationFrame(tick)
+      } else {
+        onDone?.()
+      }
+    }
+
+    frame = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(frame)
+  }, [onDone])
+
+  return (
+    <canvas
+      ref={canvasRef}
+      style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 9999 }}
+    />
+  )
 }
 
 const STATUS_META = {
@@ -584,6 +654,12 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
   const [sourceEstimate,    setSourceEstimate]    = useState(null) // { id, estimate_number, previous_status }
   const [undoConvert,       setUndoConvert]       = useState(false)
   const [undoingConvert,    setUndoingConvert]    = useState(false)
+  const [showConfetti,      setShowConfetti]      = useState(false)
+  const [showShareDialog,   setShowShareDialog]   = useState(false)
+  const shareDialogRef = useRef(null)
+
+  // Tracks the current invoice ID including after an autosave-on-new
+  const currentInvoiceIdRef = useRef(invoice?.id)
 
   const selectedClient = [...clients, ...extraClients].find(c => c.id === form.client_id)
 
@@ -632,6 +708,20 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
       }))
     }
   }, [invoice?.status, invoice?.amount_paid, invoice?.payment_date, invoice?.previous_status])
+
+  useEffect(() => { currentInvoiceIdRef.current = invoice?.id }, [invoice?.id])
+
+  // Close share dialog when clicking outside
+  useEffect(() => {
+    if (!showShareDialog) return
+    function onMouseDown(e) {
+      if (shareDialogRef.current && !shareDialogRef.current.contains(e.target)) {
+        setShowShareDialog(false)
+      }
+    }
+    document.addEventListener('mousedown', onMouseDown)
+    return () => document.removeEventListener('mousedown', onMouseDown)
+  }, [showShareDialog])
 
   // Reverse-lookup: find the estimate this invoice was converted from (if any)
   useEffect(() => {
@@ -799,11 +889,20 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
       if (!isNew && payload.status === 'sent' && invoice?.from_recurring) {
         dismissNotification(invoice.id)
       }
+      currentInvoiceIdRef.current = invoiceId
       onSaved({ id: invoiceId, ...payload })
+      return invoiceId
     } catch (e) {
       setSaving(false)
       setErrors({ _global: e.message })
+      return null
     }
+  }
+
+  // Saves as draft if the invoice is new; returns the invoice ID (null on failure)
+  async function ensureSaved() {
+    if (currentInvoiceIdRef.current) return currentInvoiceIdRef.current
+    return await handleSave()
   }
 
   async function confirmMarkAsPaid(paymentMethod, paymentDate) {
@@ -825,6 +924,7 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
         .eq('user_id', user.id)
       setMarkingPaid(false)
       if (error) throw new Error(error.message)
+      setShowConfetti(true)
       onSaved({ id: invoice.id, status: 'paid', amount_paid: total, payment_date: payDate, previous_status: form.status })
     } catch (e) {
       setMarkingPaid(false)
@@ -990,7 +1090,10 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
 
   async function handleSendWhatsApp() {
     if (waLoading) return
+    setShowShareDialog(false)
     setWaToast(null)
+    const savedId = await ensureSaved()
+    if (!savedId) return
     setWaLoading(true)
     try {
       const pdfData = {
@@ -1043,13 +1146,6 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
         title: `Invoice ${form.invoice_number} from ${businessName}`,
       })
 
-      // Mark invoice as sent when WhatsApp is initiated (draft → sent)
-      if (invoice?.id && (form.status === 'draft')) {
-        await supabase.from('invoices').update({ status: 'sent', sent_from_app: true }).eq('id', invoice.id)
-        onSaved({ id: invoice.id, status: 'sent', sent_from_app: true })
-        setForm(p => ({ ...p, status: 'sent' }))
-      }
-
       if (result.status === 'fallback') {
         setWaToast({ message: 'Your PDF has been downloaded. Attach it to the WhatsApp message.', type: 'success' })
       }
@@ -1057,6 +1153,19 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
       setWaToast({ message: e.message || 'Could not open WhatsApp. Please check your browser settings.', type: 'error' })
     }
     setWaLoading(false)
+  }
+
+  async function handleOpenEmail() {
+    setShowShareDialog(false)
+    const savedId = await ensureSaved()
+    if (!savedId) return
+    setShowEmailModal(true)
+  }
+
+  async function handleOpenPdf() {
+    const savedId = await ensureSaved()
+    if (!savedId) return
+    setPdfOpen(true)
   }
 
   const [pdfOpen, setPdfOpen] = useState(false)
@@ -1147,32 +1256,44 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
                   View only
                 </span>
               )}
-              {!isNew && (
-                <button onClick={() => setPdfOpen(true)}
-                  style={{ padding: '9px 14px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontWeight: 600, fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-                  Preview PDF
-                </button>
-              )}
-              {!isNew && !isReadOnly && (
-                <button onClick={() => setShowEmailModal(true)}
-                  style={{ padding: '9px 14px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontWeight: 600, fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
-                    <polyline points="22,6 12,13 2,6"/>
-                  </svg>
-                  Send by Email
-                </button>
-              )}
-              {!isNew && !isReadOnly && (
-                <WhatsAppButton loading={waLoading} onClick={handleSendWhatsApp} />
+              <button onClick={handleOpenPdf}
+                style={{ padding: '9px 14px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontWeight: 600, fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                Preview PDF
+              </button>
+              {!isReadOnly && (
+                <div ref={shareDialogRef} style={{ position: 'relative' }}>
+                  <button
+                    onClick={() => setShowShareDialog(s => !s)}
+                    style={{ padding: '9px 14px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontWeight: 600, fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+                    Share
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+                  </button>
+                  {showShareDialog && (
+                    <div style={{ position: 'absolute', top: 'calc(100% + 6px)', right: 0, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, boxShadow: '0 8px 24px rgba(15,23,42,0.12)', zIndex: 100, minWidth: 160, padding: '6px 0', overflow: 'hidden' }}>
+                      <button onClick={handleSendWhatsApp} style={{ width: '100%', padding: '10px 16px', border: 'none', background: 'none', textAlign: 'left', fontSize: 13, fontWeight: 600, color: '#374151', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 9 }}
+                        onMouseEnter={e => e.currentTarget.style.background = '#f1f5f9'}
+                        onMouseLeave={e => e.currentTarget.style.background = 'none'}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="#25D366"><path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.85.5 3.58 1.46 5.08L2 22l5.2-1.36a9.9 9.9 0 0 0 4.84 1.24h.01c5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.82 9.82 0 0 0 12.04 2zm-3.94 6.08c.16 0 .43.06.61.27.18.21.7.69.7 1.67 0 .98-.71 1.93-.81 2.06-.1.14-1.41 2.19-3.47 3.05-1.71.71-2.31.66-2.71.61-.4-.05-1.28-.52-1.46-1.03-.18-.51-.18-.94-.13-1.03.05-.1.18-.16.38-.27.2-.1 1.28-.63 1.48-.7.2-.07.34-.1.49.1.14.21.56.7.69.84.13.14.25.16.46.06.21-.1.88-.33 1.68-1.04.62-.55 1.04-1.23 1.16-1.44.12-.21.01-.32-.1-.43-.1-.1-.23-.27-.35-.4-.12-.14-.16-.24-.24-.4-.08-.16-.04-.3.03-.43.07-.13.62-1.5.85-2.04.18-.43.36-.4.51-.41z"/></svg>
+                        WhatsApp
+                      </button>
+                      <button onClick={handleOpenEmail} style={{ width: '100%', padding: '10px 16px', border: 'none', background: 'none', textAlign: 'left', fontSize: 13, fontWeight: 600, color: '#374151', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 9 }}
+                        onMouseEnter={e => e.currentTarget.style.background = '#f1f5f9'}
+                        onMouseLeave={e => e.currentTarget.style.background = 'none'}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#475569" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+                        Email
+                      </button>
+                    </div>
+                  )}
+                </div>
               )}
               {!isReadOnly && !isNew && (form.status === 'sent' || form.status === 'overdue') && (
                 <button onClick={() => setShowPayModal(true)} disabled={markingPaid} style={{ ...btnStyle('#15803d'), background: '#16a34a' }}>
                   {markingPaid ? 'Marking…' : 'Mark as Paid'}
                 </button>
               )}
-              {!isReadOnly && !isNew && form.status === 'draft' && (
+              {!isReadOnly && form.status === 'draft' && !isNew && (
                 <button onClick={() => handleSave('sent')} disabled={saving} style={btnStyle('#1d4ed8')}>
                   Mark as Sent
                 </button>
@@ -1194,23 +1315,33 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
           {/* Mobile: compact icon buttons */}
           {isMobile && (
             <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }}>
-              {!isNew && (
-                <button onClick={() => setPdfOpen(true)} title="Preview PDF"
-                  style={{ padding: '7px', borderRadius: 7, border: '1px solid #e2e8f0', background: '#fff', color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-                </button>
-              )}
-              {!isNew && !isReadOnly && (
-                <button onClick={() => setShowEmailModal(true)} title="Send by Email"
-                  style={{ padding: '7px', borderRadius: 7, border: '1px solid #e2e8f0', background: '#fff', color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
-                    <polyline points="22,6 12,13 2,6"/>
-                  </svg>
-                </button>
-              )}
-              {!isNew && !isReadOnly && (
-                <WhatsAppButton loading={waLoading} onClick={handleSendWhatsApp} icon />
+              <button onClick={handleOpenPdf} title="Preview PDF"
+                style={{ padding: '7px', borderRadius: 7, border: '1px solid #e2e8f0', background: '#fff', color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+              </button>
+              {!isReadOnly && (
+                <div ref={shareDialogRef} style={{ position: 'relative' }}>
+                  <button onClick={() => setShowShareDialog(s => !s)} title="Share"
+                    style={{ padding: '7px', borderRadius: 7, border: '1px solid #e2e8f0', background: '#fff', color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+                  </button>
+                  {showShareDialog && (
+                    <div style={{ position: 'absolute', top: 'calc(100% + 6px)', right: 0, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, boxShadow: '0 8px 24px rgba(15,23,42,0.12)', zIndex: 100, minWidth: 150, padding: '6px 0', overflow: 'hidden' }}>
+                      <button onClick={handleSendWhatsApp} style={{ width: '100%', padding: '10px 16px', border: 'none', background: 'none', textAlign: 'left', fontSize: 13, fontWeight: 600, color: '#374151', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 9 }}
+                        onMouseEnter={e => e.currentTarget.style.background = '#f1f5f9'}
+                        onMouseLeave={e => e.currentTarget.style.background = 'none'}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="#25D366"><path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.85.5 3.58 1.46 5.08L2 22l5.2-1.36a9.9 9.9 0 0 0 4.84 1.24h.01c5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.82 9.82 0 0 0 12.04 2zm-3.94 6.08c.16 0 .43.06.61.27.18.21.7.69.7 1.67 0 .98-.71 1.93-.81 2.06-.1.14-1.41 2.19-3.47 3.05-1.71.71-2.31.66-2.71.61-.4-.05-1.28-.52-1.46-1.03-.18-.51-.18-.94-.13-1.03.05-.1.18-.16.38-.27.2-.1 1.28-.63 1.48-.7.2-.07.34-.1.49.1.14.21.56.7.69.84.13.14.25.16.46.06.21-.1.88-.33 1.68-1.04.62-.55 1.04-1.23 1.16-1.44.12-.21.01-.32-.1-.43-.1-.1-.23-.27-.35-.4-.12-.14-.16-.24-.24-.4-.08-.16-.04-.3.03-.43.07-.13.62-1.5.85-2.04.18-.43.36-.4.51-.41z"/></svg>
+                        WhatsApp
+                      </button>
+                      <button onClick={handleOpenEmail} style={{ width: '100%', padding: '10px 16px', border: 'none', background: 'none', textAlign: 'left', fontSize: 13, fontWeight: 600, color: '#374151', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 9 }}
+                        onMouseEnter={e => e.currentTarget.style.background = '#f1f5f9'}
+                        onMouseLeave={e => e.currentTarget.style.background = 'none'}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#475569" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+                        Email
+                      </button>
+                    </div>
+                  )}
+                </div>
               )}
               {!isReadOnly && !isNew && (
                 <button onClick={() => setConfirmDelete(true)} title="Delete"
@@ -1488,18 +1619,26 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
           {errors._global && (
             <p style={{ color: '#ef4444', fontSize: 12, margin: '0 0 6px' }}>{errors._global}</p>
           )}
-          {/* Row 1: Send via Email / WhatsApp */}
-          {!isNew && !isReadOnly && (
-            <div style={{ display: 'flex', gap: 10, marginBottom: 10 }}>
-              <button onClick={() => setShowEmailModal(true)}
-                style={{ flex: 1, padding: '11px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontWeight: 600, fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontFamily: 'inherit' }}>
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
-                  <polyline points="22,6 12,13 2,6"/>
-                </svg>
-                Send via Email
+          {/* Row 1: Share button */}
+          {!isReadOnly && (
+            <div style={{ marginBottom: 10 }}>
+              <button onClick={() => setShowShareDialog(s => !s)}
+                style={{ width: '100%', padding: '12px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontWeight: 600, fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, fontFamily: 'inherit' }}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+                Share
               </button>
-              <WhatsAppButton loading={waLoading} onClick={handleSendWhatsApp} mobile />
+              {showShareDialog && (
+                <div style={{ marginTop: 6, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, boxShadow: '0 4px 16px rgba(15,23,42,0.10)', overflow: 'hidden' }}>
+                  <button onClick={handleSendWhatsApp} style={{ width: '100%', padding: '13px 16px', border: 'none', borderBottom: '1px solid #f1f5f9', background: 'none', textAlign: 'left', fontSize: 14, fontWeight: 600, color: '#374151', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10, fontFamily: 'inherit' }}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="#25D366"><path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.85.5 3.58 1.46 5.08L2 22l5.2-1.36a9.9 9.9 0 0 0 4.84 1.24h.01c5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.82 9.82 0 0 0 12.04 2zm-3.94 6.08c.16 0 .43.06.61.27.18.21.7.69.7 1.67 0 .98-.71 1.93-.81 2.06-.1.14-1.41 2.19-3.47 3.05-1.71.71-2.31.66-2.71.61-.4-.05-1.28-.52-1.46-1.03-.18-.51-.18-.94-.13-1.03.05-.1.18-.16.38-.27.2-.1 1.28-.63 1.48-.7.2-.07.34-.1.49.1.14.21.56.7.69.84.13.14.25.16.46.06.21-.1.88-.33 1.68-1.04.62-.55 1.04-1.23 1.16-1.44.12-.21.01-.32-.1-.43-.1-.1-.23-.27-.35-.4-.12-.14-.16-.24-.24-.4-.08-.16-.04-.3.03-.43.07-.13.62-1.5.85-2.04.18-.43.36-.4.51-.41z"/></svg>
+                    WhatsApp
+                  </button>
+                  <button onClick={handleOpenEmail} style={{ width: '100%', padding: '13px 16px', border: 'none', background: 'none', textAlign: 'left', fontSize: 14, fontWeight: 600, color: '#374151', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10, fontFamily: 'inherit' }}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#475569" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+                    Email
+                  </button>
+                </div>
+              )}
             </div>
           )}
           <div style={{ display: 'flex', gap: 10 }}>
@@ -1598,16 +1737,14 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
               clientEmail={selectedClient?.email || ''}
               onClose={() => setShowEmailModal(false)}
               onSent={async () => {
-                // Update invoice: mark as sent from app + promote draft → sent
-                if (invoice?.id) {
-                  const updatePayload = { sent_from_app: true }
-                  if (invoice.status === 'draft') updatePayload.status = 'sent'
+                // Mark sent_from_app on successful email send (status NOT auto-promoted)
+                const invId = currentInvoiceIdRef.current
+                if (invId) {
                   await supabase
                     .from('invoices')
-                    .update(updatePayload)
-                    .eq('id', invoice.id)
+                    .update({ sent_from_app: true })
+                    .eq('id', invId)
                     .eq('user_id', user.id)
-                  if (invoice.status === 'draft') setField('status', 'sent')
                 }
                 // Dismiss the recurring notification banner if applicable
                 if (invoice?.from_recurring) {
@@ -1670,6 +1807,8 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
           confirming={undoingConvert}
         />
       )}
+
+      {showConfetti && <ConfettiExplosion onDone={() => setShowConfetti(false)} />}
 
     </div>
   )

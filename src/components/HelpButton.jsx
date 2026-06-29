@@ -33,18 +33,18 @@ const HELP = {
       'Toggle VAT (15%) on or off per invoice using the VAT checkbox.',
       'Mark an invoice as paid once payment is received.',
       'Download a PDF of any invoice using the Preview PDF button.',
-      'Send an invoice directly to your client via WhatsApp or Email.',
+      'Use the Share button to send an invoice to your client via WhatsApp or Email.',
       'Overdue invoices are detected automatically based on the due date.',
       'Use Recurring Invoices to automatically generate invoices on a set schedule.',
     ],
   },
   estimates: {
-    title: 'Estimates',
+    title: 'Quotes',
     bullets: [
-      'Create a quote or estimate for a client before work begins.',
+      'Create a quote for a client before work begins.',
       'Add line items the same way as invoices, with VAT toggle support.',
-      'Once an estimate is approved, it will automatically convert to an invoice and list the estimate under "Approved".',
-      'Download or send estimates to your clients using Email or WhatsApp.',
+      'Once a quote is approved, it will automatically convert to an invoice and list the quote under "Approved".',
+      'Download or send quotes to your clients using the Share button (Email or WhatsApp).',
     ],
   },
   clients: {

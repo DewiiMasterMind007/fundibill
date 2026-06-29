@@ -11,6 +11,8 @@ const supabase = createClient(
   Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
 )
 
+const SANDBOX = Deno.env.get('PAYFAST_SANDBOX') === 'true'
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: CORS })
@@ -23,7 +25,7 @@ Deno.serve(async (req) => {
     })
 
   try {
-    // ── Auth: require a valid JWT — do not accept user_id from the body ──────
+    // ── Auth ─────────────────────────────────────────────────────────────────
     const authHeader = req.headers.get('Authorization') ?? ''
     const token = authHeader.replace('Bearer ', '')
     const { data: { user }, error: authErr } = await supabase.auth.getUser(token)
@@ -31,23 +33,25 @@ Deno.serve(async (req) => {
       return json({ error: 'Unauthorized' }, 401)
     }
 
-    // ── Fetch profile for PayFast token ──────────────────────────────────────
-    const { data: profile } = await supabase
+    // ── Fetch profile ─────────────────────────────────────────────────────────
+    const { data: profile, error: profileErr } = await supabase
       .from('profiles')
       .select('payfast_token, subscription_plan, subscription_end_date')
       .eq('id', user.id)
       .maybeSingle()
 
-    // ── Best-effort: cancel recurring billing at PayFast ─────────────────────
-    // Only fires if the ITN webhook has stored a payfast_token on the profile.
+    console.log('Profile fetch:', { profileErr, payfast_token: profile?.payfast_token ?? null })
+
+    // ── Cancel at PayFast ─────────────────────────────────────────────────────
     const merchantId = Deno.env.get('PAYFAST_MERCHANT_ID') ?? ''
     const passphrase = Deno.env.get('PAYFAST_PASSPHRASE') ?? ''
+    let pfResult: { status: number; body: string } | null = null
 
     if (profile?.payfast_token && merchantId) {
       try {
         const timestamp = new Date().toISOString().split('.')[0]
 
-        // PayFast signature: MD5 of sorted, URL-encoded header key=value pairs
+        // Signature = MD5 of sorted URL-encoded header key=value pairs
         const pfParams: Record<string, string> = {
           'merchant-id': merchantId,
           'timestamp':   timestamp,
@@ -62,26 +66,34 @@ Deno.serve(async (req) => {
 
         const signature = md5(sigString) as string
 
-        await fetch(
-          `https://api.payfast.co.za/subscriptions/${profile.payfast_token}/cancel`,
-          {
-            method:  'PUT',
-            headers: {
-              'merchant-id': merchantId,
-              'version':     'v1',
-              'timestamp':   timestamp,
-              'signature':   signature,
-            },
-          },
-        )
+        const pfHeaders: Record<string, string> = {
+          'merchant-id': merchantId,
+          'version':     'v1',
+          'timestamp':   timestamp,
+          'signature':   signature,
+        }
+        // Sandbox requires testing header
+        if (SANDBOX) pfHeaders['testing'] = 'true'
+
+        const pfUrl = `https://api.payfast.co.za/subscriptions/${profile.payfast_token}/cancel`
+        console.log('PayFast cancel request:', { pfUrl, sandbox: SANDBOX, sigString })
+
+        const pfRes  = await fetch(pfUrl, { method: 'PUT', headers: pfHeaders })
+        const pfBody = await pfRes.text()
+        pfResult = { status: pfRes.status, body: pfBody }
+        console.log('PayFast cancel response:', pfResult)
+
       } catch (pfErr) {
-        // Log but continue — DB update is the source of truth for app access
-        console.error('PayFast cancel error:', pfErr)
+        console.error('PayFast cancel fetch error:', pfErr)
       }
+    } else {
+      console.log('Skipping PayFast cancel — no payfast_token or merchantId', {
+        hasToken: !!profile?.payfast_token,
+        hasMerchantId: !!merchantId,
+      })
     }
 
     // ── Mark cancelled in DB ─────────────────────────────────────────────────
-    // User retains access until subscription_end_date (handled by isSubscriptionActive).
     const { error: updateErr } = await supabase
       .from('profiles')
       .update({
@@ -92,7 +104,11 @@ Deno.serve(async (req) => {
 
     if (updateErr) return json({ error: updateErr.message }, 500)
 
-    return json({ success: true, message: 'Subscription cancelled' })
+    return json({
+      success:  true,
+      message:  'Subscription cancelled',
+      payfast:  pfResult,           // null if skipped, { status, body } if called
+    })
 
   } catch (err) {
     return json({ error: String(err) }, 500)

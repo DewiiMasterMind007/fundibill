@@ -9,7 +9,6 @@ import { useAppData } from '../context/AppDataContext'
 import HelpButton from '../components/HelpButton'
 import { buildPdfBuffer } from '../lib/pdfBuffer'
 import { sendPdfViaWhatsApp, buildEstimateWhatsAppMessage } from '../lib/whatsapp'
-import { WhatsAppButton } from '../components/WhatsAppButton'
 import useIsMobile from '../hooks/useIsMobile'
 
 const READONLY_MSG = 'Your trial has ended. Upgrade to continue.'
@@ -115,17 +114,17 @@ function MobileEstimateCard({ est, onSelect, onApprove, onDelete, isReadOnly }) 
   const menuItems = [
     { label: 'View / Edit',        fn: () => { setMenuOpen(false); onSelect(est) } },
     {
-      label:    'Approve Estimate',
+      label:    'Approve Quote',
       fn:       canApprove && !isReadOnly ? () => { setMenuOpen(false); onApprove(est) } : null,
       disabled: !canApprove || isReadOnly,
     },
     {
-      label:    'Approve Estimate',
+      label:    'Approve Quote',
       fn:       canConvert && !isReadOnly ? () => { setMenuOpen(false); onSelect(est) } : null,
       disabled: !canConvert || isReadOnly,
       note:     'Opens form',
     },
-    { label: 'Send Estimate',   fn: () => { setMenuOpen(false); onSelect(est) } },
+    { label: 'Send Quote',   fn: () => { setMenuOpen(false); onSelect(est) } },
     { label: 'Download PDF',    fn: () => { setMenuOpen(false); onSelect(est) } },
     !isReadOnly && { label: 'Delete', fn: () => { setMenuOpen(false); onDelete(est) }, danger: true },
   ].filter(Boolean)
@@ -504,6 +503,23 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
   const [showEmailModal, setShowEmailModal] = useState(false)
   const [undoTarget, setUndoTarget] = useState(null) // 'approve' | 'convert' | null
   const [undoing, setUndoing] = useState(false)
+  const [showShareDialog, setShowShareDialog] = useState(false)
+  const shareDialogRef = useRef(null)
+  const currentEstimateIdRef = useRef(estimate?.id)
+
+  useEffect(() => { currentEstimateIdRef.current = estimate?.id }, [estimate?.id])
+
+  // Close share dialog when clicking outside
+  useEffect(() => {
+    if (!showShareDialog) return
+    function onMouseDown(e) {
+      if (shareDialogRef.current && !shareDialogRef.current.contains(e.target)) {
+        setShowShareDialog(false)
+      }
+    }
+    document.addEventListener('mousedown', onMouseDown)
+    return () => document.removeEventListener('mousedown', onMouseDown)
+  }, [showShareDialog])
 
   // Generate estimate number for new estimates
   useEffect(() => {
@@ -689,11 +705,19 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
       }
 
       setSaving(false)
+      currentEstimateIdRef.current = estimateId
       onSaved({ id: estimateId, ...payload })
+      return estimateId
     } catch (e) {
       setSaving(false)
       setErrors({ _global: e.message })
+      return null
     }
+  }
+
+  async function ensureSaved() {
+    if (currentEstimateIdRef.current) return currentEstimateIdRef.current
+    return await handleSave()
   }
 
   async function handleConvert() {
@@ -862,7 +886,10 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
 
   async function handleSendWhatsApp() {
     if (waLoading) return
+    setShowShareDialog(false)
     setWaToast(null)
+    const savedId = await ensureSaved()
+    if (!savedId) return
     setWaLoading(true)
     try {
       const pdfData = {
@@ -913,13 +940,6 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
         title: `Estimate ${form.estimate_number} from ${businessName}`,
       })
 
-      // Mark estimate as sent when WhatsApp is initiated (draft → sent)
-      if (estimate?.id && form.status === 'draft') {
-        await supabase.from('estimates').update({ status: 'sent' }).eq('id', estimate.id)
-        onSaved({ id: estimate.id, status: 'sent' })
-        setForm(p => ({ ...p, status: 'sent' }))
-      }
-
       if (result.status === 'fallback') {
         setWaToast({ message: 'Your PDF has been downloaded. Attach it to the WhatsApp message.', type: 'success' })
       }
@@ -927,6 +947,19 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
       setWaToast({ message: e.message || 'Could not open WhatsApp. Please check your browser settings.', type: 'error' })
     }
     setWaLoading(false)
+  }
+
+  async function handleOpenEmail() {
+    setShowShareDialog(false)
+    const savedId = await ensureSaved()
+    if (!savedId) return
+    setShowEmailModal(true)
+  }
+
+  async function handleOpenPdf() {
+    const savedId = await ensureSaved()
+    if (!savedId) return
+    setPdfOpen(true)
   }
 
   const isMobile = useIsMobile()
@@ -971,10 +1004,10 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
               <>
                 <span style={{ color: '#e2e8f0', fontWeight: 300 }}>|</span>
                 {isNew ? (
-                  <h2 style={{ fontSize: 16, fontWeight: 700, color: '#0f172a', margin: 0 }}>New Estimate</h2>
+                  <h2 style={{ fontSize: 16, fontWeight: 700, color: '#0f172a', margin: 0 }}>New Quote</h2>
                 ) : (
                   <h2 style={{ fontSize: 16, fontWeight: 700, color: '#0f172a', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    Estimate {form.estimate_number}
+                    Quote {form.estimate_number}
                   </h2>
                 )}
                 {!isNew && (
@@ -993,7 +1026,7 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
                           Approved — view invoice
                         </button>
                         {!isReadOnly && (
-                          <UndoButton title="Undo Approve Estimate" onClick={() => setUndoTarget('convert')} />
+                          <UndoButton title="Undo Approve Quote" onClick={() => setUndoTarget('convert')} />
                         )}
                       </>
                     )}
@@ -1012,25 +1045,37 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
                   View only
                 </span>
               )}
-              {!isNew && (
-                <button onClick={() => setPdfOpen(true)}
-                  style={{ padding: '9px 14px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontWeight: 600, fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-                  Preview PDF
-                </button>
-              )}
-              {!isNew && !isReadOnly && (
-                <button onClick={() => setShowEmailModal(true)}
-                  style={{ padding: '9px 14px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontWeight: 600, fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
-                    <polyline points="22,6 12,13 2,6"/>
-                  </svg>
-                  Send by Email
-                </button>
-              )}
-              {!isNew && !isReadOnly && (
-                <WhatsAppButton loading={waLoading} onClick={handleSendWhatsApp} />
+              <button onClick={handleOpenPdf}
+                style={{ padding: '9px 14px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontWeight: 600, fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                Preview PDF
+              </button>
+              {!isReadOnly && (
+                <div ref={shareDialogRef} style={{ position: 'relative' }}>
+                  <button
+                    onClick={() => setShowShareDialog(s => !s)}
+                    style={{ padding: '9px 14px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontWeight: 600, fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+                    Share
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+                  </button>
+                  {showShareDialog && (
+                    <div style={{ position: 'absolute', top: 'calc(100% + 6px)', right: 0, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, boxShadow: '0 8px 24px rgba(15,23,42,0.12)', zIndex: 100, minWidth: 160, padding: '6px 0', overflow: 'hidden' }}>
+                      <button onClick={handleSendWhatsApp} style={{ width: '100%', padding: '10px 16px', border: 'none', background: 'none', textAlign: 'left', fontSize: 13, fontWeight: 600, color: '#374151', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 9 }}
+                        onMouseEnter={e => e.currentTarget.style.background = '#f1f5f9'}
+                        onMouseLeave={e => e.currentTarget.style.background = 'none'}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="#25D366"><path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.85.5 3.58 1.46 5.08L2 22l5.2-1.36a9.9 9.9 0 0 0 4.84 1.24h.01c5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.82 9.82 0 0 0 12.04 2zm-3.94 6.08c.16 0 .43.06.61.27.18.21.7.69.7 1.67 0 .98-.71 1.93-.81 2.06-.1.14-1.41 2.19-3.47 3.05-1.71.71-2.31.66-2.71.61-.4-.05-1.28-.52-1.46-1.03-.18-.51-.18-.94-.13-1.03.05-.1.18-.16.38-.27.2-.1 1.28-.63 1.48-.7.2-.07.34-.1.49.1.14.21.56.7.69.84.13.14.25.16.46.06.21-.1.88-.33 1.68-1.04.62-.55 1.04-1.23 1.16-1.44.12-.21.01-.32-.1-.43-.1-.1-.23-.27-.35-.4-.12-.14-.16-.24-.24-.4-.08-.16-.04-.3.03-.43.07-.13.62-1.5.85-2.04.18-.43.36-.4.51-.41z"/></svg>
+                        WhatsApp
+                      </button>
+                      <button onClick={handleOpenEmail} style={{ width: '100%', padding: '10px 16px', border: 'none', background: 'none', textAlign: 'left', fontSize: 13, fontWeight: 600, color: '#374151', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 9 }}
+                        onMouseEnter={e => e.currentTarget.style.background = '#f1f5f9'}
+                        onMouseLeave={e => e.currentTarget.style.background = 'none'}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#475569" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+                        Email
+                      </button>
+                    </div>
+                  )}
+                </div>
               )}
               {!isReadOnly && (
                 <button onClick={() => handleSave()} disabled={saving} style={btnStyle('#14b8a6')}>
@@ -1039,7 +1084,7 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
               )}
               {!isReadOnly && !isNew && form.status !== 'converted' && (
                 <button onClick={handleConvert} disabled={saving} style={btnStyle('#15803d')}>
-                  {saving ? 'Approving…' : 'Approve Estimate'}
+                  {saving ? 'Approving…' : 'Approve Quote'}
                 </button>
               )}
               {!isReadOnly && !isNew && (
@@ -1054,23 +1099,33 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
           {/* Mobile: compact icon buttons */}
           {isMobile && (
             <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }}>
-              {!isNew && (
-                <button onClick={() => setPdfOpen(true)} title="Preview PDF"
-                  style={{ padding: '7px', borderRadius: 7, border: '1px solid #e2e8f0', background: '#fff', color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-                </button>
-              )}
-              {!isNew && !isReadOnly && (
-                <button onClick={() => setShowEmailModal(true)} title="Send by Email"
-                  style={{ padding: '7px', borderRadius: 7, border: '1px solid #e2e8f0', background: '#fff', color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
-                    <polyline points="22,6 12,13 2,6"/>
-                  </svg>
-                </button>
-              )}
-              {!isNew && !isReadOnly && (
-                <WhatsAppButton loading={waLoading} onClick={handleSendWhatsApp} icon />
+              <button onClick={handleOpenPdf} title="Preview PDF"
+                style={{ padding: '7px', borderRadius: 7, border: '1px solid #e2e8f0', background: '#fff', color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+              </button>
+              {!isReadOnly && (
+                <div ref={shareDialogRef} style={{ position: 'relative' }}>
+                  <button onClick={() => setShowShareDialog(s => !s)} title="Share"
+                    style={{ padding: '7px', borderRadius: 7, border: '1px solid #e2e8f0', background: '#fff', color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+                  </button>
+                  {showShareDialog && (
+                    <div style={{ position: 'absolute', top: 'calc(100% + 6px)', right: 0, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, boxShadow: '0 8px 24px rgba(15,23,42,0.12)', zIndex: 100, minWidth: 150, padding: '6px 0', overflow: 'hidden' }}>
+                      <button onClick={handleSendWhatsApp} style={{ width: '100%', padding: '10px 16px', border: 'none', background: 'none', textAlign: 'left', fontSize: 13, fontWeight: 600, color: '#374151', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 9 }}
+                        onMouseEnter={e => e.currentTarget.style.background = '#f1f5f9'}
+                        onMouseLeave={e => e.currentTarget.style.background = 'none'}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="#25D366"><path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.85.5 3.58 1.46 5.08L2 22l5.2-1.36a9.9 9.9 0 0 0 4.84 1.24h.01c5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.82 9.82 0 0 0 12.04 2zm-3.94 6.08c.16 0 .43.06.61.27.18.21.7.69.7 1.67 0 .98-.71 1.93-.81 2.06-.1.14-1.41 2.19-3.47 3.05-1.71.71-2.31.66-2.71.61-.4-.05-1.28-.52-1.46-1.03-.18-.51-.18-.94-.13-1.03.05-.1.18-.16.38-.27.2-.1 1.28-.63 1.48-.7.2-.07.34-.1.49.1.14.21.56.7.69.84.13.14.25.16.46.06.21-.1.88-.33 1.68-1.04.62-.55 1.04-1.23 1.16-1.44.12-.21.01-.32-.1-.43-.1-.1-.23-.27-.35-.4-.12-.14-.16-.24-.24-.4-.08-.16-.04-.3.03-.43.07-.13.62-1.5.85-2.04.18-.43.36-.4.51-.41z"/></svg>
+                        WhatsApp
+                      </button>
+                      <button onClick={handleOpenEmail} style={{ width: '100%', padding: '10px 16px', border: 'none', background: 'none', textAlign: 'left', fontSize: 13, fontWeight: 600, color: '#374151', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 9 }}
+                        onMouseEnter={e => e.currentTarget.style.background = '#f1f5f9'}
+                        onMouseLeave={e => e.currentTarget.style.background = 'none'}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#475569" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+                        Email
+                      </button>
+                    </div>
+                  )}
+                </div>
               )}
               {!isReadOnly && !isNew && (
                 <button onClick={() => setConfirmDelete(true)} title="Delete"
@@ -1106,7 +1161,7 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
                   view invoice
                 </button>
                 {!isReadOnly && (
-                  <UndoButton title="Undo Approve Estimate" onClick={() => setUndoTarget('convert')} />
+                  <UndoButton title="Undo Approve Quote" onClick={() => setUndoTarget('convert')} />
                 )}
               </>
             )}
@@ -1326,28 +1381,36 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
         }}>
           {errors._global && <p style={{ color: '#ef4444', fontSize: 12, margin: '0 0 6px' }}>{errors._global}</p>}
 
-          {/* Row 1: Send via Email / WhatsApp */}
-          {!isNew && !isReadOnly && (
-            <div style={{ display: 'flex', gap: 10, marginBottom: 10 }}>
-              <button onClick={() => setShowEmailModal(true)}
-                style={{ flex: 1, padding: '11px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontWeight: 600, fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontFamily: 'inherit' }}>
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
-                  <polyline points="22,6 12,13 2,6"/>
-                </svg>
-                Send via Email
+          {/* Row 1: Share button */}
+          {!isReadOnly && (
+            <div style={{ marginBottom: 10 }}>
+              <button onClick={() => setShowShareDialog(s => !s)}
+                style={{ width: '100%', padding: '12px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontWeight: 600, fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, fontFamily: 'inherit' }}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+                Share
               </button>
-              <WhatsAppButton loading={waLoading} onClick={handleSendWhatsApp} mobile />
+              {showShareDialog && (
+                <div style={{ marginTop: 6, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, boxShadow: '0 4px 16px rgba(15,23,42,0.10)', overflow: 'hidden' }}>
+                  <button onClick={handleSendWhatsApp} style={{ width: '100%', padding: '13px 16px', border: 'none', borderBottom: '1px solid #f1f5f9', background: 'none', textAlign: 'left', fontSize: 14, fontWeight: 600, color: '#374151', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10, fontFamily: 'inherit' }}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="#25D366"><path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.85.5 3.58 1.46 5.08L2 22l5.2-1.36a9.9 9.9 0 0 0 4.84 1.24h.01c5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.82 9.82 0 0 0 12.04 2zm-3.94 6.08c.16 0 .43.06.61.27.18.21.7.69.7 1.67 0 .98-.71 1.93-.81 2.06-.1.14-1.41 2.19-3.47 3.05-1.71.71-2.31.66-2.71.61-.4-.05-1.28-.52-1.46-1.03-.18-.51-.18-.94-.13-1.03.05-.1.18-.16.38-.27.2-.1 1.28-.63 1.48-.7.2-.07.34-.1.49.1.14.21.56.7.69.84.13.14.25.16.46.06.21-.1.88-.33 1.68-1.04.62-.55 1.04-1.23 1.16-1.44.12-.21.01-.32-.1-.43-.1-.1-.23-.27-.35-.4-.12-.14-.16-.24-.24-.4-.08-.16-.04-.3.03-.43.07-.13.62-1.5.85-2.04.18-.43.36-.4.51-.41z"/></svg>
+                    WhatsApp
+                  </button>
+                  <button onClick={handleOpenEmail} style={{ width: '100%', padding: '13px 16px', border: 'none', background: 'none', textAlign: 'left', fontSize: 14, fontWeight: 600, color: '#374151', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10, fontFamily: 'inherit' }}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#475569" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+                    Email
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
-          {/* Approve Estimate — full-width button above the main row */}
+          {/* Approve Quote — full-width button above the main row */}
           {!isReadOnly && !isNew && form.status !== 'converted' && (
             <button
               onClick={handleConvert}
               disabled={saving}
               style={{ display: 'block', width: '100%', padding: '11px', borderRadius: 8, border: 'none', background: '#15803d', color: '#fff', fontWeight: 600, fontSize: 14, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1, fontFamily: 'inherit', marginBottom: 8 }}>
-              {saving ? 'Approving…' : 'Approve Estimate'}
+              {saving ? 'Approving…' : 'Approve Quote'}
             </button>
           )}
 
@@ -1466,11 +1529,7 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
               clientEmail={selectedClient?.email || ''}
               onClose={() => setShowEmailModal(false)}
               onSent={async () => {
-                if (estimate?.id && form.status === 'draft') {
-                  await supabase.from('estimates').update({ status: 'sent' }).eq('id', estimate.id)
-                  onSaved({ id: estimate.id, status: 'sent' })
-                  setForm(p => ({ ...p, status: 'sent' }))
-                }
+                // Status NOT auto-promoted on email send — user clicks "Mark as Sent" manually
               }}
             />
           </>
@@ -1514,9 +1573,9 @@ function ListView({ estimates, onNew, onSelect, onApprove, onDelete, isReadOnly 
         <path d="M9 11l3 3L22 4" />
         <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
       </svg>
-      <p style={{ fontSize: 14, margin: 0 }}>{tab === 'all' ? 'No estimates yet' : `No ${tab} estimates`}</p>
+      <p style={{ fontSize: 14, margin: 0 }}>{tab === 'all' ? 'No quotes yet' : `No ${tab} quotes`}</p>
       {tab === 'all' && <p style={{ fontSize: 12, marginTop: 4 }}>
-        {isMobile ? 'Tap the + button to create one.' : 'Click "New Estimate" to create one.'}
+        {isMobile ? 'Tap the + button to create one.' : 'Click "New Quote" to create one.'}
       </p>}
     </div>
   )
@@ -1535,7 +1594,7 @@ function ListView({ estimates, onNew, onSelect, onApprove, onDelete, isReadOnly 
         {/* Title — hidden on mobile (MobileHeader shows page name) */}
         {!isMobile && (
           <div>
-            <h1 style={{ fontSize: 24, fontWeight: 700, color: '#0f172a', marginBottom: 4 }}>Estimates</h1>
+            <h1 style={{ fontSize: 24, fontWeight: 700, color: '#0f172a', marginBottom: 4 }}>Quotes</h1>
             <p style={{ color: '#64748b', fontSize: 14, margin: 0 }}>Create and send estimates to your clients.</p>
           </div>
         )}
@@ -1555,7 +1614,7 @@ function ListView({ estimates, onNew, onSelect, onApprove, onDelete, isReadOnly 
               title={isReadOnly ? READONLY_MSG : undefined}
               style={{ background: '#14b8a6', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 18px', fontSize: 14, fontWeight: 600, cursor: isReadOnly ? 'not-allowed' : 'pointer', opacity: isReadOnly ? 0.45 : 1 }}
             >
-              + New Estimate
+              + New Quote
             </button>
           )}
           <HelpButton page="estimates" />
@@ -1647,7 +1706,7 @@ function ListView({ estimates, onNew, onSelect, onApprove, onDelete, isReadOnly 
       {isMobile && !isReadOnly && (
         <button
           onClick={onNew}
-          title="New Estimate"
+          title="New Quote"
           style={{
             position:       'fixed',
             bottom:         80,

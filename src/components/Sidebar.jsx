@@ -35,7 +35,7 @@ const navItems = [
   },
   {
     path: '/estimates',
-    label: 'Estimates',
+    label: 'Quotes',
     tutorial: 'nav-estimates',
     icon: (
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

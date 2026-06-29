@@ -21,6 +21,7 @@ const PAYMENT_TERMS = [
 ]
 
 const DEFAULTS = {
+  name:                    '',
   business_name:           '',
   business_address:        '',
   email:                   '',
@@ -49,10 +50,14 @@ const DEFAULTS = {
   smtp_from_name:           '',
   whatsapp_default_message:  '',
   whatsapp_estimate_message: '',
+  email_invoice_message:     '',
+  email_quote_message:       '',
+  email_overdue_message:     '',
   payment_terms_days:        7,
 }
 
 const SUPABASE_COL = {
+  name:                     'name',
   business_name:            'business_name',
   business_address:         'address',
   email:                    'email',
@@ -77,6 +82,9 @@ const SUPABASE_COL = {
   smtp_from_name:           'smtp_from_name',
   whatsapp_default_message:  'whatsapp_default_message',
   whatsapp_estimate_message: 'whatsapp_estimate_message',
+  email_invoice_message:     'email_invoice_message',
+  email_quote_message:       'email_quote_message',
+  email_overdue_message:     'email_overdue_message',
   payment_terms_days:        'payment_terms_days',
 }
 
@@ -553,6 +561,7 @@ export default function Settings() {
 
       const merged = {
         ...DEFAULTS,
+        name:                     profile.name                     ?? DEFAULTS.name,
         business_name:            profile.business_name            ?? DEFAULTS.business_name,
         business_address:         profile.address                  ?? DEFAULTS.business_address,
         email:                    profile.email                    ?? DEFAULTS.email,
@@ -578,6 +587,9 @@ export default function Settings() {
         smtp_from_name:           profile.smtp_from_name           ?? DEFAULTS.smtp_from_name,
         whatsapp_default_message:  profile.whatsapp_default_message  ?? DEFAULTS.whatsapp_default_message,
         whatsapp_estimate_message: profile.whatsapp_estimate_message ?? DEFAULTS.whatsapp_estimate_message,
+        email_invoice_message:     profile.email_invoice_message     ?? DEFAULTS.email_invoice_message,
+        email_quote_message:       profile.email_quote_message       ?? DEFAULTS.email_quote_message,
+        email_overdue_message:     profile.email_overdue_message     ?? DEFAULTS.email_overdue_message,
         payment_terms_days:        profile.payment_terms_days        ?? DEFAULTS.payment_terms_days,
       }
       setForm(merged)
@@ -906,6 +918,14 @@ export default function Settings() {
       >
         <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: isMobile ? 14 : 16 }}>
 
+          <Field label="Your Name">
+            <input
+              style={inp} value={form.name} placeholder="e.g. Dewald"
+              onChange={handleChange('name')}
+              onBlur={blurStyle} onFocus={focusStyle}
+            />
+          </Field>
+
           <Field label="Business Name">
             <input
               style={inp} value={form.business_name} placeholder="Acme Studio"
@@ -1159,11 +1179,67 @@ export default function Settings() {
         </div>
       </Section>
 
+      {/* ── WHATSAPP ─────────────────────────────────────────────────────── */}
+      <Section
+        id="whatsapp" icon="💬"
+        title="WhatsApp Settings"
+        description="Default message templates that pre-fill the WhatsApp share dialog"
+        isOpen={openSection === 'whatsapp'}
+        onToggle={() => toggleSection('whatsapp')}
+        isMobile={isMobile}
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+          <p style={{ fontSize: 13, color: '#64748b', margin: 0, lineHeight: 1.6 }}>
+            Set default messages that pre-fill the WhatsApp text box. Click a tag below each textarea to insert it where your cursor is.
+          </p>
+
+          {/* Invoice message */}
+          <div style={{ background: '#f8fafc', borderRadius: 10, border: '1px solid #e2e8f0', padding: 16 }}>
+            <p style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', margin: '0 0 12px' }}>Invoice Default Message</p>
+            <PlaceholderTextarea
+              value={form.whatsapp_default_message}
+              onChange={v => setForm(p => ({ ...p, whatsapp_default_message: v }))}
+              placeholder={`Hi {clientName}, please find invoice {invoiceNumber} for {amount} attached. Due date: {dueDate}. Thank you, {businessName}.`}
+              inpStyle={inp}
+              onFocus={focusStyle}
+              onBlur={blurStyle}
+              placeholders={[
+                { label: 'Client Name',    tag: '{clientName}' },
+                { label: 'Invoice #',      tag: '{invoiceNumber}' },
+                { label: 'Amount',         tag: '{amount}' },
+                { label: 'Due Date',       tag: '{dueDate}' },
+                { label: 'Business Name',  tag: '{businessName}' },
+              ]}
+            />
+          </div>
+
+          {/* Quote message */}
+          <div style={{ background: '#f8fafc', borderRadius: 10, border: '1px solid #e2e8f0', padding: 16 }}>
+            <p style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', margin: '0 0 12px' }}>Quote Default Message</p>
+            <PlaceholderTextarea
+              value={form.whatsapp_estimate_message}
+              onChange={v => setForm(p => ({ ...p, whatsapp_estimate_message: v }))}
+              placeholder={`Hi {clientName}, please find quote {quoteNumber} for {amount} attached. Valid until: {expiryDate}. Thank you, {businessName}.`}
+              inpStyle={inp}
+              onFocus={focusStyle}
+              onBlur={blurStyle}
+              placeholders={[
+                { label: 'Client Name',    tag: '{clientName}' },
+                { label: 'Quote #',        tag: '{quoteNumber}' },
+                { label: 'Amount',         tag: '{amount}' },
+                { label: 'Expiry Date',    tag: '{expiryDate}' },
+                { label: 'Business Name',  tag: '{businessName}' },
+              ]}
+            />
+          </div>
+        </div>
+      </Section>
+
       {/* ── EMAIL / SMTP ─────────────────────────────────────────────────── */}
       <Section
         id="email" icon="📧"
-        title={isMobile ? 'WhatsApp & Email' : 'WhatsApp & Email Settings'}
-        description="WhatsApp message template and SMTP configuration for sending invoices"
+        title="Email Settings"
+        description="SMTP configuration and default email templates for sending invoices"
         isOpen={openSection === 'email'}
         onToggle={() => toggleSection('email')}
         isMobile={isMobile}
@@ -1178,10 +1254,6 @@ export default function Settings() {
             {
               id: 'smtp', label: 'Custom SMTP',
               icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 5L2 7"/></svg>,
-            },
-            {
-              id: 'whatsapp', label: 'WhatsApp',
-              icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.85.5 3.58 1.46 5.08L2 22l5.2-1.36a9.9 9.9 0 0 0 4.84 1.24h.01c5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.82 9.82 0 0 0 12.04 2zm-3.94 6.08c.16 0 .43.06.61.27.18.21.7.69.7 1.67 0 .98-.71 1.93-.81 2.06-.1.14-1.41 2.19-3.47 3.05-1.71.71-2.31.66-2.71.61-.4-.05-1.28-.52-1.46-1.03-.18-.51-.18-.94-.13-1.03.05-.1.18-.16.38-.27.2-.1 1.28-.63 1.48-.7.2-.07.34-.1.49.1.14.21.56.7.69.84.13.14.25.16.46.06.21-.1.88-.33 1.68-1.04.62-.55 1.04-1.23 1.16-1.44.12-.21.01-.32-.1-.43-.1-.1-.23-.27-.35-.4-.12-.14-.16-.24-.24-.4-.08-.16-.04-.3.03-.43.07-.13.62-1.5.85-2.04.18-.43.36-.4.51-.41z"/></svg>,
             },
           ].map(({ id, label, icon }) => {
             const active = form.email_provider === id
@@ -1209,53 +1281,7 @@ export default function Settings() {
           })}
         </div>
 
-        {form.email_provider === 'whatsapp' ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-            <p style={{ fontSize: 13, color: '#64748b', margin: 0, lineHeight: 1.6 }}>
-              Set default messages that pre-fill the WhatsApp text box. Click a tag below each textarea to insert it where your cursor is.
-            </p>
-
-            {/* Invoice message */}
-            <div style={{ background: '#f8fafc', borderRadius: 10, border: '1px solid #e2e8f0', padding: 16 }}>
-              <p style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', margin: '0 0 12px' }}>Invoice Default Message</p>
-              <PlaceholderTextarea
-                value={form.whatsapp_default_message}
-                onChange={v => setForm(p => ({ ...p, whatsapp_default_message: v }))}
-                placeholder={`Hi {clientName}, please find invoice {invoiceNumber} for {amount} attached. Due date: {dueDate}. Thank you, {businessName}.`}
-                inpStyle={inp}
-                onFocus={focusStyle}
-                onBlur={blurStyle}
-                placeholders={[
-                  { label: 'Client Name',    tag: '{clientName}' },
-                  { label: 'Invoice #',      tag: '{invoiceNumber}' },
-                  { label: 'Amount',         tag: '{amount}' },
-                  { label: 'Due Date',       tag: '{dueDate}' },
-                  { label: 'Business Name',  tag: '{businessName}' },
-                ]}
-              />
-            </div>
-
-            {/* Estimate message */}
-            <div style={{ background: '#f8fafc', borderRadius: 10, border: '1px solid #e2e8f0', padding: 16 }}>
-              <p style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', margin: '0 0 12px' }}>Estimate Default Message</p>
-              <PlaceholderTextarea
-                value={form.whatsapp_estimate_message}
-                onChange={v => setForm(p => ({ ...p, whatsapp_estimate_message: v }))}
-                placeholder={`Hi {clientName}, please find estimate {estimateNumber} for {amount} attached. Valid until: {expiryDate}. Thank you, {businessName}.`}
-                inpStyle={inp}
-                onFocus={focusStyle}
-                onBlur={blurStyle}
-                placeholders={[
-                  { label: 'Client Name',    tag: '{clientName}' },
-                  { label: 'Estimate #',     tag: '{estimateNumber}' },
-                  { label: 'Amount',         tag: '{amount}' },
-                  { label: 'Expiry Date',    tag: '{expiryDate}' },
-                  { label: 'Business Name',  tag: '{businessName}' },
-                ]}
-              />
-            </div>
-          </div>
-        ) : form.email_provider === 'gmail' ? (
+        {form.email_provider === 'gmail' ? (
           <>
             {/* Gmail not yet supported notice */}
             <div style={{
@@ -1439,6 +1465,74 @@ export default function Settings() {
           )}
         </div>
         )}
+
+        {/* ── Email message templates ──────────────────────────────────────── */}
+        <div style={{ marginTop: 28 }}>
+          <p style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', margin: '0 0 4px' }}>Default Email Messages</p>
+          <p style={{ fontSize: 13, color: '#64748b', margin: '0 0 20px', lineHeight: 1.6 }}>
+            These messages pre-fill the email body when sharing an invoice or quote. Click a tag to insert it at your cursor.
+          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+
+            <div style={{ background: '#f8fafc', borderRadius: 10, border: '1px solid #e2e8f0', padding: 16 }}>
+              <p style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', margin: '0 0 12px' }}>Invoice Email</p>
+              <PlaceholderTextarea
+                value={form.email_invoice_message}
+                onChange={v => setForm(p => ({ ...p, email_invoice_message: v }))}
+                placeholder={`Hi {clientName},\n\nPlease find invoice {invoiceNumber} for {amount} attached.\n\nDue date: {dueDate}.\n\nKind regards,\n{businessName}`}
+                inpStyle={inp}
+                onFocus={focusStyle}
+                onBlur={blurStyle}
+                placeholders={[
+                  { label: 'Client Name',   tag: '{clientName}' },
+                  { label: 'Invoice #',     tag: '{invoiceNumber}' },
+                  { label: 'Amount',        tag: '{amount}' },
+                  { label: 'Due Date',      tag: '{dueDate}' },
+                  { label: 'Business Name', tag: '{businessName}' },
+                ]}
+              />
+            </div>
+
+            <div style={{ background: '#f8fafc', borderRadius: 10, border: '1px solid #e2e8f0', padding: 16 }}>
+              <p style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', margin: '0 0 12px' }}>Quote Email</p>
+              <PlaceholderTextarea
+                value={form.email_quote_message}
+                onChange={v => setForm(p => ({ ...p, email_quote_message: v }))}
+                placeholder={`Hi {clientName},\n\nPlease find quote {quoteNumber} for {amount} attached.\n\nValid until: {expiryDate}.\n\nKind regards,\n{businessName}`}
+                inpStyle={inp}
+                onFocus={focusStyle}
+                onBlur={blurStyle}
+                placeholders={[
+                  { label: 'Client Name',   tag: '{clientName}' },
+                  { label: 'Quote #',       tag: '{quoteNumber}' },
+                  { label: 'Amount',        tag: '{amount}' },
+                  { label: 'Expiry Date',   tag: '{expiryDate}' },
+                  { label: 'Business Name', tag: '{businessName}' },
+                ]}
+              />
+            </div>
+
+            <div style={{ background: '#f8fafc', borderRadius: 10, border: '1px solid #e2e8f0', padding: 16 }}>
+              <p style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', margin: '0 0 12px' }}>Overdue Invoice Reminder Email</p>
+              <PlaceholderTextarea
+                value={form.email_overdue_message}
+                onChange={v => setForm(p => ({ ...p, email_overdue_message: v }))}
+                placeholder={`Hi {clientName},\n\nThis is a friendly reminder that invoice {invoiceNumber} for {amount} is now overdue.\n\nPlease arrange payment at your earliest convenience.\n\nKind regards,\n{businessName}`}
+                inpStyle={inp}
+                onFocus={focusStyle}
+                onBlur={blurStyle}
+                placeholders={[
+                  { label: 'Client Name',   tag: '{clientName}' },
+                  { label: 'Invoice #',     tag: '{invoiceNumber}' },
+                  { label: 'Amount',        tag: '{amount}' },
+                  { label: 'Due Date',      tag: '{dueDate}' },
+                  { label: 'Business Name', tag: '{businessName}' },
+                ]}
+              />
+            </div>
+
+          </div>
+        </div>
       </Section>
 
       {/* ── PAYMENT & REMINDERS ─────────────────────────────────────────── */}
