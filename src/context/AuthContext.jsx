@@ -13,20 +13,41 @@ export function AuthProvider({ children }) {
   const [session,        setSession]        = useState(null)
   const [loading,        setLoading]        = useState(true)
   const [currentProfile, setCurrentProfile] = useState(null)
+  const [recoveryMode,   setRecoveryMode]   = useState(false)
 
   useEffect(() => {
-    // Hydrate from the existing session on mount
-    getSession().then(({ data }) => {
-      setSession(data.session)
-      setUser(data.session?.user ?? null)
+    // Synchronously check for a password-recovery token in the URL hash BEFORE
+    // we hydrate the session. Supabase auto-processes this hash on client init
+    // which would log the user straight into the app — we intercept it here.
+    const hashParams  = new URLSearchParams(window.location.hash.substring(1))
+    const isRecovery  = hashParams.get('type') === 'recovery' && !!hashParams.get('access_token')
+
+    if (isRecovery) {
+      setRecoveryMode(true)
       setLoading(false)
-    })
+      // Clear the token from the address bar now (before Supabase can use it)
+      window.history.replaceState(null, null, window.location.pathname)
+    } else {
+      // Normal path: hydrate from the existing session
+      getSession().then(({ data }) => {
+        setSession(data.session)
+        setUser(data.session?.user ?? null)
+        setLoading(false)
+      })
+    }
 
     // Keep state in sync with Supabase auth events (login, logout, token refresh).
     // Compare user IDs so a mere token refresh does NOT produce a new `user` object
     // reference — which would re-trigger every useCallback/useEffect that depends on
     // `user` and cause every page to reload its data unnecessarily.
-    const { data: { subscription } } = onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = onAuthStateChange((event, session) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        // Supabase fired a recovery event — keep the user logged out and show
+        // the reset-password screen instead of navigating to the main app.
+        setRecoveryMode(true)
+        setLoading(false)
+        return
+      }
       const incoming = session?.user ?? null
       setSession(session)
       setUser(prev => {
@@ -86,6 +107,8 @@ export function AuthProvider({ children }) {
     currentProfile,
     refreshSubscription,
     isSubscriptionActive,
+    recoveryMode,
+    clearRecoveryMode: () => setRecoveryMode(false),
     signIn:  (email, password) => signIn(email, password),
     signUp:  (email, password) => signUp(email, password),
     signOut: ()                => signOut(),

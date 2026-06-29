@@ -5,7 +5,7 @@ import PasswordInput from '../components/PasswordInput'
 import fundibillLogo from '../../public/FundiBill long.png'
 
 export default function Auth() {
-  const { signIn, signUp } = useAuth()
+  const { signIn, signUp, signOut, recoveryMode, clearRecoveryMode } = useAuth()
 
   // mode: 'login' | 'register' | 'forgot'
   const [mode,       setMode]       = useState('login')
@@ -30,26 +30,12 @@ export default function Auth() {
   const [resetError,   setResetError]   = useState('')
   const [resetLoading, setResetLoading] = useState(false)
 
-  // Recovery token (from email link)
-  const [recoveryToken,        setRecoveryToken]        = useState(null)
-  const [recoveryRefreshToken, setRecoveryRefreshToken] = useState(null)
-  const [newPassword,          setNewPassword]          = useState('')
-  const [confirmNewPassword,   setConfirmNewPassword]   = useState('')
-  const [resetNewLoading,      setResetNewLoading]      = useState(false)
-  const [resetNewError,        setResetNewError]        = useState('')
-  const [resetNewSuccess,      setResetNewSuccess]      = useState(false)
-
-  // Detect recovery token in URL hash on mount
-  useEffect(() => {
-    const hashParams = new URLSearchParams(window.location.hash.substring(1))
-    const accessToken = hashParams.get('access_token')
-    const tokenType   = hashParams.get('type')
-    if (tokenType === 'recovery' && accessToken) {
-      setRecoveryToken(accessToken)
-      setRecoveryRefreshToken(hashParams.get('refresh_token') || '')
-      window.history.replaceState(null, null, window.location.pathname)
-    }
-  }, [])
+  // Set new password (recovery mode — token already handled by AuthContext)
+  const [newPassword,        setNewPassword]        = useState('')
+  const [confirmNewPassword, setConfirmNewPassword] = useState('')
+  const [resetNewLoading,    setResetNewLoading]    = useState(false)
+  const [resetNewError,      setResetNewError]      = useState('')
+  const [resetNewSuccess,    setResetNewSuccess]    = useState(false)
 
   const isRegister = mode === 'register'
   const isForgot   = mode === 'forgot'
@@ -144,14 +130,12 @@ export default function Auth() {
     }
     setResetNewLoading(true)
     try {
-      const { error: sessionErr } = await supabase.auth.setSession({
-        access_token:  recoveryToken,
-        refresh_token: recoveryRefreshToken,
-      })
-      if (sessionErr) throw sessionErr
+      // Supabase already established the recovery session from the URL hash —
+      // we just need to update the password, then sign out so the user logs in
+      // fresh with their new credentials.
       const { error: updateErr } = await supabase.auth.updateUser({ password: newPassword })
       if (updateErr) throw updateErr
-      await supabase.auth.signOut()
+      await signOut()
       setResetNewSuccess(true)
     } catch (err) {
       setResetNewError(err.message || 'Something went wrong. Please try again.')
@@ -235,7 +219,7 @@ export default function Auth() {
         </div>
 
         {/* ── RECOVERY: SET NEW PASSWORD SCREEN ── */}
-        {recoveryToken ? (
+        {recoveryMode ? (
           resetNewSuccess ? (
             <div style={{ textAlign: 'center', padding: '8px 0 16px' }}>
               <div style={{ fontSize: 48, marginBottom: 16 }}>✅</div>
@@ -250,7 +234,7 @@ export default function Auth() {
               </p>
               <button
                 onClick={() => {
-                  setRecoveryToken(null)
+                  clearRecoveryMode()
                   setResetNewSuccess(false)
                   setNewPassword('')
                   setConfirmNewPassword('')
