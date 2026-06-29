@@ -25,8 +25,11 @@ export function AuthProvider({ children }) {
     if (isRecovery) {
       setRecoveryMode(true)
       setLoading(false)
-      // Clear the token from the address bar now (before Supabase can use it)
-      window.history.replaceState(null, null, window.location.pathname)
+      // Do NOT clear the hash here — Supabase's detectSessionInUrl reads it
+      // asynchronously. Clearing it now prevents Supabase from establishing
+      // the session, which causes updateUser() to fail with "Auth session missing!".
+      // The hash is cleared inside the PASSWORD_RECOVERY handler below, after
+      // Supabase has read it and the session is active.
     } else {
       // Normal path: hydrate from the existing session
       getSession().then(({ data }) => {
@@ -42,8 +45,9 @@ export function AuthProvider({ children }) {
     // `user` and cause every page to reload its data unnecessarily.
     const { data: { subscription } } = onAuthStateChange((event, session) => {
       if (event === 'PASSWORD_RECOVERY') {
-        // Supabase fired a recovery event — keep the user logged out and show
-        // the reset-password screen instead of navigating to the main app.
+        // Supabase has now read the hash and established the session internally.
+        // Clear the token from the address bar and show the reset-password screen.
+        window.history.replaceState(null, null, window.location.pathname)
         setRecoveryMode(true)
         setLoading(false)
         return
