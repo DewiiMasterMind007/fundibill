@@ -11,6 +11,14 @@ import App from './App'
 import { AuthProvider } from './context/AuthContext'
 import './index.css'
 
+// Reload the page when a new service worker takes control so users always run
+// the latest version without having to manually clear the cache.
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    window.location.reload()
+  })
+}
+
 // If a dynamically-imported chunk (e.g. PdfDocument) 404s because the user's
 // tab is running an older build whose chunk hashes no longer exist on the
 // server after a new deploy, reload once to fetch the current build.
