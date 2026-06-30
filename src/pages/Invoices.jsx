@@ -815,6 +815,15 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
     setSaving(true)
     setErrors({})
 
+    // If the invoice was marked overdue but the due date has since been
+    // edited to today or later, revert the status back to 'sent' — otherwise
+    // it stays stuck on 'overdue' forever since the auto-overdue check only
+    // ever sets the status TO overdue, never away from it.
+    let nextStatus = overrideStatus || form.status
+    if (!overrideStatus && nextStatus === 'overdue' && form.due_date && form.due_date >= todayStr()) {
+      nextStatus = 'sent'
+    }
+
     const payload = {
       invoice_number: form.invoice_number,
       client_id:      form.client_id || null,
@@ -827,7 +836,7 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
       vat_amount:     vatAmount,
       total,
       amount_paid:    Number(form.amount_paid) || 0,
-      status:         overrideStatus || form.status,
+      status:         nextStatus,
       discount_value: discountsOn ? (Number(form.discount_value) || 0) : 0,
       discount_type:  discountsOn ? (form.discount_type || 'percent') : null,
     }

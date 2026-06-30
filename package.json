@@ -1,6 +1,6 @@
 {
   "name": "fundibill",
-  "version": "1.0.0",
+  "version": "1.6.23",
   "description": "FundiBill - SA Built Invoicing Software",
   "main": "electron/main.js",
   "author": "FundiAI <info@fundiai.co.za>",

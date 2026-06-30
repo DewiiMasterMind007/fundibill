@@ -144,7 +144,7 @@ export default function Sidebar({ onTutorial, primaryColor = '#14b8a6' }) {
       style={{
         width:      240,
         minWidth:   240,
-        height:     '100vh',
+        height:     '100%',
         // Blue → teal → green gradient matching the FA logo palette
         background: 'linear-gradient(165deg, #0891b2 0%, #0d9488 48%, #16a34a 100%)',
         display:        'flex',

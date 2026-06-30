@@ -181,6 +181,11 @@ export default function BottomNav({ onTutorial, primaryColor = '#14b8a6' }) {
           <SignOutIcon />
           Sign Out
         </button>
+
+        {/* Version */}
+        <div style={{ padding: '10px 16px 0', fontSize: 11, color: '#94a3b8', textAlign: 'center' }}>
+          v1.0.0
+        </div>
       </div>
 
       {/* ── Bottom tab bar ───────────────────────────────────────────────────── */}
