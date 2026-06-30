@@ -284,7 +284,7 @@ export default function Sidebar({ onTutorial, primaryColor = '#14b8a6' }) {
           </button>
 
           <div style={{ padding: '6px 14px 0', fontSize: 11, color: 'rgba(255,255,255,0.30)' }}>
-            v1.0.0
+            v{__APP_VERSION__}
           </div>
         </div>
 

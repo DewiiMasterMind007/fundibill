@@ -184,7 +184,7 @@ export default function BottomNav({ onTutorial, primaryColor = '#14b8a6' }) {
 
         {/* Version */}
         <div style={{ padding: '10px 16px 0', fontSize: 11, color: '#94a3b8', textAlign: 'center' }}>
-          v1.0.0
+          v{__APP_VERSION__}
         </div>
       </div>
 

@@ -12,7 +12,10 @@
     "dist:mac": "npm run build:electron && electron-builder --mac",
     "dist:all": "npm run build:electron && electron-builder --win --mac",
     "build:win": "node scripts/create-icon.js && cross-env ELECTRON=true vite build && electron-builder --win --x64",
-    "rebuild-native": "electron-builder install-app-deps"
+    "rebuild-native": "electron-builder install-app-deps",
+    "release:patch": "npm version patch && git push origin main --follow-tags",
+    "release:minor": "npm version minor && git push origin main --follow-tags",
+    "release:major": "npm version major && git push origin main --follow-tags"
   },
   "dependencies": {
     "@react-pdf/renderer": "^4.5.1",

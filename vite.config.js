@@ -1,10 +1,14 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
+import { readFileSync } from 'fs'
+import { fileURLToPath } from 'url'
 
 // Electron builds load files locally via file:// — they need a relative base.
 // Vercel and local dev both serve from the root, so they use '/'.
 const isElectron = process.env.ELECTRON === 'true'
+
+const pkg = JSON.parse(readFileSync(fileURLToPath(new URL('./package.json', import.meta.url)), 'utf-8'))
 
 export default defineConfig({
   base: isElectron ? './' : '/',
@@ -62,6 +66,7 @@ export default defineConfig({
 
   define: {
     global: 'globalThis',
+    __APP_VERSION__: JSON.stringify(pkg.version),
   },
 
   optimizeDeps: {
