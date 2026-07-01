@@ -518,6 +518,8 @@ export default function Settings() {
   const navigate = useNavigate()
   const location = useLocation()
 
+  const savedSmtp = useRef({ host: '', port: '' })
+
   const [form, setForm]                   = useState(DEFAULTS)
   const [originalForm, setOriginalForm]   = useState(DEFAULTS)
   const [pendingNav, setPendingNav]       = useState(null)
@@ -658,16 +660,20 @@ export default function Settings() {
     setForm(prev => ({ ...prev, [field]: value }))
 
   const handleEmailProvider = (provider) => () =>
-    setForm(prev => ({
-      ...prev,
-      email_provider: provider,
-      ...(provider === 'gmail'
-        ? { smtp_host: 'smtp.gmail.com', smtp_port: '587' }
-        : {
-            smtp_host: profile?.smtp_host ?? DEFAULTS.smtp_host,
-            smtp_port: profile?.smtp_port ?? DEFAULTS.smtp_port,
-          }),
-    }))
+    setForm(prev => {
+      if (provider === 'gmail') {
+        // Save current custom SMTP values before overwriting
+        savedSmtp.current = { host: prev.smtp_host, port: prev.smtp_port }
+        return { ...prev, email_provider: 'gmail', smtp_host: 'smtp.gmail.com', smtp_port: '587' }
+      }
+      // Restore the values that were set before Gmail was selected
+      return {
+        ...prev,
+        email_provider: 'smtp',
+        smtp_host: savedSmtp.current.host,
+        smtp_port: savedSmtp.current.port,
+      }
+    })
 
   const handleLogoChange = (e) => {
     const file = e.target.files?.[0]

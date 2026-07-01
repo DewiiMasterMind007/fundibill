@@ -34,7 +34,7 @@ const MoreIcon       = ()           => <Icon size={22}><circle cx="5" cy="12" r=
 const TABS = [
   { path: '/dashboard', label: 'Dashboard', Icon: DashboardIcon, tutorial: 'nav-dashboard' },
   { path: '/invoices',  label: 'Invoices',  Icon: InvoicesIcon,  tutorial: 'nav-invoices'  },
-  { path: '/estimates', label: 'Estimates', Icon: EstimatesIcon, tutorial: 'nav-estimates' },
+  { path: '/estimates', label: 'Quotes', Icon: EstimatesIcon, tutorial: 'nav-estimates' },
   { path: '/clients',   label: 'Clients',   Icon: ClientsIcon,   tutorial: 'nav-clients'   },
 ]
 

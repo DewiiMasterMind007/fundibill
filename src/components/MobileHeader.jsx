@@ -6,7 +6,7 @@ import fundibillLogo from '../../public/FundiBill long.png'
 const PAGE_NAMES = {
   '/dashboard':  'Dashboard',
   '/invoices':   'Invoices',
-  '/estimates':  'Estimates',
+  '/estimates':  'Quotes',
   '/clients':    'Clients',
   '/items':      'Items',
   '/expenses':   'Expenses',
