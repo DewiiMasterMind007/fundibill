@@ -2938,6 +2938,14 @@ export default function Invoices() {
 
   function openNew() { setEditing(null); setView('form') }
 
+  // Auto-open new invoice form when navigated via the quick-create menu
+  useEffect(() => {
+    if (location.state?.quickCreate && !isReadOnly) {
+      openNew()
+      window.history.replaceState({}, '')
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
   async function openEdit(inv) {
     const [{ data: invData }, { data: itemsData }] = await Promise.all([
       supabase.from('invoices').select('*').eq('id', inv.id).single(),

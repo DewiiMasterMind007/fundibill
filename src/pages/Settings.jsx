@@ -663,7 +663,10 @@ export default function Settings() {
       email_provider: provider,
       ...(provider === 'gmail'
         ? { smtp_host: 'smtp.gmail.com', smtp_port: '587' }
-        : {}),
+        : {
+            smtp_host: profile?.smtp_host ?? DEFAULTS.smtp_host,
+            smtp_port: profile?.smtp_port ?? DEFAULTS.smtp_port,
+          }),
     }))
 
   const handleLogoChange = (e) => {

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { useLocation } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { useTrialStatus } from '../context/TrialContext'
@@ -452,6 +453,7 @@ function MobileClientCard({ client, onEdit, onViewInvoices, onViewEstimates, onD
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function Clients() {
+  const location    = useLocation()
   const { user }    = useAuth()
   const trialStatus = useTrialStatus()
   const isReadOnly  = trialStatus?.isReadOnly ?? false
@@ -560,6 +562,14 @@ export default function Clients() {
     setErrors({})
     setPanelOpen(true)
   }
+
+  // Auto-open add client panel when navigated via the quick-create menu
+  useEffect(() => {
+    if (location.state?.quickCreate && !isReadOnly) {
+      openAdd()
+      window.history.replaceState({}, '')
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   function openEdit(client) {
     setEditing(client)

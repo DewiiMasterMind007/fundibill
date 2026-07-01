@@ -344,6 +344,13 @@ export default function Dashboard() {
         .fb-filter-scroll::-webkit-scrollbar { display: none }
       `}</style>
 
+      {/* ── Mobile greeting (desktop shows this inside the title block) ── */}
+      {isMobile && (
+        <p style={{ fontSize: 13, color: '#64748b', margin: '0 0 10px', fontWeight: 500 }}>
+          {getDailyGreeting(profile?.name)}
+        </p>
+      )}
+
       {/* ── Page header + filter ─────────────────────────────────────────── */}
       <div style={{
         display:        'flex',

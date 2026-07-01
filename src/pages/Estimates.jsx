@@ -1830,6 +1830,14 @@ export default function Estimates() {
 
   function openNew() { setEditing(null); setView('form') }
 
+  // Auto-open new quote form when navigated via the quick-create menu
+  useEffect(() => {
+    if (location.state?.quickCreate && !isReadOnly) {
+      openNew()
+      window.history.replaceState({}, '')
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
   async function openEdit(est) {
     const [{ data: estData }, { data: itemsData }] = await Promise.all([
       supabase.from('estimates').select('*').eq('id', est.id).single(),
