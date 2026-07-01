@@ -138,13 +138,13 @@ function StatusBadge({ status }) {
 // ── Personalised greeting ─────────────────────────────────────────────────────
 
 const DAY_GREETINGS = [
-  (n) => `Happy Sunday${n ? ', ' + n : ''}! Rest up — big week ahead.`,
-  (n) => `It's Monday${n ? ', ' + n : ''}! It's a good day to make more money.`,
-  (n) => `Good Tuesday${n ? ', ' + n : ''}! Let's get those invoices out.`,
-  (n) => `Happy Wednesday${n ? ', ' + n : ''}! You're halfway through the week.`,
-  (n) => `Thursday already${n ? ', ' + n : ''}! Finish strong this week.`,
-  (n) => `Happy Friday${n ? ', ' + n : ''}! Finish off this week strong.`,
-  (n) => `It's Saturday${n ? ', ' + n : ''}! Even weekends are for winners.`,
+  (n) => ({ title: `Happy Sunday${n ? ', ' + n : ''}!`,    subtitle: 'Rest up — big week ahead.' }),
+  (n) => ({ title: `Good Monday${n ? ', ' + n : ''}!`,     subtitle: "It's a good day to make more money." }),
+  (n) => ({ title: `Good Tuesday${n ? ', ' + n : ''}!`,    subtitle: "Let's get those invoices out." }),
+  (n) => ({ title: `Happy Wednesday${n ? ', ' + n : ''}!`, subtitle: "You're halfway through the week." }),
+  (n) => ({ title: `Thursday already${n ? ', ' + n : ''}!`,subtitle: 'Finish strong this week.' }),
+  (n) => ({ title: `Happy Friday${n ? ', ' + n : ''}!`,    subtitle: 'Finish off this week strong.' }),
+  (n) => ({ title: `It's Saturday${n ? ', ' + n : ''}!`,   subtitle: 'Even weekends are for winners.' }),
 ]
 
 function getDailyGreeting(name) {
@@ -345,11 +345,15 @@ export default function Dashboard() {
       `}</style>
 
       {/* ── Mobile greeting (desktop shows this inside the title block) ── */}
-      {isMobile && (
-        <p style={{ fontSize: 13, color: '#64748b', margin: '0 0 10px', fontWeight: 500 }}>
-          {getDailyGreeting(profile?.name)}
-        </p>
-      )}
+      {isMobile && (() => {
+        const { title, subtitle } = getDailyGreeting(profile?.name)
+        return (
+          <div style={{ marginBottom: 14 }}>
+            <p style={{ fontSize: 20, fontWeight: 800, color: '#0f172a', margin: '0 0 2px', lineHeight: 1.2 }}>{title}</p>
+            <p style={{ fontSize: 14, color: '#64748b', margin: 0, fontWeight: 400 }}>{subtitle}</p>
+          </div>
+        )
+      })()}
 
       {/* ── Page header + filter ─────────────────────────────────────────── */}
       <div style={{
@@ -362,12 +366,16 @@ export default function Dashboard() {
       }}>
 
         {/* Title — hidden on mobile (MobileHeader already shows the app name) */}
-        {!isMobile && (
-          <div>
-            <h1 style={{ fontSize: 24, fontWeight: 800, color: '#0f172a', margin: 0, marginBottom: 4 }}>Dashboard</h1>
-            <p style={{ color: '#64748b', fontSize: 14, margin: 0 }}>{getDailyGreeting(profile?.name)}</p>
-          </div>
-        )}
+        {!isMobile && (() => {
+          const { title, subtitle } = getDailyGreeting(profile?.name)
+          return (
+            <div>
+              <h1 style={{ fontSize: 24, fontWeight: 800, color: '#0f172a', margin: 0, marginBottom: 2 }}>Dashboard</h1>
+              <p style={{ fontSize: 19, fontWeight: 700, color: '#0f172a', margin: '0 0 2px', lineHeight: 1.2 }}>{title}</p>
+              <p style={{ fontSize: 14, color: '#64748b', margin: 0 }}>{subtitle}</p>
+            </div>
+          )
+        })()}
 
         {/* Controls row */}
         <div style={{
