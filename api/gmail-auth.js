@@ -17,7 +17,7 @@ export default async function handler(req, res) {
       client_id: process.env.GMAIL_CLIENT_ID,
       redirect_uri: process.env.GMAIL_REDIRECT_URI,
       response_type: 'code',
-      scope: 'https://www.googleapis.com/auth/gmail.send',
+      scope: 'https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/userinfo.email',
       access_type: 'offline', // required to receive a refresh_token
       prompt: 'consent', // forces refresh_token on every connect, not just the first
       state: user_id,

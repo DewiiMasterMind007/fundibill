@@ -49,13 +49,13 @@ export default async function handler(req, res) {
 
     // Step 3: Fetch the connected Gmail address so we can show it in Settings.
     const profileResponse = await fetch(
-      'https://gmail.googleapis.com/gmail/v1/users/me/profile',
+      'https://www.googleapis.com/oauth2/v2/userinfo',
       { headers: { Authorization: `Bearer ${access_token}` } }
     );
 
     const profileData = await profileResponse.json();
 
-    if (!profileResponse.ok || !profileData.emailAddress) {
+    if (!profileResponse.ok || !profileData.email) {
       throw new Error(`Failed to fetch Gmail profile: ${JSON.stringify(profileData)}`);
     }
 
@@ -66,7 +66,7 @@ export default async function handler(req, res) {
         gmail_access_token: access_token,
         gmail_refresh_token: refresh_token,
         gmail_token_expiry: tokenExpiry,
-        gmail_connected_email: profileData.emailAddress,
+        gmail_connected_email: profileData.email,
         email_provider: 'gmail',
       })
       .eq('id', userId);
