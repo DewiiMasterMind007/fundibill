@@ -845,8 +845,8 @@ export default function Settings() {
       from_name: form.smtp_from_name || form.business_name || '',
     }
 
-    if (isGmailProvider && !gmailConnected) {
-      setTestEmailMsg('Connect Gmail first, in the Gmail tab above.')
+    if (isGmailProvider && !profile?.gmail_access_token) {
+      setTestEmailMsg('Gmail not connected. Please reconnect Gmail in Settings.')
       setTestEmailStatus('error')
       return
     }
@@ -878,7 +878,7 @@ export default function Settings() {
         pdfFilename: null,
       })
       setTestEmailStatus('success')
-      setTestEmailMsg(`Test email sent to ${to}`)
+      setTestEmailMsg(isGmailProvider ? 'Test email sent! Check your inbox.' : `Test email sent to ${to}`)
     } catch (e) {
       setTestEmailStatus('error')
       setTestEmailMsg(e.message || 'Failed to send. Check your email settings.')
@@ -1484,7 +1484,7 @@ export default function Settings() {
                   width: 8, height: 8, borderRadius: '50%', background: '#22c55e',
                   marginTop: 5, flexShrink: 0,
                 }} />
-                <div>
+                <div style={{ flex: 1 }}>
                   <p style={{ fontSize: 14, fontWeight: 600, color: '#166534', margin: 0 }}>
                     Connected: {gmailEmail}
                   </p>
@@ -1503,6 +1503,17 @@ export default function Settings() {
                   >
                     {gmailLoading ? 'Disconnecting…' : 'Disconnect'}
                   </button>
+
+                  <div style={{ marginTop: 16, maxWidth: isMobile ? undefined : 360 }}>
+                    <Field label="From Name" hint="shown as the sender">
+                      <input
+                        style={inp}
+                        value={form.business_name} placeholder="Acme Studio"
+                        onChange={handleChange('business_name')}
+                        onBlur={blurStyle} onFocus={focusStyle}
+                      />
+                    </Field>
+                  </div>
                 </div>
               </div>
             ) : (
@@ -1581,7 +1592,7 @@ export default function Settings() {
         )}
 
         {/* Test Email */}
-        {form.email_provider === 'smtp' && (
+        {(form.email_provider === 'smtp' || (form.email_provider === 'gmail' && gmailConnected)) && (
         <div style={{ marginTop: 20 }}>
           <button
             onClick={sendTestEmail}

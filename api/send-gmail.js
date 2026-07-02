@@ -12,6 +12,17 @@ function base64UrlEncode(str) {
     .replace(/=+$/, '');
 }
 
+// RFC 2047 encoded-word encoding for non-ASCII Subject headers (em dashes,
+// smart quotes, accented characters) — raw UTF-8 bytes in a header break
+// most mail clients, so non-ASCII subjects must be base64-encoded words.
+function encodeEmailSubject(subject) {
+  const hasNonAscii = /[^\x00-\x7F]/.test(subject);
+  if (!hasNonAscii) return subject; // ASCII only — no encoding needed
+
+  const encoded = Buffer.from(subject, 'utf8').toString('base64');
+  return `=?UTF-8?B?${encoded}?=`;
+}
+
 // Refresh an expired/near-expiry Gmail access token and persist the new
 // token + expiry onto the user's profile row.
 async function refreshGmailToken(supabase, userId, refreshToken) {
@@ -104,6 +115,7 @@ export default async function handler(req, res) {
     // Step 3: Build the RFC 2822 email message.
     const boundary = 'fundibill_boundary_' + Date.now();
     const fromHeader = `${from_name || 'FundiBill'} <${profile.gmail_connected_email}>`;
+    const encodedSubject = encodeEmailSubject(subject);
     const htmlBase64 = base64UrlEncodeBody(html);
 
     let rawEmail;
@@ -111,7 +123,7 @@ export default async function handler(req, res) {
       rawEmail =
         `From: ${fromHeader}\r\n` +
         `To: ${to}\r\n` +
-        `Subject: ${subject}\r\n` +
+        `Subject: ${encodedSubject}\r\n` +
         `MIME-Version: 1.0\r\n` +
         `Content-Type: multipart/mixed; boundary="${boundary}"\r\n\r\n` +
         `--${boundary}\r\n` +
@@ -128,7 +140,7 @@ export default async function handler(req, res) {
       rawEmail =
         `From: ${fromHeader}\r\n` +
         `To: ${to}\r\n` +
-        `Subject: ${subject}\r\n` +
+        `Subject: ${encodedSubject}\r\n` +
         `MIME-Version: 1.0\r\n` +
         `Content-Type: text/html; charset="UTF-8"\r\n` +
         `Content-Transfer-Encoding: base64\r\n\r\n` +
