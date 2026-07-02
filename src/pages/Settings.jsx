@@ -541,6 +541,13 @@ export default function Settings() {
   const toastTimer  = useRef(null)
   const logoRef     = useRef(null)
 
+  // ── Gmail OAuth connection state ─────────────────────────────────────────
+  const [gmailConnected, setGmailConnected] = useState(false)
+  const [gmailEmail,     setGmailEmail]     = useState('')
+  const [gmailLoading,   setGmailLoading]   = useState(false)
+  const [gmailToast,     setGmailToast]     = useState(null) // { message, type }
+  const gmailToastTimer = useRef(null)
+
   // Mobile accordion — which section is currently open
   const [openSection, setOpenSection] = useState('business')
   function toggleSection(id) {
@@ -606,6 +613,9 @@ export default function Settings() {
       setOriginalForm(merged)
       setPayMethods(parseMethods(profile.payment_methods))
       setExpCategories(parseCategories(profile.expense_categories))
+
+      setGmailConnected(profile.email_provider === 'gmail' && !!profile.gmail_connected_email)
+      setGmailEmail(profile.gmail_connected_email ?? '')
     }
     load()
   }, [user])
@@ -650,6 +660,105 @@ export default function Settings() {
     clearTimeout(toastTimer.current)
     toastTimer.current = setTimeout(() => setToast(false), 2200)
   }, [])
+
+  // ── Gmail toast helper (supports a custom message, unlike the "Saved" toast above) ──
+  const showGmailToast = useCallback((message, type = 'success') => {
+    setGmailToast({ message, type })
+    clearTimeout(gmailToastTimer.current)
+    gmailToastTimer.current = setTimeout(() => setGmailToast(null), 4000)
+  }, [])
+
+  // ── Gmail OAuth callback handling ────────────────────────────────────────
+  // After the user grants (or denies) access, Google redirects back to
+  // /api/gmail-callback.js, which in turn redirects here as
+  // /settings?gmail=connected or /settings?gmail=error.
+  useEffect(() => {
+    const params = new URLSearchParams(location.search)
+    const gmailResult = params.get('gmail')
+    if (!gmailResult || !user) return
+
+    async function handleGmailRedirect() {
+      if (gmailResult === 'connected') {
+        const { data: rows, error } = await supabase
+          .from('profiles')
+          .select('email_provider, gmail_connected_email')
+          .eq('id', user.id)
+          .limit(1)
+
+        const profile = error ? null : rows?.[0] ?? null
+        const connectedEmail = profile?.gmail_connected_email ?? ''
+        const connected = profile?.email_provider === 'gmail' && !!connectedEmail
+
+        setGmailConnected(connected)
+        setGmailEmail(connectedEmail)
+        setForm(prev => ({ ...prev, email_provider: connected ? 'gmail' : prev.email_provider }))
+        setOriginalForm(prev => ({ ...prev, email_provider: connected ? 'gmail' : prev.email_provider }))
+        // Sync the app-wide profile cache so other pages (Invoices, Estimates,
+        // SendEmailModal) see the new provider/tokens immediately.
+        await refreshProfile()
+
+        showGmailToast(
+          connected
+            ? `Gmail connected successfully! You can now send invoices from ${connectedEmail}`
+            : 'Gmail connected, but the connected address could not be confirmed.',
+          connected ? 'success' : 'error'
+        )
+      } else if (gmailResult === 'error') {
+        showGmailToast('Failed to connect Gmail. Please try again.', 'error')
+      }
+
+      // Clean the URL so refreshing doesn't re-trigger this handling.
+      const hashPath = window.location.hash.split('?')[0]
+      window.history.replaceState({}, '', `${window.location.pathname}${window.location.search}${hashPath}`)
+    }
+
+    handleGmailRedirect()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.search, user])
+
+  // ── Gmail connect / disconnect ───────────────────────────────────────────
+  const handleConnectGmail = useCallback(async () => {
+    setGmailLoading(true)
+    const { data: { user: authUser } } = await supabase.auth.getUser()
+    if (!authUser) {
+      setGmailLoading(false)
+      showGmailToast('Failed to connect Gmail. Please try again.', 'error')
+      return
+    }
+    // Full-page redirect — the OAuth round trip leaves and re-enters the app.
+    window.location.href = `/api/gmail-auth?user_id=${authUser.id}`
+  }, [showGmailToast])
+
+  const handleDisconnectGmail = useCallback(async () => {
+    if (!window.confirm('Disconnect Gmail? Your email provider will switch back to SMTP.')) return
+    if (!user) return
+
+    setGmailLoading(true)
+    const { error } = await supabase
+      .from('profiles')
+      .update({
+        gmail_access_token:    null,
+        gmail_refresh_token:   null,
+        gmail_token_expiry:    null,
+        gmail_connected_email: null,
+        email_provider:        'smtp',
+      })
+      .eq('id', user.id)
+
+    if (error) {
+      setGmailLoading(false)
+      showGmailToast('Failed to disconnect Gmail. Please try again.', 'error')
+      return
+    }
+
+    setGmailConnected(false)
+    setGmailEmail('')
+    setGmailLoading(false)
+    setForm(prev => ({ ...prev, email_provider: 'smtp' }))
+    setOriginalForm(prev => ({ ...prev, email_provider: 'smtp' }))
+    await refreshProfile()
+    showGmailToast('Gmail disconnected', 'success')
+  }, [user, refreshProfile, showGmailToast])
 
   // ── Event handlers ────────────────────────────────────────────────────────
 
@@ -1351,92 +1460,63 @@ export default function Settings() {
 
         {form.email_provider === 'gmail' ? (
           <>
-            {/* Gmail not yet supported notice */}
-            <div style={{
-              display: 'flex', alignItems: 'flex-start', gap: 10,
-              marginBottom: 16, padding: '12px 16px',
-              background: '#fef3c7', border: '1.5px solid #fde68a', borderRadius: 10,
-            }}>
-              <span style={{ fontSize: 16, lineHeight: 1.4 }}>ℹ️</span>
-              <p style={{ fontSize: 13, color: '#92400e', margin: 0, lineHeight: 1.6 }}>
-                Use the WhatsApp button to share your Invoice, and select "Gmail" in your share options.
-              </p>
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: isMobile ? 14 : 16 }}>
-
-              <Field label="SMTP Host">
-                <input
-                  style={{ ...inp, background: '#f1f5f9', color: '#94a3b8', cursor: 'not-allowed' }}
-                  value="smtp.gmail.com" readOnly disabled
-                />
-              </Field>
-
-              <Field label="SMTP Port">
-                <input
-                  style={{ ...inp, background: '#f1f5f9', color: '#94a3b8', cursor: 'not-allowed' }}
-                  value="587" readOnly disabled
-                />
-              </Field>
-
-              <Field label="From Email" hint="your Gmail address">
-                <input
-                  style={{ ...inp, background: '#f1f5f9', color: '#94a3b8', cursor: 'not-allowed' }}
-                  value={form.smtp_user} placeholder="you@gmail.com" type="email"
-                  readOnly disabled
-                />
-              </Field>
-
-              <Field label="From Name" hint="shown as the sender">
-                <input
-                  style={{ ...inp, background: '#f1f5f9', color: '#94a3b8', cursor: 'not-allowed' }}
-                  value={form.smtp_from_name} placeholder="Acme Studio"
-                  readOnly disabled
-                />
-              </Field>
-
-              <Field label="App Password" style={{ gridColumn: isMobile ? undefined : '1 / -1' }}>
-                <PasswordInput
-                  style={{ ...inp, maxWidth: isMobile ? undefined : 360, background: '#f1f5f9', color: '#94a3b8', cursor: 'not-allowed' }}
-                  value={form.smtp_password} placeholder="16-character app password"
-                  readOnly disabled
-                />
-              </Field>
-            </div>
-
-            {/* Gmail App Password help box */}
-            <div style={{
-              marginTop: 16, padding: isMobile ? '14px' : '16px 18px',
-              background: '#eff6ff', border: '1.5px solid #bfdbfe', borderRadius: 10,
-            }}>
-              <p style={{ fontSize: 13, fontWeight: 700, color: '#1e40af', margin: '0 0 8px', display: 'flex', alignItems: 'center', gap: 6 }}>
-                ℹ️ Gmail requires an App Password
-              </p>
-              <p style={{ fontSize: 13, color: '#1e3a8a', margin: '0 0 8px', lineHeight: 1.6 }}>
-                Your regular Gmail password won't work. You need to generate a special App Password:
-              </p>
-              <ol style={{ fontSize: 13, color: '#1e3a8a', margin: '0 0 12px', paddingLeft: 20, lineHeight: 1.8 }}>
-                <li>Go to myaccount.google.com</li>
-                <li>Click <strong>Security</strong></li>
-                <li>Under "How you sign in to Google" click <strong>2-Step Verification</strong> and make sure it is ON</li>
-                <li>Go back to Security and click <strong>App Passwords</strong></li>
-                <li>Select <strong>Mail</strong> and your device</li>
-                <li>Copy the 16-character password</li>
-                <li>Paste it in the App Password field above</li>
-              </ol>
-              <button
-                onClick={() => window.db?.openExternal('https://myaccount.google.com/security')}
-                style={{
-                  background: '#1e40af', color: '#fff', border: 'none', borderRadius: 8,
-                  padding: isMobile ? '12px 16px' : '8px 16px', fontSize: 13, fontWeight: 600,
-                  cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6,
-                  width: isMobile ? '100%' : undefined, justifyContent: 'center',
-                }}
-              >
-                Open Google Account Settings
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-              </button>
-            </div>
+            {gmailConnected ? (
+              /* ── STATE B — Gmail connected ────────────────────────────── */
+              <div style={{
+                display: 'flex', alignItems: 'flex-start', gap: 10,
+                padding: '14px 16px',
+                background: '#f0fdf4', border: '1.5px solid #bbf7d0', borderRadius: 10,
+              }}>
+                <span style={{
+                  width: 8, height: 8, borderRadius: '50%', background: '#22c55e',
+                  marginTop: 5, flexShrink: 0,
+                }} />
+                <div>
+                  <p style={{ fontSize: 14, fontWeight: 600, color: '#166534', margin: 0 }}>
+                    Connected: {gmailEmail}
+                  </p>
+                  <p style={{ fontSize: 12, color: '#4b7c5b', margin: '4px 0 8px', lineHeight: 1.5 }}>
+                    Invoices and estimates will be sent from this Gmail address.
+                  </p>
+                  <button
+                    onClick={handleDisconnectGmail}
+                    disabled={gmailLoading}
+                    style={{
+                      background: 'none', border: 'none', padding: 0,
+                      color: '#dc2626', fontSize: 13, fontWeight: 600,
+                      textDecoration: 'underline', cursor: gmailLoading ? 'wait' : 'pointer',
+                      opacity: gmailLoading ? 0.6 : 1,
+                    }}
+                  >
+                    {gmailLoading ? 'Disconnecting…' : 'Disconnect'}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              /* ── STATE A — Gmail not connected ────────────────────────── */
+              <div>
+                <button
+                  onClick={handleConnectGmail}
+                  disabled={gmailLoading}
+                  style={{
+                    background: '#fff', color: '#374151',
+                    border: '1.5px solid #e2e8f0', borderRadius: 8,
+                    padding: isMobile ? '12px 18px' : '9px 18px',
+                    fontWeight: 600, fontSize: isMobile ? 14 : 13,
+                    cursor: gmailLoading ? 'wait' : 'pointer',
+                    opacity: gmailLoading ? 0.7 : 1,
+                    display: 'inline-flex', alignItems: 'center', gap: 8,
+                    width: isMobile ? '100%' : undefined, justifyContent: 'center',
+                  }}
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" opacity=".6"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" opacity=".8"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" opacity=".4"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+                  {gmailLoading ? 'Connecting…' : 'Connect Gmail'}
+                </button>
+                <p style={{ fontSize: 12, color: '#64748b', margin: '8px 0 0' }}>
+                  Send invoices and estimates directly from your Gmail address
+                </p>
+              </div>
+            )}
           </>
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: isMobile ? 14 : 16 }}>
@@ -2248,6 +2328,26 @@ export default function Settings() {
       )}
 
       <Toast visible={toastVisible} />
+
+      {gmailToast && (
+        <div style={{
+          position:   'fixed',
+          bottom:     28,
+          right:      28,
+          background: gmailToast.type === 'error' ? '#7f1d1d' : '#0f172a',
+          color:      gmailToast.type === 'error' ? '#fca5a5' : '#4ade80',
+          border:     gmailToast.type === 'error' ? '1px solid rgba(252,165,165,0.25)' : '1px solid rgba(74,222,128,0.25)',
+          borderRadius: 8,
+          padding:    '10px 16px',
+          fontSize:   13,
+          fontWeight: 600,
+          maxWidth:   340,
+          zIndex:     200,
+          boxShadow:  '0 4px 16px rgba(0,0,0,0.2)',
+        }}>
+          {gmailToast.type === 'error' ? '⚠ ' : '✓ '}{gmailToast.message}
+        </div>
+      )}
     </div>
   )
 }

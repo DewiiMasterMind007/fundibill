@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { generateInvoiceEmail, generateEstimateEmail } from '../lib/emailTemplates'
-import { sendEmail } from '../lib/sendEmail'
+import { sendEmail, checkGmailProviderReady } from '../lib/sendEmail'
 import { buildPdfBuffer } from '../lib/pdfBuffer'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -72,9 +72,19 @@ export function SendEmailModal({ isOpen, data, settings, docType, clientEmail, o
   const smtp = smtpFromSettings(settings)
   const smtpMissing = !smtp.host || !smtp.user || !smtp.password
 
+  const gmailCheck = checkGmailProviderReady({
+    emailProvider:     settings?.email_provider,
+    gmailAccessToken:  settings?.gmail_access_token,
+    gmailTokenExpiry:  settings?.gmail_token_expiry,
+  })
+
   async function handleSend() {
     if (!to.trim()) { setError('Recipient email is required.'); return }
-    if (smtpMissing) { setError('SMTP is not configured. Go to Settings → Email Settings.'); return }
+    if (!gmailCheck.ok) { setError(gmailCheck.error); return }
+    if (settings?.email_provider !== 'gmail' && smtpMissing) {
+      setError('SMTP is not configured. Go to Settings → Email Settings.')
+      return
+    }
 
     setSending(true)
     setError('')
@@ -140,6 +150,9 @@ export function SendEmailModal({ isOpen, data, settings, docType, clientEmail, o
         smtpFromEmail: smtp.user,
         pdfBuffer,
         fileName,
+        emailProvider:    settings?.email_provider,
+        gmailAccessToken: settings?.gmail_access_token,
+        gmailTokenExpiry: settings?.gmail_token_expiry,
       }
       console.log('[SendEmailModal] IPC payload (excluding buffers):', {
         to:          payload.to,

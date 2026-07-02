@@ -502,7 +502,7 @@ Identical columns to `invoice_items` but with `estimate_id` instead of `invoice_
 - **Terms & Conditions:** printed on PDFs (`profiles.terms` column, mapped from `terms_conditions` form key)
 - **Notifications & Messages:** WhatsApp templates (Invoice, Quote, Overdue) + Email default messages
 - **Document Settings:** discounts toggle (% or R), expense categories
-- **Email Settings:** Gmail tab (shows "coming soon" message) / Custom SMTP tab. Gmail→SMTP revert restores saved SMTP values via `savedSmtp` ref.
+- **Email Settings:** Gmail tab (Connect/Disconnect OAuth flow — see Section 7) / Custom SMTP tab. Gmail→SMTP revert restores saved SMTP values via `savedSmtp` ref.
 - **Subscription:** current plan display, cancel subscription button
 - Unsaved-changes detection: warns on browser close and intercepts in-app navigation
 
@@ -552,9 +552,9 @@ Identical columns to `invoice_items` but with `estimate_id` instead of `invoice_
 ## 7. EMAIL PROVIDER SYSTEM
 
 ### Current State
-- `profiles.email_provider` column: `'smtp'` (active) or `'gmail'` (UI shows "coming soon")
-- Gmail tab currently displays an info box: *"Use the WhatsApp button to share your Invoice, and select 'Gmail' in your share options."*
-- The `smtp_host`, `smtp_port`, `smtp_user`, `smtp_password`, `smtp_from_name` fields still show under the Gmail tab (read-only pre-filled with `smtp.gmail.com`) — this allows Gmail App Password users to work today via SMTP
+- `profiles.email_provider` column: `'smtp'` (active) or `'gmail'` (OAuth UI built, actual Gmail-API sending not yet wired — see below)
+- Settings → Email Settings → Gmail tab now shows a real **Connect Gmail** / **Connected: {email}** flow (see UI flow below) instead of the old "coming soon" notice and read-only SMTP/App-Password fields — that legacy UI has been removed from `Settings.jsx`
+- The SMTP fields (`smtp_host`, `smtp_port`, `smtp_user`, `smtp_password`, `smtp_from_name`) are only shown/editable under the **Custom SMTP** tab now
 
 ### Gmail OAuth — In progress (v2 branch)
 
@@ -581,13 +581,19 @@ Identical columns to `invoice_items` but with `estimate_id` instead of `invoice_
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `VITE_APP_URL`
 
-**UI flow:**
-1. User opens Settings → Email Settings → Gmail tab
-2. "Connect Gmail" button replaces "coming soon" message (not yet built — UI still pending)
-3. Click → browser navigates to `/api/gmail-auth?user_id=<id>` → 302 to Google's consent screen
-4. Google redirects to `/api/gmail-callback?code=...&state=<id>`
-5. Token exchange → tokens stored in Supabase → `email_provider` set to `'gmail'` → redirect to `/settings?gmail=connected`
-6. Subsequent sends route through `/api/send-gmail.js` instead of SMTP (not yet built)
+**UI flow — built in `src/pages/Settings.jsx` (Email Settings → Gmail tab):**
+1. **Not connected (State A):** "Connect Gmail" button + helper text "Send invoices and estimates directly from your Gmail address". Click → `supabase.auth.getUser()` → `window.location.href = '/api/gmail-auth?user_id=<id>'` (full-page redirect, leaves the app)
+2. Google's consent screen → redirects to `/api/gmail-callback?code=...&state=<id>` → tokens exchanged and stored → redirects back to `/settings?gmail=connected` (or `?gmail=error`)
+3. On mount, Settings reads `?gmail=` from the URL (`useLocation().search`, works under HashRouter): on `connected` it re-fetches `email_provider`/`gmail_connected_email`, updates local state + calls `refreshProfile()` (`AppDataContext`) so other pages see the change, shows a success toast, and strips the query param via `window.history.replaceState`; on `error` it shows an error toast and strips the param the same way
+4. **Connected (State B):** green dot + "Connected: {gmail_connected_email}", with a "Disconnect" text link below. The provider toggle buttons at the top of the tab reflect `form.email_provider === 'gmail'` automatically
+5. **Disconnect:** `window.confirm(...)` → nulls `gmail_access_token`/`gmail_refresh_token`/`gmail_token_expiry`/`gmail_connected_email` and sets `email_provider = 'smtp'` directly via Supabase (not gated behind the page's Save button) → `refreshProfile()` → success toast "Gmail disconnected"
+6. Subsequent sends should route through `/api/send-gmail.js` instead of SMTP — **not yet built** (Phase 4)
+
+**Email-send guard — built in `src/lib/sendEmail.js` (`checkGmailProviderReady`):**
+- Exported helper checks: if `emailProvider === 'gmail'` and (`gmailAccessToken` is missing OR `gmailTokenExpiry` is missing/invalid/in the past) → blocks the send and returns `{ ok: false, error: 'Your Gmail connection has expired. Please reconnect Gmail in Settings.' }`
+- `sendEmail()` runs this check first and returns `{ success: false, error }` without attempting Electron IPC or the `send-reminder.php` relay — it does **not** silently fall back to SMTP
+- Wired into every send path that has a `profiles` row in scope: `SendEmailModal.jsx`, and in `Invoices.jsx` the reminder modal (`ReminderModal`) and both mark-as-paid payment-confirmation flows (detail view + list view) — each now passes `emailProvider`/`gmailAccessToken`/`gmailTokenExpiry` from `settings` (the `AppDataContext` profile) into the `sendEmail()` payload
+- Real Gmail-API sending via `/api/send-gmail.js` is still **not implemented** — a valid, non-expired Gmail connection currently still falls through to the old SMTP/relay code path with empty SMTP credentials until Phase 4 wires up the actual Gmail send
 
 ---
 
@@ -617,7 +623,7 @@ Identical columns to `invoice_items` but with `estimate_id` instead of `invoice_
 
 2. **Recurring invoice future scheduling:** Only the FIRST invoice is created by the frontend save flow. Subsequent invoices for ongoing schedules (monthly/weekly/etc.) require a Supabase cron job or edge function. The `send-payment-reminders` function is a template for this pattern — not yet implemented.
 
-3. **Gmail OAuth:** Not yet integrated. Gmail tab in Settings shows "coming soon". Planned on `v2` branch.
+3. **Gmail OAuth:** Connect/Disconnect UI, callback handling, and DB schema are built on `v2` (see Section 7). Actual Gmail-API sending (`/api/send-gmail.js`) is not yet implemented — a connected, non-expired Gmail account still falls through to the old SMTP/relay path with empty credentials until that's wired up.
 
 4. **Blank name fields in PayFast emails:** `fundibill-buy.php` sends `name_first` / `name_last` to PayFast but they appear blank in confirmation emails. Under investigation.
 

@@ -10,7 +10,27 @@ function arrayBufferToBase64(buffer) {
   return btoa(binary)
 }
 
+// Gmail OAuth is not wired up to actually send yet (Phase 4 — /api/send-gmail.js).
+// This guard only stops a stale/expired Gmail connection from silently falling
+// through to the SMTP/relay path below with the wrong (or missing) credentials.
+export function checkGmailProviderReady(payload) {
+  if (payload.emailProvider !== 'gmail') return { ok: true }
+
+  const expiry = payload.gmailTokenExpiry ? new Date(payload.gmailTokenExpiry) : null
+  const expired = !payload.gmailAccessToken || !expiry || isNaN(expiry.getTime()) || expiry <= new Date()
+
+  if (expired) {
+    return { ok: false, error: 'Your Gmail connection has expired. Please reconnect Gmail in Settings.' }
+  }
+  return { ok: true }
+}
+
 export async function sendEmail(payload) {
+  const gmailCheck = checkGmailProviderReady(payload)
+  if (!gmailCheck.ok) {
+    return { success: false, error: gmailCheck.error }
+  }
+
   const isElectron = window?.electronAPI?.sendEmail !== undefined
 
   if (isElectron) {

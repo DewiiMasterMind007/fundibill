@@ -9,7 +9,7 @@ import { useRecurringNotif } from '../context/RecurringNotifContext'
 import { useAppData } from '../context/AppDataContext'
 import HelpButton from '../components/HelpButton'
 import { generateReminderEmail, generatePaymentConfirmationEmail, PLAIN_TEXT_FOOTER } from '../lib/emailTemplates'
-import { sendEmail } from '../lib/sendEmail'
+import { sendEmail, checkGmailProviderReady } from '../lib/sendEmail'
 import { buildPdfBuffer } from '../lib/pdfBuffer'
 import { sendPdfViaWhatsApp, buildInvoiceWhatsAppMessage } from '../lib/whatsapp'
 import useIsMobile from '../hooks/useIsMobile'
@@ -973,7 +973,13 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
         password:  settings?.smtp_password  || '',
         from_name: settings?.smtp_from_name || businessName || '',
       }
-      if (!to || !smtp.host || !smtp.user || !smtp.password) return
+      const gmailCheck = checkGmailProviderReady({
+        emailProvider:    settings?.email_provider,
+        gmailAccessToken: settings?.gmail_access_token,
+        gmailTokenExpiry: settings?.gmail_token_expiry,
+      })
+      if (!to || !gmailCheck.ok) return
+      if (settings?.email_provider !== 'gmail' && (!smtp.host || !smtp.user || !smtp.password)) return
 
       const html = generatePaymentConfirmationEmail({
         businessName,
@@ -1029,6 +1035,9 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
         smtpFromEmail: smtp.user,
         pdfBuffer,
         fileName: `Invoice-${form.invoice_number || 'paid'}.pdf`,
+        emailProvider:    settings?.email_provider,
+        gmailAccessToken: settings?.gmail_access_token,
+        gmailTokenExpiry: settings?.gmail_token_expiry,
       })
     } catch (_) {
       // Non-fatal — the invoice has already been marked as paid.
@@ -2487,7 +2496,13 @@ function ReminderModal({ invoice, clients, settings, onClose, onReminderSent }) 
 
   async function handleSend() {
     if (!to.trim()) { setError('Recipient email is required.'); return }
-    if (!smtp.host || !smtp.user || !smtp.password) {
+    const gmailCheck = checkGmailProviderReady({
+      emailProvider:    settings?.email_provider,
+      gmailAccessToken: settings?.gmail_access_token,
+      gmailTokenExpiry: settings?.gmail_token_expiry,
+    })
+    if (!gmailCheck.ok) { setError(gmailCheck.error); return }
+    if (settings?.email_provider !== 'gmail' && (!smtp.host || !smtp.user || !smtp.password)) {
       setError('SMTP not configured. Go to Settings → Email Settings.')
       return
     }
@@ -2543,6 +2558,9 @@ function ReminderModal({ invoice, clients, settings, onClose, onReminderSent }) 
         smtpFromEmail: smtp.user,
         pdfBuffer,
         fileName:     `Invoice-${invoice?.invoice_number || 'reminder'}.pdf`,
+        emailProvider:    settings?.email_provider,
+        gmailAccessToken: settings?.gmail_access_token,
+        gmailTokenExpiry: settings?.gmail_token_expiry,
       })
 
       if (res?.success === false) throw new Error(res.error || 'Failed to send reminder.')
@@ -3015,7 +3033,13 @@ export default function Invoices() {
         password:  settings?.smtp_password  || '',
         from_name: settings?.smtp_from_name || businessName || '',
       }
-      if (!to || !smtp.host || !smtp.user || !smtp.password) return
+      const gmailCheck = checkGmailProviderReady({
+        emailProvider:    settings?.email_provider,
+        gmailAccessToken: settings?.gmail_access_token,
+        gmailTokenExpiry: settings?.gmail_token_expiry,
+      })
+      if (!to || !gmailCheck.ok) return
+      if (settings?.email_provider !== 'gmail' && (!smtp.host || !smtp.user || !smtp.password)) return
 
       const html = generatePaymentConfirmationEmail({
         businessName,
@@ -3067,6 +3091,9 @@ export default function Invoices() {
         smtpFromEmail: smtp.user,
         pdfBuffer,
         fileName: `Invoice-${inv.invoice_number || 'paid'}.pdf`,
+        emailProvider:    settings?.email_provider,
+        gmailAccessToken: settings?.gmail_access_token,
+        gmailTokenExpiry: settings?.gmail_token_expiry,
       })
     } catch (_) {
       // Non-fatal — the invoice has already been marked as paid.
