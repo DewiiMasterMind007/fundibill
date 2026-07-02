@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { generateInvoiceEmail, generateEstimateEmail } from '../lib/emailTemplates'
-import { sendEmail, checkGmailProviderReady } from '../lib/sendEmail'
+import { supabase } from '../lib/supabase'
+import { sendEmail, arrayBufferToBase64 } from '../utils/sendEmail'
 import { buildPdfBuffer } from '../lib/pdfBuffer'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -77,16 +78,14 @@ export function SendEmailModal({ isOpen, data, settings, docType, clientEmail, c
   const smtp = smtpFromSettings(settings)
   const smtpMissing = !smtp.host || !smtp.user || !smtp.password
 
-  const gmailCheck = checkGmailProviderReady({
-    emailProvider:     settings?.email_provider,
-    gmailAccessToken:  settings?.gmail_access_token,
-    gmailTokenExpiry:  settings?.gmail_token_expiry,
-  })
+  const isGmailProvider = settings?.email_provider === 'gmail'
+  const gmailNotConnected = isGmailProvider && !settings?.gmail_access_token
+  const sendBlocked = isGmailProvider ? gmailNotConnected : smtpMissing
 
   async function handleSend() {
     if (!to.trim()) { setError('Recipient email is required.'); return }
-    if (!gmailCheck.ok) { setError(gmailCheck.error); return }
-    if (settings?.email_provider !== 'gmail' && smtpMissing) {
+    if (gmailNotConnected) { setError('Gmail not connected. Please connect Gmail in Settings.'); return }
+    if (!isGmailProvider && smtpMissing) {
       setError('SMTP is not configured. Go to Settings → Email Settings.')
       return
     }
@@ -142,40 +141,18 @@ export function SendEmailModal({ isOpen, data, settings, docType, clientEmail, c
         preview: html?.slice(0, 80),
       })
 
-      const payload = {
-        to:           to.trim(),
-        subject:      subject.trim(),
-        message:      body.trim(),  // plain-text fallback
-        html,                       // branded HTML body
-        smtpHost:     smtp.host,
-        smtpPort:     parseInt(smtp.port || '587', 10) || 587,
-        smtpUser:     smtp.user,
-        smtpPassword: smtp.password,
-        smtpFromName: smtp.from_name,
-        smtpFromEmail: smtp.user,
-        pdfBuffer,
-        fileName,
-        emailProvider:    settings?.email_provider,
-        gmailAccessToken: settings?.gmail_access_token,
-        gmailTokenExpiry: settings?.gmail_token_expiry,
-      }
-      console.log('[SendEmailModal] IPC payload (excluding buffers):', {
-        to:          payload.to,
-        subject:     payload.subject,
-        hasMessage:  !!payload.message,
-        hasHtml:     !!payload.html,
-        htmlLength:  payload.html?.length,
-        smtpHost:    payload.smtpHost,
-        smtpUser:    payload.smtpUser,
-        hasBuffer:   !!payload.pdfBuffer,
-        fileName:    payload.fileName,
+      const { data: { user: authUser } } = await supabase.auth.getUser()
+
+      await sendEmail({
+        supabase,
+        userId:      authUser?.id,
+        profile:     settings,
+        to:          to.trim(),
+        subject:     subject.trim(),
+        html,
+        pdfBase64:   pdfBuffer ? arrayBufferToBase64(pdfBuffer) : null,
+        pdfFilename: fileName,
       })
-
-      const res = await sendEmail(payload)
-
-      if (res?.success === false) {
-        throw new Error(res.error || 'Unknown error from mail server.')
-      }
 
       setSent(true)
       // Notify parent (e.g. to auto-dismiss a recurring-invoice notification banner)
@@ -244,14 +221,16 @@ export function SendEmailModal({ isOpen, data, settings, docType, clientEmail, c
 
         {/* Body */}
         <div style={{ padding: '24px 24px 20px' }}>
-          {smtpMissing && !sent && (
+          {sendBlocked && !sent && (
             <div style={{
               background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 8,
               padding: '10px 14px', marginBottom: 16, fontSize: 13, color: '#92400e',
               display: 'flex', alignItems: 'center', gap: 8,
             }}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-              SMTP not configured. Go to <strong style={{ margin: '0 3px' }}>Settings → Email Settings</strong> first.
+              {isGmailProvider
+                ? <>Gmail not connected. Go to <strong style={{ margin: '0 3px' }}>Settings → Email Settings</strong> to connect it.</>
+                : <>SMTP not configured. Go to <strong style={{ margin: '0 3px' }}>Settings → Email Settings</strong> first.</>}
             </div>
           )}
 
@@ -338,12 +317,12 @@ export function SendEmailModal({ isOpen, data, settings, docType, clientEmail, c
               </button>
               <button
                 onClick={handleSend}
-                disabled={sending || smtpMissing}
+                disabled={sending || sendBlocked}
                 style={{
                   padding: '9px 22px', borderRadius: 8, border: 'none',
-                  background: (sending || smtpMissing) ? '#94a3b8' : '#14b8a6',
+                  background: (sending || sendBlocked) ? '#94a3b8' : '#14b8a6',
                   color: '#fff', fontWeight: 600, fontSize: 14,
-                  cursor: (sending || smtpMissing) ? 'not-allowed' : 'pointer',
+                  cursor: (sending || sendBlocked) ? 'not-allowed' : 'pointer',
                   display: 'flex', alignItems: 'center', gap: 7,
                 }}
               >

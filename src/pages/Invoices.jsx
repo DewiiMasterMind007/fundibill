@@ -8,8 +8,8 @@ import { useTrialStatus } from '../context/TrialContext'
 import { useRecurringNotif } from '../context/RecurringNotifContext'
 import { useAppData } from '../context/AppDataContext'
 import HelpButton from '../components/HelpButton'
-import { generateReminderEmail, generatePaymentConfirmationEmail, PLAIN_TEXT_FOOTER, fillMessageTemplate } from '../lib/emailTemplates'
-import { sendEmail, checkGmailProviderReady } from '../lib/sendEmail'
+import { generateReminderEmail, generatePaymentConfirmationEmail, fillMessageTemplate } from '../lib/emailTemplates'
+import { sendEmail, arrayBufferToBase64 } from '../utils/sendEmail'
 import { buildPdfBuffer } from '../lib/pdfBuffer'
 import { sendPdfViaWhatsApp, buildInvoiceWhatsAppMessage } from '../lib/whatsapp'
 import useIsMobile from '../hooks/useIsMobile'
@@ -973,13 +973,10 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
         password:  settings?.smtp_password  || '',
         from_name: settings?.smtp_from_name || businessName || '',
       }
-      const gmailCheck = checkGmailProviderReady({
-        emailProvider:    settings?.email_provider,
-        gmailAccessToken: settings?.gmail_access_token,
-        gmailTokenExpiry: settings?.gmail_token_expiry,
-      })
-      if (!to || !gmailCheck.ok) return
-      if (settings?.email_provider !== 'gmail' && (!smtp.host || !smtp.user || !smtp.password)) return
+      const isGmailProvider = settings?.email_provider === 'gmail'
+      if (!to) return
+      if (isGmailProvider && !settings?.gmail_access_token) return
+      if (!isGmailProvider && (!smtp.host || !smtp.user || !smtp.password)) return
 
       const html = generatePaymentConfirmationEmail({
         businessName,
@@ -1022,22 +1019,17 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
         pdfBuffer = undefined
       }
 
+      const { data: { user: authUser } } = await supabase.auth.getUser()
+
       await sendEmail({
+        supabase,
+        userId:      authUser?.id,
+        profile:     settings,
         to,
         subject,
-        message: message + PLAIN_TEXT_FOOTER,
         html,
-        smtpHost:      smtp.host,
-        smtpPort:      parseInt(smtp.port || '587', 10) || 587,
-        smtpUser:      smtp.user,
-        smtpPassword:  smtp.password,
-        smtpFromName:  smtp.from_name,
-        smtpFromEmail: smtp.user,
-        pdfBuffer,
-        fileName: `Invoice-${form.invoice_number || 'paid'}.pdf`,
-        emailProvider:    settings?.email_provider,
-        gmailAccessToken: settings?.gmail_access_token,
-        gmailTokenExpiry: settings?.gmail_token_expiry,
+        pdfBase64:   pdfBuffer ? arrayBufferToBase64(pdfBuffer) : null,
+        pdfFilename: `Invoice-${form.invoice_number || 'paid'}.pdf`,
       })
     } catch (_) {
       // Non-fatal — the invoice has already been marked as paid.
@@ -2513,13 +2505,12 @@ function ReminderModal({ invoice, clients, settings, onClose, onReminderSent }) 
 
   async function handleSend() {
     if (!to.trim()) { setError('Recipient email is required.'); return }
-    const gmailCheck = checkGmailProviderReady({
-      emailProvider:    settings?.email_provider,
-      gmailAccessToken: settings?.gmail_access_token,
-      gmailTokenExpiry: settings?.gmail_token_expiry,
-    })
-    if (!gmailCheck.ok) { setError(gmailCheck.error); return }
-    if (settings?.email_provider !== 'gmail' && (!smtp.host || !smtp.user || !smtp.password)) {
+    const isGmailProvider = settings?.email_provider === 'gmail'
+    if (isGmailProvider && !settings?.gmail_access_token) {
+      setError('Gmail not connected. Please connect Gmail in Settings.')
+      return
+    }
+    if (!isGmailProvider && (!smtp.host || !smtp.user || !smtp.password)) {
       setError('SMTP not configured. Go to Settings → Email Settings.')
       return
     }
@@ -2562,25 +2553,18 @@ function ReminderModal({ invoice, clients, settings, onClose, onReminderSent }) 
         pdfBuffer = undefined
       }
 
-      const res = await sendEmail({
-        to:           to.trim(),
-        subject:      subject.trim(),
-        message:      message.trim() + PLAIN_TEXT_FOOTER,
-        html,
-        smtpHost:     smtp.host,
-        smtpPort:     parseInt(smtp.port || '587', 10) || 587,
-        smtpUser:     smtp.user,
-        smtpPassword: smtp.password,
-        smtpFromName: smtp.from_name,
-        smtpFromEmail: smtp.user,
-        pdfBuffer,
-        fileName:     `Invoice-${invoice?.invoice_number || 'reminder'}.pdf`,
-        emailProvider:    settings?.email_provider,
-        gmailAccessToken: settings?.gmail_access_token,
-        gmailTokenExpiry: settings?.gmail_token_expiry,
-      })
+      const { data: { user: authUser } } = await supabase.auth.getUser()
 
-      if (res?.success === false) throw new Error(res.error || 'Failed to send reminder.')
+      await sendEmail({
+        supabase,
+        userId:      authUser?.id,
+        profile:     settings,
+        to:          to.trim(),
+        subject:     subject.trim(),
+        html,
+        pdfBase64:   pdfBuffer ? arrayBufferToBase64(pdfBuffer) : null,
+        pdfFilename: `Invoice-${invoice?.invoice_number || 'reminder'}.pdf`,
+      })
 
       setSent(true)
       onReminderSent()
@@ -3050,13 +3034,10 @@ export default function Invoices() {
         password:  settings?.smtp_password  || '',
         from_name: settings?.smtp_from_name || businessName || '',
       }
-      const gmailCheck = checkGmailProviderReady({
-        emailProvider:    settings?.email_provider,
-        gmailAccessToken: settings?.gmail_access_token,
-        gmailTokenExpiry: settings?.gmail_token_expiry,
-      })
-      if (!to || !gmailCheck.ok) return
-      if (settings?.email_provider !== 'gmail' && (!smtp.host || !smtp.user || !smtp.password)) return
+      const isGmailProvider = settings?.email_provider === 'gmail'
+      if (!to) return
+      if (isGmailProvider && !settings?.gmail_access_token) return
+      if (!isGmailProvider && (!smtp.host || !smtp.user || !smtp.password)) return
 
       const html = generatePaymentConfirmationEmail({
         businessName,
@@ -3095,22 +3076,17 @@ export default function Invoices() {
         pdfBuffer = undefined
       }
 
+      const { data: { user: authUser } } = await supabase.auth.getUser()
+
       await sendEmail({
+        supabase,
+        userId:      authUser?.id,
+        profile:     settings,
         to,
         subject,
-        message: message + PLAIN_TEXT_FOOTER,
         html,
-        smtpHost:      smtp.host,
-        smtpPort:      parseInt(smtp.port || '587', 10) || 587,
-        smtpUser:      smtp.user,
-        smtpPassword:  smtp.password,
-        smtpFromName:  smtp.from_name,
-        smtpFromEmail: smtp.user,
-        pdfBuffer,
-        fileName: `Invoice-${inv.invoice_number || 'paid'}.pdf`,
-        emailProvider:    settings?.email_provider,
-        gmailAccessToken: settings?.gmail_access_token,
-        gmailTokenExpiry: settings?.gmail_token_expiry,
+        pdfBase64:   pdfBuffer ? arrayBufferToBase64(pdfBuffer) : null,
+        pdfFilename: `Invoice-${inv.invoice_number || 'paid'}.pdf`,
       })
     } catch (_) {
       // Non-fatal — the invoice has already been marked as paid.

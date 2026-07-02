@@ -339,11 +339,18 @@ Identical columns to `invoice_items` but with `estimate_id` instead of `invoice_
 │   │   ├── supabase.js         — Supabase client (VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY)
 │   │   ├── auth.js             — Thin wrappers: signIn, signUp, signOut, getSession,
 │   │   │                          onAuthStateChange
-│   │   ├── sendEmail.js        — Unified email sender: routes to window.electronAPI.sendEmail
-│   │   │                          (Electron) or fetch to send-reminder.php (PWA)
+│   │   ├── sendEmail.js        — Electron-IPC/PHP-relay email sender for the SMTP provider
+│   │   │                          only (window.electronAPI.sendEmail in Electron, fetch to
+│   │   │                          send-reminder.php in the PWA). Called internally by
+│   │   │                          src/utils/sendEmail.js's provider router — not called
+│   │   │                          directly by components anymore. checkGmailProviderReady()
+│   │   │                          still defined/used internally as a no-op safety net.
 │   │   ├── emailTemplates.js   — generateInvoiceEmail, generateEstimateEmail,
 │   │   │                          generateReminderEmail, generatePaymentConfirmationEmail,
-│   │   │                          generateTestEmail, PLAIN_TEXT_FOOTER
+│   │   │                          generateTestEmail, PLAIN_TEXT_FOOTER, fillMessageTemplate
+│   │   │                          (fills {clientName}/{invoiceNumber}/etc. placeholders in
+│   │   │                          the profiles.email_invoice_message/email_quote_message/
+│   │   │                          email_overdue_message templates)
 │   │   ├── pdfBuffer.js        — buildPdfBuffer(data, settings, docType) — dynamically
 │   │   │                          imports PdfDocument, returns ArrayBuffer
 │   │   └── whatsapp.js         — formatPhoneForWhatsApp, buildInvoiceWhatsAppMessage,
@@ -353,7 +360,18 @@ Identical columns to `invoice_items` but with `estimate_id` instead of `invoice_
 │   │   └── useIsMobile.js      — Returns true when viewport ≤ 768px
 │   │
 │   └── utils/
+│       ├── sendEmail.js        — Shared provider-routing sendEmail() used by every send flow
+│       │                          in the app (invoices, estimates, reminders, payment
+│       │                          confirmations, Settings test email). Routes to
+│       │                          /api/send-gmail when email_provider === 'gmail', otherwise
+│       │                          delegates to src/lib/sendEmail.js unchanged. See Section 7.
 │       └── pdf.js              — Legacy jsPDF builder (unused in active flow, kept for reference)
+│
+├── api/                        — Vercel Serverless Functions (Gmail OAuth — see Section 7)
+│   ├── gmail-auth.js            — Starts the OAuth flow, redirects to Google's consent screen
+│   ├── gmail-callback.js        — Exchanges the auth code for tokens, stores them on profiles
+│   └── send-gmail.js            — Sends an email via the Gmail API using stored OAuth tokens,
+│                                    refreshing the access token first if it's expired/near-expiry
 │
 ├── supabase/
 │   └── functions/
@@ -457,10 +475,13 @@ Identical columns to `invoice_items` but with `estimate_id` instead of `invoice_
 - Logo: only HTTPS URLs render in PDFs (base64/local paths blocked by email clients)
 
 ### Email Sending
-- **Electron:** `nodemailer` in main process via IPC channels:
-  - `email:send` (`window.db.email.send`) — test emails from Settings
-  - `send-email` (`window.electronAPI.sendEmail`) — all other emails (invoices, quotes, reminders, payment confirmation)
-- **PWA:** `sendEmail.js` POSTs JSON to `https://api.fundibill.online/send-reminder.php`
+- All send flows call the shared `src/utils/sendEmail.js` router, which checks `profile.email_provider`:
+  - **`'gmail'`** → `POST /api/send-gmail` (Gmail API, server-side token refresh) — see Section 7
+  - **`'smtp'`** (default) → unchanged `src/lib/sendEmail.js`:
+    - **Electron:** `nodemailer` in main process via IPC channels:
+      - `email:send` (`window.db.email.send`) — legacy, no longer called by any component
+      - `send-email` (`window.electronAPI.sendEmail`) — all SMTP emails (invoices, quotes, reminders, payment confirmation, test)
+    - **PWA:** POSTs JSON to `https://api.fundibill.online/send-reminder.php`
 - Email types: Invoice, Quote, Manual Reminder, Payment Confirmation, Test
 - All use branded HTML via `emailTemplates.js` (`baseTemplate` outer chrome)
 - SMTP: `port === 465` → `secure: true`; otherwise STARTTLS. `tls.rejectUnauthorized: false`
@@ -552,11 +573,12 @@ Identical columns to `invoice_items` but with `estimate_id` instead of `invoice_
 ## 7. EMAIL PROVIDER SYSTEM
 
 ### Current State
-- `profiles.email_provider` column: `'smtp'` (active) or `'gmail'` (OAuth UI built, actual Gmail-API sending not yet wired — see below)
-- Settings → Email Settings → Gmail tab now shows a real **Connect Gmail** / **Connected: {email}** flow (see UI flow below) instead of the old "coming soon" notice and read-only SMTP/App-Password fields — that legacy UI has been removed from `Settings.jsx`
-- The SMTP fields (`smtp_host`, `smtp_port`, `smtp_user`, `smtp_password`, `smtp_from_name`) are only shown/editable under the **Custom SMTP** tab now
+- `profiles.email_provider` column: `'smtp'` or `'gmail'` — both fully wired end-to-end, including actual sending
+- Settings → Email Settings → Gmail tab shows a real **Connect Gmail** / **Connected: {email}** flow (see UI flow below); legacy "coming soon" + read-only SMTP/App-Password UI has been removed from `Settings.jsx`
+- The SMTP fields (`smtp_host`, `smtp_port`, `smtp_user`, `smtp_password`, `smtp_from_name`) are only shown/editable under the **Custom SMTP** tab
+- Every send flow in the app (invoice, estimate, payment reminder, payment confirmation, Settings test email) routes through the shared `src/utils/sendEmail.js` provider router — see "Email sending — provider routing" below
 
-### Gmail OAuth — In progress (v2 branch)
+### Gmail OAuth (v2 branch) — complete
 
 **Google Cloud Console project:** FundiBill  
 **OAuth Client ID:** `475513706412-9lhbtur6spj97n9lrt5mejhae421fsc9.apps.googleusercontent.com`  
@@ -567,7 +589,7 @@ Identical columns to `invoice_items` but with `estimate_id` instead of `invoice_
 **Architecture chosen:** Vercel Serverless API Routes (files in `/api/` directory)
 - `/api/gmail-auth.js` — **built.** Accepts `?user_id=`, builds the Google OAuth consent URL (client_id, redirect_uri, scope, access_type=offline, prompt=consent, state=user_id), 302-redirects the browser to it.
 - `/api/gmail-callback.js` — **built.** Google redirects here with `?code=&state=`. Exchanges the code for tokens at `https://oauth2.googleapis.com/token`, fetches the connected address from `https://www.googleapis.com/oauth2/v2/userinfo` (`response.email`), writes `gmail_access_token`, `gmail_refresh_token`, `gmail_token_expiry`, `gmail_connected_email`, and `email_provider = 'gmail'` onto the `profiles` row (via `SUPABASE_SERVICE_ROLE_KEY`, bypassing RLS), then 302-redirects to `{VITE_APP_URL}/#/settings?gmail=connected` (or `...?gmail=error` on failure). **Note:** the redirect must include the `#/` HashRouter prefix — a plain `/settings?...` path is invisible to react-router under `HashRouter` and the SPA falls back to its default route instead of landing on Settings. OAuth scope is `gmail.send` + `userinfo.email` (see below).
-- `/api/send-gmail.js` — **not yet built.** Will send email via Gmail API using stored tokens; handles token refresh.
+- `/api/send-gmail.js` — **built.** POST endpoint. Accepts `{ user_id, to, subject, html, pdf_base64, pdf_filename, from_name }`. Fetches the user's `gmail_access_token`/`gmail_refresh_token`/`gmail_token_expiry`/`gmail_connected_email` via `SUPABASE_SERVICE_ROLE_KEY`; if the access token is expired or within 5 minutes of expiring, refreshes it via `https://oauth2.googleapis.com/token` (`grant_type=refresh_token`) and persists the new `gmail_access_token`/`gmail_token_expiry` back onto `profiles`. Builds a raw RFC 2822 message (multipart/mixed with a base64 PDF part when `pdf_base64` is present, otherwise a plain `text/html` message), base64url-encodes it, and POSTs to `https://gmail.googleapis.com/gmail/v1/users/me/messages/send`. Returns `{ success: true, messageId }` on success, `401 { error: "Gmail not connected" }` / `401 { error: "Gmail token expired. Please reconnect Gmail in Settings." }` / `500 { error: "Failed to send email", details }` on failure.
 
 **Token storage:** Per user in Supabase `profiles` table — columns added (see Section 4):
 - `gmail_access_token` (text)
@@ -587,13 +609,28 @@ Identical columns to `invoice_items` but with `estimate_id` instead of `invoice_
 3. On mount, Settings reads `?gmail=` from the URL (`useLocation().search`, works under HashRouter): on `connected` it re-fetches `email_provider`/`gmail_connected_email`, updates local state + calls `refreshProfile()` (`AppDataContext`) so other pages see the change, shows a success toast, and strips the query param via `window.history.replaceState`; on `error` it shows an error toast and strips the param the same way
 4. **Connected (State B):** green dot + "Connected: {gmail_connected_email}", with a "Disconnect" text link below. The provider toggle buttons at the top of the tab reflect `form.email_provider === 'gmail'` automatically
 5. **Disconnect:** `window.confirm(...)` → nulls `gmail_access_token`/`gmail_refresh_token`/`gmail_token_expiry`/`gmail_connected_email` and sets `email_provider = 'smtp'` directly via Supabase (not gated behind the page's Save button) → `refreshProfile()` → success toast "Gmail disconnected"
-6. Subsequent sends should route through `/api/send-gmail.js` instead of SMTP — **not yet built** (Phase 4)
+6. Subsequent sends route through `/api/send-gmail.js` instead of SMTP — **built**, see below
 
-**Email-send guard — built in `src/lib/sendEmail.js` (`checkGmailProviderReady`):**
-- Exported helper checks: if `emailProvider === 'gmail'` and (`gmailAccessToken` is missing OR `gmailTokenExpiry` is missing/invalid/in the past) → blocks the send and returns `{ ok: false, error: 'Your Gmail connection has expired. Please reconnect Gmail in Settings.' }`
-- `sendEmail()` runs this check first and returns `{ success: false, error }` without attempting Electron IPC or the `send-reminder.php` relay — it does **not** silently fall back to SMTP
-- Wired into every send path that has a `profiles` row in scope: `SendEmailModal.jsx`, and in `Invoices.jsx` the reminder modal (`ReminderModal`) and both mark-as-paid payment-confirmation flows (detail view + list view) — each now passes `emailProvider`/`gmailAccessToken`/`gmailTokenExpiry` from `settings` (the `AppDataContext` profile) into the `sendEmail()` payload
-- Real Gmail-API sending via `/api/send-gmail.js` is still **not implemented** — a valid, non-expired Gmail connection currently still falls through to the old SMTP/relay code path with empty SMTP credentials until Phase 4 wires up the actual Gmail send
+### Email sending — provider routing (`src/utils/sendEmail.js`)
+
+A single shared router, **not** to be confused with `src/lib/sendEmail.js` (the older Electron-IPC/PHP-relay implementation, which is still used internally — see below):
+
+```js
+sendEmail({ supabase, userId, profile, to, subject, html, pdfBase64, pdfFilename })
+```
+
+- **`profile.email_provider === 'gmail'`** → throws immediately if `profile.gmail_access_token` is missing ("Gmail not connected. Please connect Gmail in Settings."); otherwise POSTs to `/api/send-gmail` with `{ user_id, to, subject, html, pdf_base64, pdf_filename, from_name: profile.business_name || 'FundiBill' }`. A merely-expired (not missing) token is **not** blocked client-side — `/api/send-gmail.js` refreshes it server-side. Throws with the API's error message on failure; returns `{ success: true, messageId }` on success.
+- **`profile.email_provider === 'smtp'` (or anything else)** → delegates to the **existing, unmodified** `sendEmail()` in `src/lib/sendEmail.js`, which still does the Electron-IPC-or-PHP-relay routing exactly as before (`window.electronAPI.sendEmail` in the desktop app, `POST https://api.fundibill.online/send-reminder.php` in the PWA). SMTP credentials are pulled from the passed `profile` object (`smtp_host`/`smtp_port`/`smtp_user`/`smtp_password`/`smtp_from_name`). Throws on `{ success: false }`.
+- `pdfBase64` (string) is converted back to an `ArrayBuffer` before being handed to the legacy SMTP path, since that path (and the Electron `send-email` IPC handler in `electron/main.js`) expects a raw buffer, not base64. Also exports `arrayBufferToBase64()` for callers building the PDF as an `ArrayBuffer` via `buildPdfBuffer()`.
+- **Known limitation:** the shared signature only carries one `html` field (no separate plain-text body). For the SMTP/PHP-relay path this means the plain-text fallback (`text_body`) is now the raw HTML string rather than a dedicated plain-text message — a minor regression from the pre-Phase-4 behavior, which built a separate plain-text string with `PLAIN_TEXT_FOOTER`.
+
+**Wired into every send flow** (all pass `supabase`, `userId` from `supabase.auth.getUser()`, and the relevant `profile`/`settings` object):
+- `SendEmailModal.jsx` — invoice + estimate send (shared modal, both doc types)
+- `Invoices.jsx` `ReminderModal` — overdue payment reminder
+- `Invoices.jsx` `handleConfirmMarkPaidWithEmail` (detail view) and `handleConfirmMarkPaidWithEmailFromList` (list view) — payment confirmation email, both non-fatal/best-effort like before
+- `Settings.jsx` `sendTestEmail` — test email, no PDF attachment; recipient is `gmail_connected_email` when the Gmail tab is active, otherwise `smtp_user`
+
+`src/lib/sendEmail.js`'s `checkGmailProviderReady()` guard is still defined and still runs inside its own `sendEmail()`, but is no longer called directly by any component — the new router passes `emailProvider: 'smtp'` explicitly on the delegated path, so the guard is a no-op safety net there.
 
 ---
 
@@ -623,7 +660,7 @@ Identical columns to `invoice_items` but with `estimate_id` instead of `invoice_
 
 2. **Recurring invoice future scheduling:** Only the FIRST invoice is created by the frontend save flow. Subsequent invoices for ongoing schedules (monthly/weekly/etc.) require a Supabase cron job or edge function. The `send-payment-reminders` function is a template for this pattern — not yet implemented.
 
-3. **Gmail OAuth:** Connect/Disconnect UI, callback handling, and DB schema are built on `v2` (see Section 7). Actual Gmail-API sending (`/api/send-gmail.js`) is not yet implemented — a connected, non-expired Gmail account still falls through to the old SMTP/relay path with empty credentials until that's wired up.
+3. **Gmail OAuth:** Complete on `v2` (see Section 7) — connect/disconnect UI, callback handling, DB schema, and actual Gmail-API sending via `/api/send-gmail.js` are all built and wired into every send flow.
 
 4. **Blank name fields in PayFast emails:** `fundibill-buy.php` sends `name_first` / `name_last` to PayFast but they appear blank in confirmation emails. Under investigation.
 

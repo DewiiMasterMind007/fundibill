@@ -6,8 +6,8 @@ import { useTrialStatus } from '../context/TrialContext'
 import { useAppData } from '../context/AppDataContext'
 import HelpButton from '../components/HelpButton'
 import PasswordInput from '../components/PasswordInput'
-import { generateTestEmail, PLAIN_TEXT_FOOTER } from '../lib/emailTemplates'
-import { sendEmail } from '../lib/sendEmail'
+import { generateTestEmail } from '../lib/emailTemplates'
+import { sendEmail } from '../utils/sendEmail'
 import useIsMobile from '../hooks/useIsMobile'
 import PlanSelectModal from '../components/PlanSelectModal'
 
@@ -513,7 +513,7 @@ export default function Settings() {
   const trialStatus = useTrialStatus()
   const isReadOnly  = trialStatus?.isReadOnly ?? false
   const { user, signOut, currentProfile, refreshSubscription } = useAuth()
-  const { refreshProfile } = useAppData()
+  const { profile, refreshProfile } = useAppData()
   const isMobile = useIsMobile()
   const navigate = useNavigate()
   const location = useLocation()
@@ -836,6 +836,7 @@ export default function Settings() {
 
   // ── Test Email ───────────────────────────────────────────────────────────
   const sendTestEmail = async () => {
+    const isGmailProvider = form.email_provider === 'gmail'
     const smtp = {
       host:      form.smtp_host     || '',
       port:      form.smtp_port     || '587',
@@ -843,35 +844,44 @@ export default function Settings() {
       password:  form.smtp_password || '',
       from_name: form.smtp_from_name || form.business_name || '',
     }
-    if (!smtp.host || !smtp.user || !smtp.password) {
+
+    if (isGmailProvider && !gmailConnected) {
+      setTestEmailMsg('Connect Gmail first, in the Gmail tab above.')
+      setTestEmailStatus('error')
+      return
+    }
+    if (!isGmailProvider && (!smtp.host || !smtp.user || !smtp.password)) {
       setTestEmailMsg('Fill in SMTP Host, Username, and Password first.')
       setTestEmailStatus('error')
       return
     }
+
     setTestEmailStatus('sending')
     setTestEmailMsg('')
+
     const html = generateTestEmail({
       businessName: form.business_name || '',
       primaryColor: form.primary_color || '#14b8a6',
     })
-    const res = await sendEmail({
-      to:           smtp.user,
-      subject:      'FundiBill — Test Email',
-      text:         'This is a test email from FundiBill. Your email settings are configured correctly.' + PLAIN_TEXT_FOOTER,
-      html,
-      smtpHost:     smtp.host,
-      smtpPort:     parseInt(smtp.port || '587', 10) || 587,
-      smtpUser:     smtp.user,
-      smtpPassword: smtp.password,
-      smtpFromName: smtp.from_name,
-      smtpFromEmail: smtp.user,
-    })
-    if (res?.success) {
+
+    const to = isGmailProvider ? gmailEmail : smtp.user
+
+    try {
+      await sendEmail({
+        supabase,
+        userId:  user?.id,
+        profile: { ...profile, ...form },
+        to,
+        subject: 'FundiBill — Test Email',
+        html,
+        pdfBase64:   null,
+        pdfFilename: null,
+      })
       setTestEmailStatus('success')
-      setTestEmailMsg(`Test email sent to ${smtp.user}`)
-    } else {
+      setTestEmailMsg(`Test email sent to ${to}`)
+    } catch (e) {
       setTestEmailStatus('error')
-      setTestEmailMsg(res?.error || 'Failed to send. Check your SMTP settings.')
+      setTestEmailMsg(e.message || 'Failed to send. Check your email settings.')
     }
   }
 
