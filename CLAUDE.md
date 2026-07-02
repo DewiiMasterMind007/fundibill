@@ -561,12 +561,12 @@ Identical columns to `invoice_items` but with `estimate_id` instead of `invoice_
 **Google Cloud Console project:** FundiBill  
 **OAuth Client ID:** `475513706412-9lhbtur6spj97n9lrt5mejhae421fsc9.apps.googleusercontent.com`  
 **Client Secret:** Stored in Vercel environment variable `GMAIL_CLIENT_SECRET` — **never in code**  
-**Scope:** `https://www.googleapis.com/auth/gmail.send`  
+**Scope:** `https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/userinfo.email` — the `userinfo.email` scope is required because `gmail.send` alone does not grant access to the profile/userinfo endpoint used to fetch the connected address  
 **App status:** Testing mode — max 100 users, manual whitelist via Google Cloud Console
 
 **Architecture chosen:** Vercel Serverless API Routes (files in `/api/` directory)
 - `/api/gmail-auth.js` — **built.** Accepts `?user_id=`, builds the Google OAuth consent URL (client_id, redirect_uri, scope, access_type=offline, prompt=consent, state=user_id), 302-redirects the browser to it.
-- `/api/gmail-callback.js` — **built.** Google redirects here with `?code=&state=`. Exchanges the code for tokens at `https://oauth2.googleapis.com/token`, fetches the connected address from `https://gmail.googleapis.com/gmail/v1/users/me/profile`, writes `gmail_access_token`, `gmail_refresh_token`, `gmail_token_expiry`, `gmail_connected_email`, and `email_provider = 'gmail'` onto the `profiles` row (via `SUPABASE_SERVICE_ROLE_KEY`, bypassing RLS), then 302-redirects to `{VITE_APP_URL}/settings?gmail=connected` (or `...?gmail=error` on failure).
+- `/api/gmail-callback.js` — **built.** Google redirects here with `?code=&state=`. Exchanges the code for tokens at `https://oauth2.googleapis.com/token`, fetches the connected address from `https://www.googleapis.com/oauth2/v2/userinfo` (`response.email`), writes `gmail_access_token`, `gmail_refresh_token`, `gmail_token_expiry`, `gmail_connected_email`, and `email_provider = 'gmail'` onto the `profiles` row (via `SUPABASE_SERVICE_ROLE_KEY`, bypassing RLS), then 302-redirects to `{VITE_APP_URL}/#/settings?gmail=connected` (or `...?gmail=error` on failure). **Note:** the redirect must include the `#/` HashRouter prefix — a plain `/settings?...` path is invisible to react-router under `HashRouter` and the SPA falls back to its default route instead of landing on Settings. OAuth scope is `gmail.send` + `userinfo.email` (see below).
 - `/api/send-gmail.js` — **not yet built.** Will send email via Gmail API using stored tokens; handles token refresh.
 
 **Token storage:** Per user in Supabase `profiles` table — columns added (see Section 4):
@@ -583,7 +583,7 @@ Identical columns to `invoice_items` but with `estimate_id` instead of `invoice_
 
 **UI flow — built in `src/pages/Settings.jsx` (Email Settings → Gmail tab):**
 1. **Not connected (State A):** "Connect Gmail" button + helper text "Send invoices and estimates directly from your Gmail address". Click → `supabase.auth.getUser()` → `window.location.href = '/api/gmail-auth?user_id=<id>'` (full-page redirect, leaves the app)
-2. Google's consent screen → redirects to `/api/gmail-callback?code=...&state=<id>` → tokens exchanged and stored → redirects back to `/settings?gmail=connected` (or `?gmail=error`)
+2. Google's consent screen → redirects to `/api/gmail-callback?code=...&state=<id>` → tokens exchanged and stored → redirects back to `/#/settings?gmail=connected` (or `?gmail=error`)
 3. On mount, Settings reads `?gmail=` from the URL (`useLocation().search`, works under HashRouter): on `connected` it re-fetches `email_provider`/`gmail_connected_email`, updates local state + calls `refreshProfile()` (`AppDataContext`) so other pages see the change, shows a success toast, and strips the query param via `window.history.replaceState`; on `error` it shows an error toast and strips the param the same way
 4. **Connected (State B):** green dot + "Connected: {gmail_connected_email}", with a "Disconnect" text link below. The provider toggle buttons at the top of the tab reflect `form.email_provider === 'gmail'` automatically
 5. **Disconnect:** `window.confirm(...)` → nulls `gmail_access_token`/`gmail_refresh_token`/`gmail_token_expiry`/`gmail_connected_email` and sets `email_provider = 'smtp'` directly via Supabase (not gated behind the page's Save button) → `refreshProfile()` → success toast "Gmail disconnected"

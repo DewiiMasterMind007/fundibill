@@ -76,12 +76,15 @@ export default async function handler(req, res) {
     }
 
     // Success — send the user back to Settings with a success flag.
-    res.writeHead(302, { Location: `${appUrl}/settings?gmail=connected` });
+    // The app uses HashRouter, so the route must live in the hash fragment
+    // (#/settings?...) — a plain /settings?... path is invisible to react-router
+    // and the SPA falls back to its default route instead of Settings.
+    res.writeHead(302, { Location: `${appUrl}/#/settings?gmail=connected` });
     res.end();
   } catch (error) {
     console.error('gmail-callback error:', error);
     // Failure — send the user back to Settings with an error flag.
-    res.writeHead(302, { Location: `${appUrl}/settings?gmail=error` });
+    res.writeHead(302, { Location: `${appUrl}/#/settings?gmail=error` });
     res.end();
   }
 }
