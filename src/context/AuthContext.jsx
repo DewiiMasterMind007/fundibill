@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useRef, useState, useCallback } from 'react'
-import { getSession, onAuthStateChange, signIn, signOut, signUp } from '../lib/auth'
+import { onAuthStateChange, signIn, signOut, signUp } from '../lib/auth'
 import { supabase } from '../lib/supabase'
 
 const AuthContext = createContext(null)
@@ -34,19 +34,21 @@ export function AuthProvider({ children }) {
       // the session, which causes updateUser() to fail with "Auth session missing!".
       // The hash is cleared inside the PASSWORD_RECOVERY handler below, after
       // Supabase has read it and the session is active.
-    } else {
-      // Normal path: hydrate from the existing session
-      getSession().then(({ data }) => {
-        setSession(data.session)
-        setUser(data.session?.user ?? null)
-        setLoading(false)
-      })
     }
+    // Normal path: deliberately do NOT call getSession() here. On a hard page
+    // reload (e.g. the full-page redirect back from the Gmail OAuth flow),
+    // getSession() can resolve with a stale `session: null` before the
+    // Supabase client has finished restoring the real session from
+    // localStorage — flipping loading to false with no user and bouncing an
+    // already-logged-in user to the login screen. onAuthStateChange's first
+    // callback (event: INITIAL_SESSION) fires only once that restoration is
+    // actually complete, so it's the only signal we treat as authoritative.
 
-    // Keep state in sync with Supabase auth events (login, logout, token refresh).
-    // Compare user IDs so a mere token refresh does NOT produce a new `user` object
-    // reference — which would re-trigger every useCallback/useEffect that depends on
-    // `user` and cause every page to reload its data unnecessarily.
+    // Keep state in sync with Supabase auth events (initial restore, login,
+    // logout, token refresh). Compare user IDs so a mere token refresh does
+    // NOT produce a new `user` object reference — which would re-trigger every
+    // useCallback/useEffect that depends on `user` and cause every page to
+    // reload its data unnecessarily.
     const { data: { subscription } } = onAuthStateChange((event, session) => {
       if (event === 'PASSWORD_RECOVERY') {
         // Supabase has now read the hash and established the session internally.
@@ -69,6 +71,10 @@ export function AuthProvider({ children }) {
         if (prev?.id && prev.id === incoming?.id) return prev   // same user — keep ref stable
         return incoming
       })
+      // Whichever event fires first (INITIAL_SESSION, SIGNED_IN, SIGNED_OUT, …)
+      // is Supabase's authoritative answer on whether a session exists — safe
+      // to unblock the route guard now.
+      setLoading(false)
     })
 
     return () => subscription.unsubscribe()

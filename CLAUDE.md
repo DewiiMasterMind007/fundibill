@@ -715,6 +715,7 @@ sendEmail({ supabase, userId, profile, to, subject, html, pdfBase64, pdfFilename
 - `AuthContext` compares user IDs (`prev?.id === incoming?.id`) before updating state — prevents Supabase token refresh events from triggering page data reloads
 - `recoveryModeRef` mirrors `recoveryMode` state to avoid stale closure in `onAuthStateChange` callback
 - Never clear the URL hash before Supabase's `detectSessionInUrl` has read it (causes "Auth session missing!" on password reset)
+- **Auth loading/restoration pattern:** `AuthContext` does **not** call `supabase.auth.getSession()` on mount. On a hard full-page reload (e.g. the OAuth-style redirect back from `/api/gmail-callback.js`), `getSession()` can resolve with a stale `session: null` before the Supabase client finishes restoring the real session from `localStorage`, which would flip `loading` to `false` with no user and briefly bounce an already-logged-in user to the login screen. Instead, `loading` (exposed as `authLoading` in `App.jsx`) starts `true` and is only set `false` inside the `onAuthStateChange` callback — whose first invocation (`event: 'INITIAL_SESSION'`) fires only once Supabase has actually finished restoring the session, so it's the single source of truth. `App.jsx`'s top-level guard renders nothing while `authLoading` is true, `<Auth/>` only once `authLoading` is false and `user` is null — never based on a mid-restoration snapshot.
 
 ### PDF
 - `@react-pdf/renderer` is dynamically imported in `pdfBuffer.js` to keep initial bundle small
