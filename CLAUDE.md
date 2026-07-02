@@ -1,460 +1,751 @@
 # FundiBill — Project Briefing for Claude Code
 
-## What This Is
-
-FundiBill is a South African desktop invoicing application built for small businesses and freelancers. It is sold as a lifetime licence for R99 via PayFast. The app is packaged as a Windows `.exe` installer using Electron. All data is stored in Supabase (cloud). There is a 7-day free trial with read-only mode after expiry.
+**Current version:** 1.6.24 (read from `package.json`)  
+**App name:** FundiBill (never "Invoicy")  
+**Author:** FundiAI — info@fundiai.co.za
 
 ---
 
-## Tech Stack
+## 1. PROJECT OVERVIEW
+
+FundiBill is a South African invoicing application for small businesses and freelancers. It ships as:
+
+| Target | Artifact | URL |
+|---|---|---|
+| **PWA** | Vercel deployment | https://app.fundibill.online |
+| **Desktop** | Windows `.exe` installer | Distributed via GitHub Releases |
+
+Both targets share the same React/Vite codebase. The `ELECTRON=true` env variable at build time switches the Vite `base` from `/` to `./` for file-protocol loading.
+
+**Business model:** Subscription billing via PayFast (monthly R29/mo or annual R299/yr). Legacy one-time lifetime licences (`FNDBY-*` key format) are still honoured. 7-day free trial on first login, read-only mode after expiry.
+
+---
+
+## 2. TECH STACK
 
 | Layer | Technology |
 |---|---|
-| Desktop shell | Electron 31 |
 | UI framework | React 18 + Vite 5 |
-| Routing | react-router-dom 6 (HashRouter) |
-| Data / Auth | Supabase JS SDK v2 (`@supabase/supabase-js`) |
-| Primary PDF | `@react-pdf/renderer` 4.5 — renders branded A4 PDFs |
-| Legacy PDF | `jsPDF` + `jspdf-autotable` — lives in `src/utils/pdf.js`, largely unused; kept as backup |
-| Charts | `recharts` 3 |
-| Email (SMTP) | `nodemailer` 6 — runs in the Electron main process via IPC |
-| Packaging | `electron-builder` 24 — produces `FundiBill-Setup-{version}.exe` |
-| Dev tooling | `concurrently`, `wait-on`, `vite` |
-| Edge functions | Deno (Supabase Edge Functions) |
+| Routing | react-router-dom 6 — HashRouter (required for Electron file:// and for PWA rewrite config) |
+| Desktop shell | Electron 31 |
+| Packaging | electron-builder 24 — NSIS `.exe`, x64, output: `FundiBill-Setup-{version}.exe` |
+| Auto-update | electron-updater 6 via GitHub Releases (private repo, `GH_TOKEN` required at build time) |
+| Backend / DB | Supabase JS SDK v2 — PostgreSQL, Auth, Edge Functions (Deno) |
+| PDF | `@react-pdf/renderer` 4.5 — branded A4 documents; dynamically imported for chunk splitting |
+| PDF polyfill | `buffer` npm package — polyfilled to `window.Buffer` in `src/main.jsx` before any import |
+| Legacy PDF | `jsPDF` + `jspdf-autotable` — kept in `src/utils/pdf.js` as reference, unused in active flow |
+| Charts | recharts 3 |
+| Email — Electron | `nodemailer` 6 running in the Electron main process via IPC |
+| Email — PWA | PHP SMTP relay at `https://api.fundibill.online/send-reminder.php` (POST, JSON) |
+| WhatsApp | Web Share API (mobile PWA) / `wa.me` deep-link fallback (desktop / Electron) |
+| Payments | PayFast — LIVE (not sandbox). PHP scripts at `api.fundibill.online` |
+| PWA | vite-plugin-pwa 1.3 — `autoUpdate`, `skipWaiting: true`, `clientsClaim: true` |
+| Versioning | `__APP_VERSION__` injected at build time from `package.json` via `vite.config.js` `define` |
+| Version control | GitHub — `DewiiMasterMind007/fundibill` |
+
+**Active branches:**
+- `main` — production code, deployed to `app.fundibill.online` via Vercel
+- `v2` — active development branch; Vercel preview URL. **Merge v2 → main to go live.**
 
 ---
 
-## Project Structure
+## 3. DOMAINS & INFRASTRUCTURE
+
+| Domain | Purpose | Hosting |
+|---|---|---|
+| `fundibill.online` | WordPress marketing/landing site | cPanel (IP: 169.239.218.68) |
+| `app.fundibill.online` | PWA production app — CNAME → Vercel | Vercel |
+| `api.fundibill.online` | PHP backend scripts | cPanel (IP: 169.239.218.68) |
+
+**PHP scripts at `api.fundibill.online`:**
+- `fundibill-buy.php` — generates PayFast payment form, accepts `plan`, `user_id`, `email`, `name` as URL params. Opened in browser via `window.db.openExternal()` (Electron) or `window.open()` (PWA).
+- `payfast-webhook.php` — PayFast ITN webhook. On successful payment: sets `subscription_status = 'active'`, `subscription_plan`, `subscription_frequency`, `subscription_end_date`, and stores `payfast_token` (for later cancellation). Calculates end date from PayFast's `billing_date` field: `+1 month` for monthly, `+1 year` for annual.
+- `send-reminder.php` — SMTP relay for PWA email sending. Accepts JSON POST, sends email via PHP mail/SMTP, returns `{ success, error }`.
+
+**Supabase project ref:** `hczeuxhvnprhffsnktpf`  
+**Auth emails:** Sent via Supabase custom SMTP from `noreply@fundibill.online`
+
+---
+
+## 4. SUPABASE SCHEMA
+
+All tables have Row Level Security enabled. All PKs are UUIDs. Access policy: `auth.uid() = user_id`.
+
+### `profiles` — One row per user, created automatically on first login
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | uuid | FK → auth.users (PK) |
+| `name` | text | User's personal name |
+| `business_name` | text | Shown on PDFs, emails, PayFast |
+| `address` | text | Business address for PDFs |
+| `email` | text | Business contact email |
+| `phone` | text | Business phone |
+| `vat_number` | text | VAT registration number |
+| `logo_url` | text | HTTPS URL or base64 data URL for business logo |
+| `primary_color` | text | Hex — drives PDF header, sidebar gradient accent, UI theming |
+| `accent_color` | text | Hex — secondary colour |
+| `text_color` | text | Hex |
+| `invoice_prefix` | text | e.g. "INV-" |
+| `estimate_prefix` | text | e.g. "QT-" (default; previously "EST-") |
+| `starting_invoice_number` | integer | Next invoice sequence start |
+| `starting_estimate_number` | integer | Next quote sequence start |
+| `default_payment_terms` | text | Dropdown label (legacy) |
+| `default_payment_method` | text | Pre-selected in Mark as Paid modal |
+| `terms` | text | T&C printed on PDFs — **DB column is `terms`, form field is `terms_conditions`** |
+| `banking_details` | text | JSON `{ bank_name, account_number, branch_code }` — older accounts may have free text |
+| `payment_methods` | text | JSON array of method names |
+| `expense_categories` | text | JSON array of category names |
+| `email_provider` | text | `'smtp'` or `'gmail'` — Gmail is "coming soon" in the UI |
+| `smtp_host` | text | SMTP server hostname |
+| `smtp_port` | text | SMTP port string — **must be saved as `null` not `""` (integer column in DB)** |
+| `smtp_user` | text | SMTP username / from address |
+| `smtp_password` | text | SMTP password |
+| `smtp_from_name` | text | Display name for outgoing emails |
+| `whatsapp_default_message` | text | Template for invoice WhatsApp messages |
+| `whatsapp_estimate_message` | text | Template for quote WhatsApp messages |
+| `email_invoice_message` | text | Default body for invoice emails |
+| `email_quote_message` | text | Default body for quote emails |
+| `email_overdue_message` | text | Default body for overdue reminder emails |
+| `payment_terms_days` | integer | Days added to issue_date for due_date (default 7) |
+| `discounts_enabled` | boolean | Enables discount field on invoices and quotes |
+| `discount_type` | text | `'percent'` or `'fixed'` |
+| `trial_start` | timestamptz | Set on first login; drives 7-day trial countdown |
+| `is_licensed` | boolean | **Legacy** — honoured only when no `subscription_status` exists (one-time licence holders) |
+| `tutorial_completed` | boolean | Suppresses auto-start after first login |
+| `subscription_status` | text | `'active'` \| `'cancelled'` \| `'expired'` — written by PayFast webhook |
+| `subscription_plan` | text | `'monthly'` \| `'annual'` \| `'lifetime'` — written by PayFast webhook |
+| `subscription_frequency` | text | PayFast billing frequency |
+| `subscription_end_date` | timestamptz | When access lapses — written by PayFast webhook from `billing_date` |
+| `subscription_cancelled_at` | timestamptz | Written by `cancel-subscription` edge function |
+| `payfast_token` | text | PayFast subscription token — used by `cancel-subscription` edge function to call PayFast API |
+| `reminders_enabled` | boolean | Used by `send-payment-reminders` edge function (legacy auto-reminder system) |
+| `reminder_interval_days` | integer | Used by `send-payment-reminders` edge function (legacy) |
+| `gmail_access_token` | text | Gmail OAuth access token — v2 Gmail OAuth feature |
+| `gmail_refresh_token` | text | Gmail OAuth refresh token — v2 Gmail OAuth feature |
+| `gmail_token_expiry` | timestamptz | Expiry of `gmail_access_token` — v2 Gmail OAuth feature |
+| `gmail_connected_email` | text | Gmail address connected via OAuth — v2 Gmail OAuth feature |
+
+### `clients` — Client address book
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | uuid | PK |
+| `user_id` | uuid | FK → auth.users |
+| `name` | text | Personal name (mirrors company_name in some places) |
+| `company_name` | text | Primary display name |
+| `email` | text | |
+| `phone` | text | |
+| `address` | text | |
+| `website` | text | |
+
+### `items` — Product/service catalog
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | uuid | PK |
+| `user_id` | uuid | FK → auth.users |
+| `name` | text | Item name (autocomplete source in invoice/quote forms) |
+| `description` | text | Default description |
+| `unit_price` | numeric | Default price |
+
+### `invoices` — Invoice headers
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | uuid | PK |
+| `user_id` | uuid | FK → auth.users |
+| `invoice_number` | text | e.g. "INV-0001" — auto-generated, collision-checked before save |
+| `client_id` | uuid | FK → clients |
+| `issue_date` | date | |
+| `due_date` | date | |
+| `notes` | text | Printed after payment reference on PDF |
+| `vat_enabled` | boolean | |
+| `vat_rate` | numeric | Always 15 when enabled |
+| `subtotal` | numeric | Ex-VAT (after discount) |
+| `vat_amount` | numeric | |
+| `total` | numeric | Inc-VAT (after discount) |
+| `amount_paid` | numeric | For partial payments |
+| `discount_value` | numeric | Discount amount or percentage |
+| `discount_type` | text | `'percent'` or `'fixed'` |
+| `status` | text | `draft` \| `sent` \| `paid` \| `overdue` |
+| `from_recurring` | boolean | Set when auto-created by recurring invoice system |
+| `notification_dismissed` | boolean | Controls amber recurring-invoice banner visibility |
+| `sent_from_app` | boolean | Set true when emailed via Send by Email |
+| `reminder_opted_in` | boolean | Legacy — used by `send-payment-reminders` edge function |
+| `reminder_sent_at` | timestamptz | Legacy — updated by edge function |
+| `created_at` | timestamptz | |
+
+### `invoice_items` — Invoice line items
+
+> ⚠️ **No `user_id` column.** RLS access is via the parent `invoices` row. Never insert `user_id` here.
+
+| Column | Type |
+|---|---|
+| `id` | uuid |
+| `invoice_id` | uuid (FK → invoices) |
+| `item_name` | text |
+| `description` | text |
+| `quantity` | numeric |
+| `unit_price` | numeric |
+| `line_total` | numeric (quantity × unit_price) |
+
+### `estimates` — Quote/estimate headers
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | uuid | PK |
+| `user_id` | uuid | FK → auth.users |
+| `estimate_number` | text | e.g. "QT-0001" |
+| `client_id` | uuid | FK → clients |
+| `issue_date` | date | |
+| `expiry_date` | date | |
+| `notes` | text | |
+| `vat_enabled` | boolean | |
+| `vat_rate` | numeric | |
+| `subtotal` | numeric | |
+| `vat_amount` | numeric | |
+| `total` | numeric | |
+| `discount_value` | numeric | |
+| `discount_type` | text | `'percent'` or `'fixed'` |
+| `status` | text | `draft` \| `sent` \| `approved` \| `rejected` \| `converted` |
+| `converted_invoice_id` | uuid | FK → invoices — set when quote is converted to invoice |
+| `created_at` | timestamptz | |
+
+### `estimate_items` — Quote line items
+
+> ⚠️ **No `user_id` column.** Same pattern as `invoice_items`. Never insert `user_id` here.
+
+Identical columns to `invoice_items` but with `estimate_id` instead of `invoice_id`.
+
+### `expenses` — Business expense records
+
+| Column | Type |
+|---|---|
+| `id` | uuid |
+| `user_id` | uuid |
+| `date` | date |
+| `description` | text |
+| `amount` | numeric |
+| `category` | text |
+| `notes` | text |
+| `created_at` | timestamptz |
+
+### `recurring_invoices` — Recurring invoice schedules
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | uuid | PK |
+| `user_id` | uuid | |
+| `client_id` | uuid | |
+| `interval` | text | `daily` \| `weekly` \| `monthly` \| `yearly` |
+| `next_send_date` | date | Advanced after each invoice creation |
+| `last_sent_date` | date | Date of most recent created invoice |
+| `is_active` | boolean | Paused / resumed by user |
+| `items` | jsonb | Array of line items |
+| `vat_enabled` | boolean | |
+| `notes` | text | |
+| `email_subject` | text | |
+| `email_message` | text | |
+| `created_at` | timestamptz | |
+
+### `licenses` — Legacy one-time licence key records
+
+| Column | Type |
+|---|---|
+| `id` | uuid |
+| `key` | text (`FNDBY-XXXX-XXXX-XXXX`) |
+| `is_active` | boolean |
+| `user_id` | uuid |
+| `activated_at` | timestamptz |
+
+---
+
+## 5. PROJECT STRUCTURE
 
 ```
 /
 ├── electron/
-│   ├── main.js           — BrowserWindow, IPC handlers (PDF save, email send, shell)
-│   ├── preload.js        — contextBridge exposing window.electronAPI and window.db
+│   ├── main.js           — BrowserWindow, IPC handlers (pdf:save, pdf:getLogoBase64,
+│   │                        email:send, send-email, shell:openExternal), electron-updater
+│   ├── preload.js        — contextBridge exposing window.electronAPI + window.db
 │   ├── license.js        — FNDBY key algorithm (FNV-1a checksum, validate/generate)
-│   └── database.js       — Legacy (unused, kept for reference)
+│   └── database.js       — Legacy SQLite (unused; kept for reference)
 │
 ├── src/
-│   ├── main.jsx          — React entry point, mounts <App />
+│   ├── main.jsx          — React entry point; Buffer polyfill; controllerchange listener;
+│   │                        vite:preloadError handler; mounts <AuthProvider><App/>
 │   ├── index.css         — Minimal global reset
-│   ├── App.jsx           — Root: auth gate, context providers, Tutorial, sidebar layout
+│   ├── App.jsx           — Auth gate, context providers, Tutorial, mobile/desktop layouts,
+│   │                        RecurringBanners, CSS custom properties injection
 │   │
 │   ├── context/
-│   │   ├── AuthContext.jsx         — Supabase auth state; user ref stable across token refresh
-│   │   ├── AppDataContext.jsx      — Global cache: profile, clients, catalog; loaded once on login
-│   │   ├── TrialContext.jsx        — Trial start date, days remaining, isReadOnly flag
-│   │   └── RecurringNotifContext.jsx — Amber banner notifications for auto-created recurring invoices
+│   │   ├── AuthContext.jsx         — Supabase auth; password-recovery interception;
+│   │   │                             token-refresh dedup (stable user ref);
+│   │   │                             currentProfile (subscription columns);
+│   │   │                             isSubscriptionActive() helper
+│   │   ├── AppDataContext.jsx      — Global cache: profile, clients, catalog;
+│   │   │                             loaded once on login; refresh*() helpers
+│   │   ├── TrialContext.jsx        — Trial/subscription status; isReadOnly flag;
+│   │   │                             auto-corrects stale 'active' when end_date passed
+│   │   └── RecurringNotifContext.jsx — Amber banner notifications for auto-created
+│   │                                   recurring invoices
 │   │
 │   ├── pages/
-│   │   ├── Auth.jsx        — Login / Register; shows confirmation screen after sign-up
-│   │   ├── Dashboard.jsx   — Stat cards (revenue, overdue, etc.) + bar chart
-│   │   ├── Invoices.jsx    — Full invoice CRUD, recurring invoices, manual reminder bell
-│   │   ├── Estimates.jsx   — Estimate CRUD, convert-to-invoice
-│   │   ├── Clients.jsx     — Client management with per-client invoice/estimate history
-│   │   ├── Items.jsx       — Product/service catalog
-│   │   ├── Expenses.jsx    — Expense tracking
-│   │   └── Settings.jsx    — Business profile, branding, SMTP, payment terms, payment methods
+│   │   ├── Auth.jsx        — Login / Register / Forgot Password / Set New Password
+│   │   │                     (password recovery form shown when recoveryMode = true)
+│   │   ├── Dashboard.jsx   — Stat cards, monthly revenue/expense chart, period filters,
+│   │   │                     payments-by-method breakdown, expenses-by-category,
+│   │   │                     personalised two-line daily greeting
+│   │   ├── Invoices.jsx    — Full invoice CRUD, recurring invoices tab, mark as paid
+│   │   │                     with payment confirmation email option, manual reminder bell,
+│   │   │                     WhatsApp share, overdue auto-detection, quickCreate state
+│   │   ├── Estimates.jsx   — Quote CRUD, convert to invoice (populates converted_invoice_id),
+│   │   │                     view converted invoice number, WhatsApp share, quickCreate state
+│   │   ├── Clients.jsx     — Client management, per-client invoice/quote history panel,
+│   │   │                     quickCreate state
+│   │   ├── Items.jsx       — Product/service catalog CRUD
+│   │   ├── Expenses.jsx    — Expense tracking with categories, quickCreate state
+│   │   └── Settings.jsx    — Business profile, logo upload, colour theme, invoice/quote
+│   │                         prefixes, banking details, SMTP config, Gmail toggle (coming soon),
+│   │                         Notifications & Messages templates, Document Settings,
+│   │                         subscription management, unsaved-changes detection
 │   │
 │   ├── components/
-│   │   ├── Sidebar.jsx         — Liquid-glass gradient sidebar; primaryColor theming
-│   │   ├── HelpButton.jsx      — "?" popover with page-specific help bullets
-│   │   ├── LicenseModal.jsx    — Trial-expired lockout + FNDBY key entry
-│   │   ├── TrialBanner.jsx     — Top banner: days remaining, Buy button, PayFast polling
-│   │   ├── SendEmailModal.jsx  — Compose and send invoice/estimate emails via SMTP
-│   │   └── Tutorial.jsx        — 12-step click-through tutorial with spotlight overlay
+│   │   ├── Sidebar.jsx          — Liquid-glass gradient sidebar (desktop), dynamic version
+│   │   ├── BottomNav.jsx        — Mobile bottom tab bar + slide-up More drawer,
+│   │   │                           dynamic version, Tutorial link
+│   │   ├── MobileHeader.jsx     — Sticky mobile header; page title or FundiBill wordmark;
+│   │   │                           business logo (falls back to initial avatar);
+│   │   │                           "+ Create" quick-create button → slide-up bottom sheet
+│   │   ├── TrialBanner.jsx      — Trial/subscription expiry banner; plan selector trigger;
+│   │   │                           PayFast URL builder; 10-second polling for payment confirm
+│   │   ├── PlanSelectModal.jsx  — Plan picker (Monthly R29/mo, Annual R299/yr)
+│   │   ├── LicenseModal.jsx     — Legacy FNDBY key entry (for lifetime licence holders)
+│   │   ├── HelpButton.jsx       — "?" popover with page-specific help bullets
+│   │   ├── SendEmailModal.jsx   — Compose and send invoice/quote emails via SMTP or PWA relay
+│   │   ├── Tutorial.jsx         — 12-step click-through tutorial with spotlight overlay
+│   │   ├── UpdateNotification.jsx — Electron auto-update banner (update-available / ready)
+│   │   ├── WhatsAppButton.jsx   — WhatsApp share button (icon-only or full)
+│   │   └── PasswordInput.jsx    — Password field with show/hide toggle
 │   │
 │   ├── pdf/
-│   │   ├── PdfDocument.jsx     — @react-pdf/renderer branded A4 document; fixed header/footer per page
-│   │   └── PdfPreviewModal.jsx — Renders PDF in-app, Save to disk, triggers Send Email
+│   │   ├── PdfDocument.jsx     — @react-pdf/renderer branded A4 document; dynamic header
+│   │   │                          height; fixed header+footer every page; PAID watermark;
+│   │   │                          discount row in totals
+│   │   └── PdfPreviewModal.jsx — In-app PDF preview; Save to disk; Send Email trigger
 │   │
 │   ├── lib/
 │   │   ├── supabase.js         — Supabase client (VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY)
-│   │   ├── auth.js             — Thin wrappers: signIn, signUp, signOut, getSession, onAuthStateChange
-│   │   ├── payfast.js          — buildPayFastURL() → opens api.fundibill.online/fundibill-buy.php in browser
-│   │   └── emailTemplates.js   — generateInvoiceEmail, generateEstimateEmail, generateReminderEmail,
-│   │                             generateTestEmail, PLAIN_TEXT_FOOTER (all return full HTML strings)
+│   │   ├── auth.js             — Thin wrappers: signIn, signUp, signOut, getSession,
+│   │   │                          onAuthStateChange
+│   │   ├── sendEmail.js        — Unified email sender: routes to window.electronAPI.sendEmail
+│   │   │                          (Electron) or fetch to send-reminder.php (PWA)
+│   │   ├── emailTemplates.js   — generateInvoiceEmail, generateEstimateEmail,
+│   │   │                          generateReminderEmail, generatePaymentConfirmationEmail,
+│   │   │                          generateTestEmail, PLAIN_TEXT_FOOTER
+│   │   ├── pdfBuffer.js        — buildPdfBuffer(data, settings, docType) — dynamically
+│   │   │                          imports PdfDocument, returns ArrayBuffer
+│   │   └── whatsapp.js         — formatPhoneForWhatsApp, buildInvoiceWhatsAppMessage,
+│   │                              buildEstimateWhatsAppMessage, sendPdfViaWhatsApp
+│   │
+│   ├── hooks/
+│   │   └── useIsMobile.js      — Returns true when viewport ≤ 768px
 │   │
 │   └── utils/
-│       └── pdf.js              — Legacy jsPDF builder (unused in current flow, kept for reference)
+│       └── pdf.js              — Legacy jsPDF builder (unused in active flow, kept for reference)
 │
 ├── supabase/
 │   └── functions/
-│       └── send-payment-reminders/
-│           ├── index.ts    — Deno edge function (deployed, scheduled but superseded by manual bell flow)
-│           └── README.md   — Deploy/schedule instructions
+│       ├── cancel-subscription/index.ts  — Deno edge function; called from Settings page;
+│       │                                    calls PayFast API to cancel subscription token,
+│       │                                    then sets subscription_status = 'cancelled' in DB
+│       └── send-payment-reminders/       — Deno edge function (deployed, scheduled daily
+│                                           at 07:00 UTC via pg_cron + pg_net); auto-sends
+│                                           reminder emails for opted-in overdue invoices.
+│                                           Currently superseded by manual bell flow but
+│                                           still deployed.
 │
-├── assets/
-│   └── icon.ico            — App icon for installer, taskbar, window title bar
-│
+├── assets/icon.ico             — App icon for Electron installer / taskbar
 ├── public/
-│   ├── favicon.ico         — Meerkat/FundiBill branded icon (Vite dev server + renderer)
-│   └── FundiBill long.png  — Wide FundiBill wordmark logo (shown in sidebar + login screen)
+│   ├── FundiBill long.png      — Wide wordmark (sidebar + login)
+│   ├── icon-192.png            — PWA icon
+│   ├── icon-512.png            — PWA icon
+│   ├── trust-strip.png         — PayFast trust badge (shown in PlanSelectModal)
+│   └── whatsapp icon.png       — WhatsApp button icon
 │
-├── scripts/
-│   └── create-icon.js      — Generates icon assets for build
-│
-├── electron-builder.yml    — Windows NSIS installer config; icon, shortcut, artifact name
-├── vite.config.js          — base: './', outDir: dist/renderer
-├── package.json            — npm scripts: dev, build, build:win
-├── index.html              — Root HTML; favicon link, React mount point
-├── key-generator.html      — Internal tool (not deployed) — generates FNDBY license keys
-└── CLAUDE.md               — This file
+├── key-generator.html          — Internal browser tool for generating FNDBY licence keys
+│                                  (not deployed; uses same FNV-1a algo as electron/license.js)
+├── vercel.json                 — SPA rewrite rule + CSP headers; outputDirectory: dist/renderer
+├── electron-builder.yml        — Windows NSIS installer config; GitHub Releases publish
+├── vite.config.js              — base: './' (Electron) or '/' (PWA); PWA plugin; Buffer alias;
+│                                  __APP_VERSION__ define; outDir: dist/renderer
+└── package.json                — Scripts: dev, build, build:electron, build:win, dist,
+                                  release:patch, release:minor, release:major
 ```
 
 ---
 
-## Supabase Schema
+## 6. FULL FEATURE LIST
 
-All tables have RLS enabled with `auth.uid() = user_id` policies. All PKs are UUIDs.
+### Authentication
+- Email/password sign-up with Supabase confirmation email
+- Sign-in / sign-out
+- Registration shows 5-second countdown success screen before returning to login
+- **Password reset flow:** When user clicks reset link, Supabase fires `PASSWORD_RECOVERY` event. `AuthContext` intercepts before auto-login, sets `recoveryMode = true` (+ ref for stale-closure safety). Auth.jsx shows "Set New Password" form. On submit, calls `supabase.auth.updateUser({ password })`, then signs out. `clearRecoveryMode()` returns to login.
 
-### `profiles` — One row per user, created on first login
-| Column | Type | Purpose |
-|---|---|---|
-| id | uuid | FK → auth.users |
-| business_name | text | Shown on PDFs and emails |
-| address | text | Business address for PDFs |
-| email | text | Business contact email |
-| phone | text | Business phone |
-| vat_number | text | VAT reg number |
-| logo_url | text | HTTPS URL to business logo |
-| primary_color | text | Hex; drives PDF + sidebar/UI theming |
-| accent_color | text | Hex; secondary colour |
-| text_color | text | Hex |
-| invoice_prefix | text | e.g. "INV-" |
-| estimate_prefix | text | e.g. "EST-" |
-| starting_invoice_number | integer | Next invoice seq start |
-| starting_estimate_number | integer | Next estimate seq start |
-| default_payment_terms | text | Dropdown label (legacy; UI removed) |
-| default_payment_method | text | Pre-selected in Mark as Paid |
-| terms | text | T&C printed on PDFs (note: DB column is `terms`, not `terms_conditions`) |
-| banking_details | text | Printed on PDFs |
-| payment_methods | text | JSON array of payment method names |
-| expense_categories | text | JSON array of category names |
-| smtp_host | text | SMTP server hostname |
-| smtp_port | text | SMTP port (string; send null not "") |
-| smtp_user | text | SMTP username / from address |
-| smtp_password | text | SMTP password |
-| smtp_from_name | text | Display name for outgoing email |
-| trial_start | timestamptz | Set on first login; drives 7-day trial |
-| is_licensed | boolean | Set true by PayFast webhook |
-| payment_terms_days | integer | Days added to issue_date for due_date (default 7) |
-| tutorial_completed | boolean | Suppresses auto-start after first run |
+### Dashboard
+- 6 stat cards: Total Invoiced, Invoices Issued, Collected, Overdue Count, Outstanding Amount, Pending Quotes
+- Period filter pills: Last 7 Days / 30 Days / 3 Months / This Year / Custom Range
+- Monthly revenue vs. expenses bar chart with 5 period options
+- Payments by method breakdown (horizontal bar chart)
+- Expenses by category breakdown
+- Recent invoices table with status badges
+- Personalised two-line daily greeting: bold title line + subtitle (different for each day of the week)
 
-### `clients` — Client address book
-| Column | Type | Purpose |
-|---|---|---|
-| id | uuid | PK |
-| user_id | uuid | FK → auth.users |
-| name | text | Personal name (mirrors company_name) |
-| company_name | text | Primary display name |
-| email | text | |
-| phone | text | |
-| address | text | |
-| website | text | |
+### Invoices
+- Create, edit, delete
+- Auto-number: max existing number + 1, skips already-used numbers, duplicate check before save
+- VAT toggle (15%), VAT-inclusive pricing model: `grossTotal = Σ(qty × price)`, `subtotal = grossTotal / 1.15`
+- Discount: optional % or fixed-R discount on gross total (enabled via Document Settings)
+- Status: draft → sent → paid / overdue. Overdue auto-detected on load if `due_date < today && status !== 'paid'`
+- **Status revert on save:** If status is 'overdue' but due_date is now ≥ today, reverts to 'sent' on save
+- PDF preview and download
+- Send by Email: advances status from draft → sent, sets `sent_from_app = true`
+- Mark as Paid: opens modal with payment method selector and optional payment confirmation email
+- Undo mark-as-paid: reverts to previous status
+- Manual payment reminder: amber bell 🔔 on overdue non-paid invoices; opens ReminderModal with pre-filled email
+- WhatsApp share: Web Share API (mobile) or `wa.me` deep-link (desktop)
+- Add new client inline (without leaving the form)
+- Item autocomplete from catalog
+- Recurring invoices: schedule (daily/weekly/monthly/yearly), immediate first invoice creation, `next_send_date` advancement, pause/resume, edit, amber notification banner on auto-creation
+- **Quick-create:** Navigating with `location.state.quickCreate = true` auto-opens new invoice form
 
-### `items` — Reusable product/service catalog
-| Column | Type | Purpose |
-|---|---|---|
-| id | uuid | PK |
-| user_id | uuid | FK → auth.users |
-| name | text | Item name (autocomplete source) |
-| description | text | Default description |
-| unit_price | numeric | Default price |
+### Quotes (Estimates)
+- Same CRUD and numbering as Invoices (prefix: QT- by default)
+- Convert to Invoice: creates invoice, sets `estimates.converted_invoice_id`
+- View converted invoice number (fetched via `converted_invoice_id`) as a clickable link
+- Send by Email, WhatsApp share
+- Undo approve/reject
+- **Quick-create:** Same `quickCreate` state pattern
 
-### `invoices` — Invoice headers
-| Column | Type | Purpose |
-|---|---|---|
-| id | uuid | PK |
-| user_id | uuid | FK |
-| invoice_number | text | e.g. "INV-0001" |
-| client_id | uuid | FK → clients |
-| issue_date | date | |
-| due_date | date | |
-| notes | text | Printed on PDF after payment reference |
-| vat_enabled | boolean | |
-| vat_rate | numeric | Always 15 when enabled |
-| subtotal | numeric | Ex-VAT |
-| vat_amount | numeric | |
-| total | numeric | Inc-VAT |
-| amount_paid | numeric | For partial payments |
-| status | text | draft / sent / paid / overdue |
-| from_recurring | boolean | Set when auto-created by recurring system |
-| notification_dismissed | boolean | Controls amber banner visibility |
-| sent_from_app | boolean | Set true when emailed via Send by Email |
-| reminder_opted_in | boolean | Was previously used; now unused |
-| reminder_sent_at | timestamptz | Was previously used; now unused |
-| created_at | timestamptz | |
+### Clients
+- Add, edit, delete
+- Per-client history panel: all invoices and quotes for that client
+- Inline add-client in invoice/quote form
+- **Quick-create:** `quickCreate` state auto-opens the add-client panel
 
-### `invoice_items` — Line items (no user_id column)
-| Column | Type | Purpose |
-|---|---|---|
-| id | uuid | PK |
-| invoice_id | uuid | FK → invoices |
-| item_name | text | |
-| description | text | |
-| quantity | numeric | |
-| unit_price | numeric | |
-| line_total | numeric | quantity × unit_price |
+### Items (Catalog)
+- Add, edit, delete products/services
+- Items auto-saved when first used in invoice/quote
+- Available immediately for autocomplete in same session via `refreshCatalog()`
 
-### `estimates` — Estimate headers
-| Column | Type | Purpose |
-|---|---|---|
-| id | uuid | PK |
-| user_id | uuid | FK |
-| estimate_number | text | e.g. "EST-0001" |
-| client_id | uuid | FK → clients |
-| issue_date | date | |
-| expiry_date | date | |
-| notes | text | |
-| vat_enabled | boolean | |
-| vat_rate | numeric | |
-| subtotal, vat_amount, total | numeric | |
-| status | text | draft / sent / approved / rejected / converted |
-| created_at | timestamptz | |
+### Expenses
+- Add, edit, delete expenses with date, description, amount, category, notes
+- Categories configurable in Settings
+- **Quick-create:** `quickCreate` state auto-opens the add-expense panel
 
-### `estimate_items` — Estimate line items (no user_id column)
-Same columns as `invoice_items` but FK → estimates.
+### PDF Generation
+- Branded A4 documents via `@react-pdf/renderer` (dynamically imported)
+- Fixed header + footer on every page
+- "Continues on page N" for multi-page
+- "Page X / Y" numbering
+- PAID watermark on paid invoices
+- Dynamic header height based on logo presence and business detail lines
+- Discount row in totals section
+- Notes section
+- Logo: only HTTPS URLs render in PDFs (base64/local paths blocked by email clients)
 
-### `expenses` — Business expense records
-| Column | Type | Purpose |
-|---|---|---|
-| id | uuid | PK |
-| user_id | uuid | FK |
-| date | date | |
-| description | text | |
-| amount | numeric | |
-| category | text | From expense_categories |
-| notes | text | |
-| created_at | timestamptz | |
+### Email Sending
+- **Electron:** `nodemailer` in main process via IPC channels:
+  - `email:send` (`window.db.email.send`) — test emails from Settings
+  - `send-email` (`window.electronAPI.sendEmail`) — all other emails (invoices, quotes, reminders, payment confirmation)
+- **PWA:** `sendEmail.js` POSTs JSON to `https://api.fundibill.online/send-reminder.php`
+- Email types: Invoice, Quote, Manual Reminder, Payment Confirmation, Test
+- All use branded HTML via `emailTemplates.js` (`baseTemplate` outer chrome)
+- SMTP: `port === 465` → `secure: true`; otherwise STARTTLS. `tls.rejectUnauthorized: false`
+- `smtp_port` **must be `null`, not `""`** (integer DB column)
 
-### `recurring_invoices` — Recurring invoice schedules
-| Column | Type | Purpose |
-|---|---|---|
-| id | uuid | PK |
-| user_id | uuid | FK |
-| client_id | uuid | FK → clients |
-| interval | text | daily / weekly / monthly / yearly |
-| next_send_date | date | Updated after each invoice is created |
-| last_sent_date | date | When the last invoice was sent |
-| is_active | boolean | Paused/resumed by user |
-| items | jsonb | Line items array |
-| vat_enabled | boolean | |
-| notes | text | |
-| email_subject | text | |
-| email_message | text | |
-| created_at | timestamptz | |
+### WhatsApp Sharing
+- Template variables: `{clientName}`, `{invoiceNumber}` / `{estimateNumber}`, `{amount}`, `{dueDate}` / `{expiryDate}`, `{businessName}`
+- Templates configurable in Settings → Notifications & Messages
+- Mobile PWA: Web Share API attaches PDF as file
+- Desktop / Electron: downloads PDF, opens WhatsApp Web `wa.me` link
 
-### `licenses` — License key records
-| Column | Type | Purpose |
-|---|---|---|
-| id | uuid | PK |
-| key | text | FNDBY-XXXX-XXXX-XXXX format |
-| is_active | boolean | |
-| user_id | uuid | Set on activation |
-| activated_at | timestamptz | |
+### PayFast Subscription Billing
+- Plan picker: Monthly (R29/mo) or Annual (R299/yr)
+- `buildPayFastURL()` in `TrialBanner.jsx` opens `api.fundibill.online/fundibill-buy.php?plan=...&user_id=...&email=...&name=...`
+- Banner polls `profiles.subscription_status` every 10 seconds for up to 10 minutes after Buy click
+- On confirm: `refreshSubscription()` → TrialContext re-computes → reloads app
+- Subscription cancellation: Settings page calls `supabase.functions.invoke('cancel-subscription')` → edge function calls PayFast API + updates DB
+
+### Trial / Subscription System
+- 7-day free trial from `profiles.trial_start` (set on first login)
+- `TrialContext` computes: `subscriptionActive`, `isReadOnly`, `daysRemaining`, `trialExpired`, `subscriptionExpired`
+- `isReadOnly = true` when trial expired AND no active subscription
+- Access logic in `AuthContext.isSubscriptionActive()`:
+  1. `subscription_plan === 'lifetime'` → always active
+  2. `subscription_status` in `['active', 'cancelled']` + `subscription_end_date > now` → active
+  3. `is_licensed === true` && no `subscription_status` → active (legacy one-time licences)
+
+### Legacy Licence Keys (FNDBY)
+- Format: `FNDBY-SEG1-SEG2-SEG3` — 5-char prefix + 3 × 4-char base-36 segments
+- SEG3 = `toSeg(fnv1a32("FNDBY" + SEG1 + SEG2))` — checksum
+- `LicenseModal.jsx` handles key entry (still shown for licence-only users if `is_licensed` is their access path)
+- `key-generator.html` — internal tool for generating keys (not deployed)
+
+### Settings
+- **Business Profile:** name, business name, address, email, phone, VAT number
+- **Branding:** logo upload, primary/accent/text colours, invoice/quote prefixes, starting numbers
+- **Banking Details:** bank name, account number, branch code (stored as JSON in `banking_details`)
+- **Payment Terms:** days until due date; payment methods list
+- **Terms & Conditions:** printed on PDFs (`profiles.terms` column, mapped from `terms_conditions` form key)
+- **Notifications & Messages:** WhatsApp templates (Invoice, Quote, Overdue) + Email default messages
+- **Document Settings:** discounts toggle (% or R), expense categories
+- **Email Settings:** Gmail tab (shows "coming soon" message) / Custom SMTP tab. Gmail→SMTP revert restores saved SMTP values via `savedSmtp` ref.
+- **Subscription:** current plan display, cancel subscription button
+- Unsaved-changes detection: warns on browser close and intercepts in-app navigation
+
+### Tutorial / Onboarding
+- 12-step spotlight tutorial with spotlight overlay
+- Auto-starts 2 seconds after first login (`tutorial_completed = false`)
+- Restartable from sidebar (desktop) / More drawer (mobile)
+- Navigates to the correct page for each step
+- Per-step mobile/desktop description variants
+
+### Help Buttons
+- "?" popover on every page with page-specific bullet points
+- HelpButton component, instances in each page
+
+### Dynamic Theming
+- `primaryColor` and `accentColor` from `AppDataContext` (from `profiles`)
+- Injected as CSS custom properties `--primary` and `--accent` via `<style>` in `App.jsx`
+- Sidebar gradient: `#0891b2 → #0d9488 → #16a34a` (fixed); active nav pill uses `primaryColor`
+- Mobile header: same gradient
+
+### Mobile Responsive Layout
+- `useIsMobile()` hook: breakpoint ≤ 768px
+- Mobile: `MobileHeader` (sticky top) + scrollable `<main>` + `BottomNav` (fixed bottom)
+- Desktop: `Sidebar` (240px fixed left) + scrollable `<main>`
+- Mobile header right side: business logo (or initial avatar) + "+ Create" quick-create button
+- "+ Create" opens bottom sheet with Invoice, Quote, Client, Expense options → navigates with `state: { quickCreate: true }` → target page auto-opens creation form
+- Dashboard shows personalised greeting on mobile (above filter pills)
+
+### Electron Auto-Update
+- `electron-updater` via GitHub Releases (private repo)
+- `autoUpdater.autoDownload = true`, `autoUpdater.autoInstallOnAppQuit = true`
+- IPC: `update-available` → `UpdateNotification` shows download banner; `update-downloaded` → "Restart Now" button
+- `window.electronAPI.installUpdate()` calls `autoUpdater.quitAndInstall()`
+
+### PWA Auto-Update
+- `registerType: 'autoUpdate'`, `skipWaiting: true`, `clientsClaim: true` in workbox config
+- `controllerchange` listener in `main.jsx` reloads the page when new SW takes control
+- `vite:preloadError` handler reloads once if a chunk 404s after a new deploy
+
+### App Versioning
+- `__APP_VERSION__` build-time constant injected from `package.json` via `vite.config.js` `define`
+- Displayed in Sidebar footer (desktop) and BottomNav More drawer (mobile)
+- Release scripts: `npm run release:patch/minor/major` — bumps version, tags, pushes to `main` with follow-tags
 
 ---
 
-## Supabase Edge Functions
+## 7. EMAIL PROVIDER SYSTEM
+
+### Current State
+- `profiles.email_provider` column: `'smtp'` (active) or `'gmail'` (UI shows "coming soon")
+- Gmail tab currently displays an info box: *"Use the WhatsApp button to share your Invoice, and select 'Gmail' in your share options."*
+- The `smtp_host`, `smtp_port`, `smtp_user`, `smtp_password`, `smtp_from_name` fields still show under the Gmail tab (read-only pre-filled with `smtp.gmail.com`) — this allows Gmail App Password users to work today via SMTP
+
+### Gmail OAuth — In progress (v2 branch)
+
+**Google Cloud Console project:** FundiBill  
+**OAuth Client ID:** `475513706412-9lhbtur6spj97n9lrt5mejhae421fsc9.apps.googleusercontent.com`  
+**Client Secret:** Stored in Vercel environment variable `GMAIL_CLIENT_SECRET` — **never in code**  
+**Scope:** `https://www.googleapis.com/auth/gmail.send`  
+**App status:** Testing mode — max 100 users, manual whitelist via Google Cloud Console
+
+**Architecture chosen:** Vercel Serverless API Routes (files in `/api/` directory)
+- `/api/gmail-auth.js` — **built.** Accepts `?user_id=`, builds the Google OAuth consent URL (client_id, redirect_uri, scope, access_type=offline, prompt=consent, state=user_id), 302-redirects the browser to it.
+- `/api/gmail-callback.js` — **built.** Google redirects here with `?code=&state=`. Exchanges the code for tokens at `https://oauth2.googleapis.com/token`, fetches the connected address from `https://gmail.googleapis.com/gmail/v1/users/me/profile`, writes `gmail_access_token`, `gmail_refresh_token`, `gmail_token_expiry`, `gmail_connected_email`, and `email_provider = 'gmail'` onto the `profiles` row (via `SUPABASE_SERVICE_ROLE_KEY`, bypassing RLS), then 302-redirects to `{VITE_APP_URL}/settings?gmail=connected` (or `...?gmail=error` on failure).
+- `/api/send-gmail.js` — **not yet built.** Will send email via Gmail API using stored tokens; handles token refresh.
+
+**Token storage:** Per user in Supabase `profiles` table — columns added (see Section 4):
+- `gmail_access_token` (text)
+- `gmail_refresh_token` (text)
+- `gmail_token_expiry` (timestamptz)
+- `gmail_connected_email` (text)
+
+**New env vars required by the API routes (not yet set anywhere — see Section 11):**
+- `GMAIL_CLIENT_ID`
+- `GMAIL_REDIRECT_URI` (should point at `/api/gmail-callback`)
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `VITE_APP_URL`
+
+**UI flow:**
+1. User opens Settings → Email Settings → Gmail tab
+2. "Connect Gmail" button replaces "coming soon" message (not yet built — UI still pending)
+3. Click → browser navigates to `/api/gmail-auth?user_id=<id>` → 302 to Google's consent screen
+4. Google redirects to `/api/gmail-callback?code=...&state=<id>`
+5. Token exchange → tokens stored in Supabase → `email_provider` set to `'gmail'` → redirect to `/settings?gmail=connected`
+6. Subsequent sends route through `/api/send-gmail.js` instead of SMTP (not yet built)
+
+---
+
+## 8. SUPABASE EDGE FUNCTIONS
+
+### `cancel-subscription`
+- **Location:** `supabase/functions/cancel-subscription/index.ts`
+- **Called by:** Settings page → `supabase.functions.invoke('cancel-subscription', { body: {} })`
+- **What it does:**
+  1. Authenticates the calling user via Bearer token
+  2. Fetches `payfast_token` from `profiles`
+  3. Calls `PUT https://api.payfast.co.za/subscriptions/{token}/cancel` with HMAC signature
+  4. Updates `profiles` to `subscription_status = 'cancelled'`, sets `subscription_cancelled_at`
+- **Known issue:** PayFast API call may return success but dashboard still shows Active subscription. DB is updated correctly. Manual cancellation in PayFast merchant dashboard used as stopgap.
 
 ### `send-payment-reminders`
 - **Location:** `supabase/functions/send-payment-reminders/index.ts`
-- **Runtime:** Deno with `denomailer` for SMTP
-- **Deploy:** `supabase functions deploy send-payment-reminders --no-verify-jwt`
-- **Schedule:** Daily at 07:00 UTC (09:00 SAST) via pg_cron + pg_net
-- **Status:** Deployed and scheduled, but the in-app reminder flow was changed to **manual** (bell icon). This edge function is now unused in the active user flow. It still exists and can be re-enabled.
-- **Logic:** Queries overdue invoices with `reminder_opted_in = true`, checks `reminder_interval_days` since last send, emails via user's SMTP, updates `reminder_sent_at`.
+- **Status:** Deployed and scheduled daily at 07:00 UTC (09:00 SAST) via pg_cron + pg_net
+- **What it does:** Auto-sends reminder emails for `reminder_opted_in = true` overdue invoices using user's SMTP settings. Respects `reminder_interval_days` since last send.
+- **Current relevance:** Superseded in the main UI by the manual bell 🔔 flow. Still deployed and running. Can be re-enabled or removed.
 
 ---
 
-## External Services & Files
+## 9. KNOWN ISSUES
 
-### PayFast (payment processor)
-- PHP page hosted at `https://api.fundibill.online/fundibill-buy.php`
-- When user clicks "Buy FundiBill Lifetime Access — R99", `buildPayFastURL()` appends `user_id`, `email`, and `business_name` as URL params, then opens the URL in the system browser via `window.db.openExternal()`
-- The PHP page handles PayFast form generation server-side
-- On successful payment, a PayFast ITN webhook hits a PHP endpoint which sets `profiles.is_licensed = true` for the user's Supabase row
-- `TrialBanner` polls `profiles.is_licensed` every 10 seconds for up to 10 minutes after the user clicks Buy, then reloads the app when confirmed
-- **Do not touch:** `src/lib/payfast.js` URL or any PHP files
+1. **PayFast subscription cancellation API:** The `cancel-subscription` edge function updates the DB correctly but PayFast's own dashboard may still show the subscription as Active. Workaround: manual cancellation in PayFast merchant account.
 
-### `key-generator.html`
-- Internal browser tool (not deployed) for generating FNDBY license keys
-- Uses the same FNV-1a algorithm as `electron/license.js`
-- Key format: `FNDBY-XXXX-XXXX-XXXX`
+2. **Recurring invoice future scheduling:** Only the FIRST invoice is created by the frontend save flow. Subsequent invoices for ongoing schedules (monthly/weekly/etc.) require a Supabase cron job or edge function. The `send-payment-reminders` function is a template for this pattern — not yet implemented.
+
+3. **Gmail OAuth:** Not yet integrated. Gmail tab in Settings shows "coming soon". Planned on `v2` branch.
+
+4. **Blank name fields in PayFast emails:** `fundibill-buy.php` sends `name_first` / `name_last` to PayFast but they appear blank in confirmation emails. Under investigation.
+
+5. **Logo in emails:** base64 data-URL logos are stripped by Gmail, Outlook, and most clients for security. Only HTTPS logo URLs appear in emails. Users who upload via file picker get base64 which won't show in emailed PDFs — only in the in-app preview.
+
+6. **`send-payment-reminders` edge function:** Deployed and scheduled but not used by active UI flow. It could send unexpected reminder emails if a user had `reminder_opted_in = true` on old invoices. Review before leaving deployed indefinitely.
+
+7. **Discount columns — pending DB migration:** The following SQL must be run in Supabase before discount features are fully functional on new/migrated databases:
+   ```sql
+   ALTER TABLE profiles  ADD COLUMN IF NOT EXISTS discounts_enabled boolean DEFAULT false;
+   ALTER TABLE profiles  ADD COLUMN IF NOT EXISTS discount_type      text    DEFAULT 'percent';
+   ALTER TABLE invoices  ADD COLUMN IF NOT EXISTS discount_value     numeric DEFAULT 0;
+   ALTER TABLE invoices  ADD COLUMN IF NOT EXISTS discount_type      text;
+   ALTER TABLE estimates ADD COLUMN IF NOT EXISTS discount_value     numeric DEFAULT 0;
+   ALTER TABLE estimates ADD COLUMN IF NOT EXISTS discount_type      text;
+   ```
 
 ---
 
-## Environment Variables
+## 10. CODING RULES & PATTERNS
 
-All in `.env` at project root (loaded by Vite as `import.meta.env`):
+### Data Access
+- **Always use Supabase JS SDK** for all data operations — never raw `fetch` to Supabase REST endpoints
+- RLS is on for all tables — all queries are scoped to `auth.uid()` automatically
+- `AppDataContext` provides `profile`, `clients`, `catalog`; call `refreshProfile/Clients/Catalog()` after any write that affects those collections
+- Every page is read-only when `trialStatus?.isReadOnly === true` — check before enabling write actions
+
+### Critical Schema Rules
+- `invoice_items` and `estimate_items` do **NOT** have a `user_id` column — never insert one
+- `smtp_port` must be sent as `null` (not `""`) to Supabase — the DB column is integer
+- `profiles.terms` is the DB column name for Terms & Conditions (form field is `terms_conditions`)
+- `banking_details` is stored as a JSON string `{ bank_name, account_number, branch_code }` — parse/stringify correctly
+
+### Currency & Formatting
+- ZAR format throughout: `R 1 234,00` (space thousands separator, comma decimal)
+
+### Email
+- HTTPS logo URLs only in email HTML — filter out `data:` and local paths before generating templates
+- Use `PLAIN_TEXT_FOOTER` from `emailTemplates.js` as plain-text fallback footer
+
+### Date Arithmetic
+- Always guard against invalid dates with `isNaN(d.getTime())` when using `addDays()` or `calcNextSendDate()`
+- Date inputs may arrive as empty strings — handle gracefully
+
+### Routing & State
+- HashRouter is required — all routes use `#/path` format
+- Quick-create navigation: `navigate('/invoices', { state: { quickCreate: true } })`. Clear state with `window.history.replaceState({}, '')` after handling
+- `location.state?.openId` is used by RecurringBanners to open a specific invoice
+
+### Auth
+- `AuthContext` compares user IDs (`prev?.id === incoming?.id`) before updating state — prevents Supabase token refresh events from triggering page data reloads
+- `recoveryModeRef` mirrors `recoveryMode` state to avoid stale closure in `onAuthStateChange` callback
+- Never clear the URL hash before Supabase's `detectSessionInUrl` has read it (causes "Auth session missing!" on password reset)
+
+### PDF
+- `@react-pdf/renderer` is dynamically imported in `pdfBuffer.js` to keep initial bundle small
+- `window.Buffer` polyfill must be set in `main.jsx` before any other import
+
+### Deployment
+- Build for PWA: `npm run build` → deploys to Vercel via GitHub push to `main`
+- Build for Electron: `npm run build:win` → `FundiBill-Setup-{version}.exe` in `/dist/`
+- `ELECTRON=true` env var switches Vite `base` to `./` for file-protocol compatibility
+- `release:patch/minor/major` scripts bump version, tag, and push `main` with follow-tags (triggers Electron auto-update via GitHub Releases)
+- **New features on `v2` branch → Vercel preview test → merge to `main`**
+- Do not modify `CLAUDE.md` unless explicitly asked
+
+### Code Style
+- All UI styles are inline React style objects (no CSS modules, no Tailwind)
+- No comments unless the WHY is non-obvious
+- One prompt at a time — full file replacements, not partial snippets
+- App name is **FundiBill** everywhere — never "Invoicy"
+
+---
+
+## 11. ENVIRONMENT VARIABLES
+
+### `.env` (local, Vite renderer — prefixed `VITE_`)
 
 | Variable | Purpose |
 |---|---|
 | `VITE_SUPABASE_URL` | Supabase project URL |
 | `VITE_SUPABASE_ANON_KEY` | Supabase anon/public key for client-side SDK |
-| `VITE_PAYFAST_MERCHANT_ID` | PayFast merchant ID (referenced in PHP, may not be used client-side) |
-| `VITE_PAYFAST_MERCHANT_KEY` | PayFast merchant key (same note) |
+| `VITE_PAYFAST_MERCHANT_ID` | PayFast merchant ID (referenced in PHP, not actively used client-side) |
+| `VITE_PAYFAST_MERCHANT_KEY` | PayFast merchant key (same) |
+| `GH_TOKEN` | GitHub token for electron-builder to publish to GitHub Releases |
 
-The Electron main process uses `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` via `Deno.env` inside edge functions only — these are NOT in the renderer `.env`.
+### Vercel Environment Variables (set in Vercel dashboard)
 
----
-
-## Features Built
-
-1. **Authentication** — Email/password sign-up with confirmation email; sign-in; sign-out. Registration shows a 5-second countdown success screen before returning to login.
-2. **Dashboard** — 6 stat cards (total invoiced, invoices issued, collected, overdue count, outstanding amount, estimates pending); monthly revenue/expenses bar chart; period filters; recent invoices table.
-3. **Invoices** — Create, edit, delete; auto-number (max+1, skips existing, duplicate save blocked); PDF preview + download; send by email (SMTP); mark as sent/paid (with payment method selection); overdue auto-detection; status badges.
-4. **Estimates** — Same as invoices; auto-number (same max+1 logic); convert to invoice (one click, auto-generates invoice number).
-5. **Recurring Invoices** — Create schedule (daily/weekly/monthly/yearly); on save, immediately creates first invoice and advances `next_send_date`; pause/resume; notification banner when auto-invoice created; edit/delete.
-6. **Clients** — Add/edit/delete; per-client invoice and estimate history panel.
-7. **Items Catalog** — Add/edit/delete products/services. Items auto-saved when first used in an invoice or estimate; immediately available for autocomplete in same session via `refreshCatalog()`.
-8. **Expenses** — Track business expenses; categories configurable in Settings.
-9. **Settings** — Business profile, logo upload, branding colours (primary/accent/text), invoice/estimate prefixes, starting numbers, T&C, banking details, SMTP config, payment methods list, expense categories, payment terms days.
-10. **PDF Generation** — Branded A4 documents via `@react-pdf/renderer`; fixed header/footer on every page; "Continues on page N" for multi-page; "Page X / Y" numbering; notes section; PAID watermark; dynamic header height based on content.
-11. **Email (SMTP)** — Full HTML branded emails for invoices, estimates, reminders, and test emails; `nodemailer` in Electron main process; two IPC channels (`email:send` for test, `send-email` for full with PDF attachment).
-12. **Trial System** — 7-day trial from `profiles.trial_start`; read-only after expiry; `TrialBanner` with Buy button.
-13. **License System** — FNDBY key format; FNV-1a checksum; `LicenseModal` for entry; `licenses` table in Supabase; `is_licensed` on profile.
-14. **Payment Reminders (manual)** — Amber bell 🔔 on overdue non-paid invoices in the list; clicking opens `ReminderModal` with pre-filled email; sends via SMTP; no automatic scheduling in current UI flow.
-15. **Tutorial** — 12-step spotlight tutorial; auto-starts 2s after first login (`tutorial_completed` flag); restartable from sidebar; navigates to the correct page for each step.
-16. **Help Buttons** — "?" popover on every page with page-specific bullet help content.
-17. **Liquid Glass Sidebar** — Blue-to-green gradient (`#0891b2 → #0d9488 → #16a34a`); active NavLink uses frosted glass pill (`backdrop-filter: blur`); `primaryColor` from user's profile settings drives active state colour.
-18. **AppDataContext (global cache)** — Loads `profile`, `clients`, `catalog` once on login; `refreshProfile()`, `refreshClients()`, `refreshCatalog()` called after writes; prevents spurious data reloads on Supabase token refresh.
-19. **Auth Token Fix** — `AuthContext` compares user IDs before updating state, preventing token-refresh events from triggering page data reloads.
-20. **Add Client in Invoice/Estimate** — Inline "Add New Client" modal; new client added to `extraClients` local state for immediate selection; `refreshClients()` updates global cache.
-21. **Auto-complete Line Items** — Typing in item name field shows catalog suggestions; selecting pre-fills description and price.
-22. **Invoice Status Auto-update** — When emailed via Send by Email, `status` is promoted from `draft` → `sent` and `sent_from_app = true` is set.
-
----
-
-## Current App Flow
-
-1. **Install:** User runs `FundiBill-Setup-{version}.exe` → installs to Program Files
-2. **First launch:** Electron loads `dist/renderer/index.html`; React boots; Auth screen shows
-3. **Sign up:** User registers → Supabase sends confirmation email → success screen shown → redirects to login after 5s
-4. **Confirm email:** User clicks link in email → Supabase activates account
-5. **Sign in:** User logs in → `AuthContext` sets stable `user` ref → `TrialProvider` checks/creates `trial_start` → `AppDataContext` loads profile + clients + catalog in one parallel fetch → Tutorial auto-starts after 2s if first login
-6. **Daily use:**
-   - Navigate via sidebar → correct page loads using cached data
-   - Create invoice → number auto-generated (max+1, skips existing) → add client/items → save
-   - Preview PDF → Send by Email → SMTP sends HTML email + PDF attachment
-   - After email sent: invoice status → "sent"; amber banner appears if recurring
-   - Overdue invoices show bell 🔔 → click → send manual reminder email
-7. **Trial expiry:** After 7 days, `isReadOnly = true`; all write actions disabled; `TrialBanner` prompts purchase
-8. **Purchase:** Click "Buy FundiBill Lifetime Access — R99" → PayFast page opens in browser → payment → webhook sets `is_licensed = true` → app polls and detects → reloads → full access
-
----
-
-## License & Trial System
-
-- **Trial:** `profiles.trial_start` set on first login. 7 days. After expiry: `isReadOnly = true` (all save/create/delete actions show "trial ended" tooltip or are disabled).
-- **License key format:** `FNDBY-XXXX-XXXX-XXXX` — 5-char prefix + 3 × 4-char base-36 segments. SEG3 is a checksum: `toSeg(fnv1a32("FNDBY" + SEG1 + SEG2))`. Validated client-side in `LicenseModal` + stored in `licenses` table; `is_licensed` on profile is the source of truth for access.
-- **PayFast flow:** PHP at `api.fundibill.online` handles merchant signature. ITN webhook sets `profiles.is_licensed = true`. `TrialBanner` polls every 10s for up to 10 minutes after Buy click.
-- **Key generator:** `key-generator.html` — internal browser tool; not deployed; uses same algorithm as `electron/license.js`.
-
----
-
-## Email System
-
-### Two IPC channels (both use `nodemailer` in main process):
-
-| Channel | Caller | Purpose |
+| Variable | Purpose | Required on v2 preview? |
 |---|---|---|
-| `email:send` (`window.db.email.send`) | Settings test email | Simple: smtp object + to/subject/text/html, optional attachment |
-| `send-email` (`window.electronAPI.sendEmail`) | `SendEmailModal`, `ReminderModal` | Full: individual SMTP fields + optional pdfBuffer + fileName |
+| `VITE_SUPABASE_URL` | Same as .env | ✅ Yes |
+| `VITE_SUPABASE_ANON_KEY` | Same as .env | ✅ Yes |
+| `VITE_PAYFAST_MERCHANT_ID` | Same as .env | ✅ Yes |
+| `VITE_PAYFAST_MERCHANT_KEY` | Same as .env | ✅ Yes |
+| `GMAIL_CLIENT_SECRET` | Google OAuth client secret (v2 Gmail OAuth feature) | ✅ Yes |
+| `GMAIL_CLIENT_ID` | Google OAuth client ID — used server-side by `/api/gmail-auth.js` and `/api/gmail-callback.js` | ✅ Yes |
+| `GMAIL_REDIRECT_URI` | OAuth redirect URI, must point at `/api/gmail-callback` and be registered in Google Cloud Console | ✅ Yes |
+| `SUPABASE_SERVICE_ROLE_KEY` | Bypasses RLS so `/api/gmail-callback.js` can write tokens to `profiles` server-side | ✅ Yes |
+| `VITE_APP_URL` | Base app URL — used by `/api/gmail-callback.js` to build the post-auth redirect | ✅ Yes |
 
-### Emails sent:
-1. **Invoice email** — Branded HTML via `generateInvoiceEmail()`; PDF attached; sent from user's SMTP
-2. **Estimate email** — `generateEstimateEmail()`; PDF attached
-3. **Manual reminder** — `generateReminderEmail()`; no PDF; sent from `ReminderModal` in Invoices list
-4. **Test email** — `generateTestEmail()`; no PDF; sent from Settings page
+### Supabase Edge Functions (Deno.env — set in Supabase dashboard)
 
-### HTML template (`emailTemplates.js`):
-- `baseTemplate()` — outer chrome: coloured header → white body → FundiBill footer
-- Footer: "Sent by **FundiBill** — SA Built Invoicing Software" + `fundibill.online` link (disclaimer line removed)
-- All emails include `PLAIN_TEXT_FOOTER` as the plain-text fallback footer
-- `primaryColor` from user's profile drives the header and accent colour
-
-### SMTP config:
-- Stored in `profiles` table (`smtp_host`, `smtp_port`, `smtp_user`, `smtp_password`, `smtp_from_name`)
-- `smtp_port` must be saved as `null` not empty string (integer column)
-- TLS: `port === 465` → `secure: true`; otherwise `secure: false`
-- `tls: { rejectUnauthorized: false }` — allows self-signed certs
-
----
-
-## Recurring Invoices
-
-- Managed in `recurring_invoices` table
-- User creates a recurring invoice with: client, interval, first send date, line items, VAT, email subject/message
-- **On first save:** the app immediately creates the first invoice (`invoices` table), inserts its line items (`invoice_items`), sets `from_recurring = true`, `notification_dismissed = false`, then updates `next_send_date` to the next occurrence (via `calcNextSendDate()`) and `last_sent_date` to the first send date
-- **Amber notification banner:** `RecurringNotifContext` queries for `from_recurring = true, notification_dismissed = false, status = 'draft'` invoices and renders amber banners below the header. Clicking the banner text navigates to that invoice. Clicking × dismisses (sets `notification_dismissed = true`). Dismissed automatically when invoice is emailed.
-- **Future invoices:** The `send-payment-reminders` edge function was originally the mechanism but has been replaced by manual flow. Future recurring invoice creation (for intervals beyond the first) requires a Supabase cron job or edge function triggered by pg_cron — **this has not been implemented for the ongoing schedule beyond the first invoice.**
-- Pause/resume toggles `is_active`
-- Edit pre-fills all form fields
+| Variable | Used by |
+|---|---|
+| `SUPABASE_URL` | All edge functions |
+| `SUPABASE_SERVICE_ROLE_KEY` | All edge functions (bypasses RLS) |
+| `PAYFAST_MERCHANT_ID` | `cancel-subscription` |
+| `PAYFAST_PASSPHRASE` | `cancel-subscription` (HMAC signature) |
+| `PAYFAST_SANDBOX` | `cancel-subscription` (`'true'` to use sandbox mode) |
 
 ---
 
-## Payment Reminders
+## 12. IPC BRIDGE REFERENCE (Electron)
 
-The automatic reminder system was removed. The current system is **manual**:
+### `window.electronAPI` (primary)
 
-1. **Bell icon 🔔** (amber colour) appears in the Invoices list on any invoice where: `status !== 'paid' AND status !== 'draft' AND due_date < today`
-2. Clicking the bell (with `e.stopPropagation()` so the row doesn't open the invoice) opens `ReminderModal`
-3. `ReminderModal` pre-fills: To (client email), Subject ("Payment Reminder — Invoice X is Outstanding"), Message body (with invoice details)
-4. All fields are editable before sending
-5. Sends via `window.electronAPI.sendEmail` using user's SMTP — same channel as invoice send, no PDF attached
-6. On success: shows "Reminder Sent" screen; `onReminderSent()` shows a toast "Reminder sent successfully."
+| Method | IPC channel | Purpose |
+|---|---|---|
+| `sendEmail(payload)` | `send-email` | Send email with optional PDF attachment |
+| `onUpdateAvailable(cb)` | `update-available` event | Called when new version detected |
+| `onUpdateDownloaded(cb)` | `update-downloaded` event | Called when update ready to install |
+| `installUpdate()` | `install-update` | Quits app and installs downloaded update |
 
-The `reminder_opted_in` and `reminder_sent_at` columns still exist in `invoices` but are not actively used by the current UI.
+### `window.db` (legacy)
 
----
-
-## Known Issues & Notes
-
-- **`invoice_items` has no `user_id` column** — RLS access is through the parent `invoices` row. Do not add `user_id` when inserting into `invoice_items`.
-- **`estimate_items` has no `user_id` column** — same as above.
-- **`profiles.terms` vs `terms_conditions`** — The Supabase column is named `terms` but the Settings form field is called `terms_conditions`. The `SUPABASE_COL` mapping handles this: `terms_conditions: 'terms'`.
-- **`smtp_port` must be `null` not `""`** — The column is integer. The save handler explicitly converts empty strings to `null`.
-- **PayFast URL** — `src/lib/payfast.js` points to `api.fundibill.online/fundibill-buy.php`. Do not change this URL.
-- **Logo base64 data URLs** — Stripped by most email clients for security. Only `https://` logo URLs are used in emails; base64/local paths are filtered to empty string before generating email HTML.
-- **`src/utils/pdf.js` (jsPDF)** — Legacy file, currently unused in the active flow. `PdfPreviewModal` and `PdfDocument` use `@react-pdf/renderer`. Do not delete — kept as reference.
-- **Recurring invoice future scheduling** — Only the FIRST invoice is created by the frontend save flow. Subsequent invoices for monthly/weekly/etc. recurrence require a backend trigger (edge function + pg_cron) that has NOT been implemented yet.
-- **`send-payment-reminders` edge function** — Exists in `supabase/functions/` and was deployed, but the in-app flow no longer triggers it. It remains as a reference/starting point.
-- **Date input parsing** — `addDays()` and `calcNextSendDate()` guard against invalid/empty date strings with `isNaN(d.getTime())` checks, returning `''` instead of throwing.
-- **AuthContext token refresh fix** — `onAuthStateChange` compares `prev?.id === incoming?.id` before updating user state. This prevents every Supabase token refresh (which fires ~hourly or on window focus) from creating a new `user` object reference and triggering all page data reloads.
-- **PDF header height is computed dynamically** — `HEADER_H = 44 + max(leftColHeight, rightColHeight) + 29` based on logo presence and number of business detail lines. If content visually overlaps the header on edge cases, the fixed header's `backgroundColor: white` covers it.
-- **Duplicate number prevention** — Both invoice and estimate `genNumber` functions use a `usedSet` to skip already-taken numbers. Both `handleSave` functions do a fresh Supabase query to check for duplicates before saving, showing an error if one is found.
-
----
-
-## What Still Needs To Be Done
-
-- **Recurring invoice scheduling for future invoices** — Currently only the first invoice is created. A Supabase cron job / edge function needs to query `recurring_invoices` where `is_active = true AND next_send_date <= today`, create the invoice + items, advance `next_send_date`, and trigger `RecurringNotifContext.refresh()`. The `send-payment-reminders` edge function is a template for this pattern.
-- **Expenses reporting** — The Expenses page exists but there is no export or summary report.
-- **Client portal / estimate approval** — Estimates can be sent by email but there is no web link for clients to approve/reject online.
-- **Multi-currency support** — Currently ZAR only (R format).
-- **Invoice PDF logo support for web URLs** — The logo needs to be a publicly accessible HTTPS URL to appear in emailed PDFs. If the user uploads via file picker (base64), it won't appear in emails.
-
----
-
-## Key Rules for Claude
-
-- Always use Supabase JS SDK for all data operations — never raw fetch/axios to Supabase REST
-- Keep the Electron IPC structure intact — `window.electronAPI.sendEmail` and `window.db.*`
-- ZAR currency format: `R 1 234,00` (space thousands, comma decimal)
-- Do not modify CLAUDE.md unless explicitly asked
-- Ask before restructuring folders or renaming files
-- One prompt at a time; provide full copy-paste ready code blocks
-- App name is **FundiBill** everywhere — never "Invoicy"
-- `invoice_items` and `estimate_items` do NOT have a `user_id` column — never insert one
-- `smtp_port` must be sent as `null` (not `""`) to avoid integer type errors
-- `profiles.terms` is the DB column name for Terms & Conditions (not `terms_conditions`)
-- When touching `addDays()` or date arithmetic, always guard against invalid dates with `isNaN(d.getTime())`
-- `AppDataContext` provides `profile`, `clients`, `catalog`; call `refreshProfile/Clients/Catalog()` after any write that affects those collections
-- Every page is read-only when `trialStatus.isReadOnly === true` — check `isReadOnly` before enabling write actions
-
----
-
-## Current Task
-
-<!-- Leave blank — filled in when starting a new session -->
+| Method | IPC channel | Purpose |
+|---|---|---|
+| `pdf.save(buffer, filename)` | `pdf:save` | Save PDF to disk via native dialog |
+| `pdf.getLogoBase64(filePath)` | `pdf:getLogoBase64` | Read local logo file as base64 data URL |
+| `email.send(payload)` | `email:send` | Test email from Settings page |
+| `openExternal(url)` | `shell:openExternal` | Open URL in system browser (used for PayFast) |
