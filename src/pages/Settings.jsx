@@ -600,8 +600,11 @@ export default function Settings() {
         smtp_from_name:           profile.smtp_from_name           ?? DEFAULTS.smtp_from_name,
         whatsapp_default_message:  profile.whatsapp_default_message  || DEFAULTS.whatsapp_default_message,
         whatsapp_estimate_message: profile.whatsapp_estimate_message || DEFAULTS.whatsapp_estimate_message,
-        email_invoice_message:     profile.email_invoice_message     || DEFAULTS.email_invoice_message,
-        email_quote_message:       profile.email_quote_message       || DEFAULTS.email_quote_message,
+        // Fall back to the (previously mis-wired) whatsapp_* column so anyone
+        // who already customised the "Invoice/Quote Default Message" box
+        // before this fix keeps seeing their own text, not the hardcoded default.
+        email_invoice_message:     profile.email_invoice_message     || profile.whatsapp_default_message  || DEFAULTS.email_invoice_message,
+        email_quote_message:       profile.email_quote_message       || profile.whatsapp_estimate_message || DEFAULTS.email_quote_message,
         email_overdue_message:     profile.email_overdue_message     || DEFAULTS.email_overdue_message,
         payment_terms_days:        profile.payment_terms_days        ?? DEFAULTS.payment_terms_days,
         discounts_enabled:         profile.discounts_enabled         ?? DEFAULTS.discounts_enabled,
@@ -1354,8 +1357,8 @@ export default function Settings() {
           <div style={{ background: '#f8fafc', borderRadius: 10, border: '1px solid #e2e8f0', padding: 16 }}>
             <p style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', margin: '0 0 12px' }}>Invoice Default Message</p>
             <PlaceholderTextarea
-              value={form.whatsapp_default_message}
-              onChange={v => setForm(p => ({ ...p, whatsapp_default_message: v }))}
+              value={form.email_invoice_message}
+              onChange={v => setForm(p => ({ ...p, email_invoice_message: v, whatsapp_default_message: v }))}
               placeholder={`Hi {clientName}, please find invoice {invoiceNumber} for {amount} attached. Due date: {dueDate}. Thank you, {businessName}.`}
               inpStyle={inp}
               onFocus={focusStyle}
@@ -1374,8 +1377,8 @@ export default function Settings() {
           <div style={{ background: '#f8fafc', borderRadius: 10, border: '1px solid #e2e8f0', padding: 16 }}>
             <p style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', margin: '0 0 12px' }}>Quote Default Message</p>
             <PlaceholderTextarea
-              value={form.whatsapp_estimate_message}
-              onChange={v => setForm(p => ({ ...p, whatsapp_estimate_message: v }))}
+              value={form.email_quote_message}
+              onChange={v => setForm(p => ({ ...p, email_quote_message: v, whatsapp_estimate_message: v }))}
               placeholder={`Hi {clientName}, please find your estimate {quoteNumber} attached for the amount of {amount}. This quote/estimate is valid until {expiryDate}. Thank you for your business! Kind regards, {businessName}`}
               inpStyle={inp}
               onFocus={focusStyle}
