@@ -8,7 +8,7 @@ import { useTrialStatus } from '../context/TrialContext'
 import { useRecurringNotif } from '../context/RecurringNotifContext'
 import { useAppData } from '../context/AppDataContext'
 import HelpButton from '../components/HelpButton'
-import { generateReminderEmail, generatePaymentConfirmationEmail, PLAIN_TEXT_FOOTER } from '../lib/emailTemplates'
+import { generateReminderEmail, generatePaymentConfirmationEmail, PLAIN_TEXT_FOOTER, fillMessageTemplate } from '../lib/emailTemplates'
 import { sendEmail, checkGmailProviderReady } from '../lib/sendEmail'
 import { buildPdfBuffer } from '../lib/pdfBuffer'
 import { sendPdfViaWhatsApp, buildInvoiceWhatsAppMessage } from '../lib/whatsapp'
@@ -1782,6 +1782,13 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
               settings={settings}
               docType="INVOICE"
               clientEmail={selectedClient?.email || ''}
+              configuredMessage={fillMessageTemplate(settings?.email_invoice_message, {
+                clientName:    selectedClient?.company_name || selectedClient?.name || '',
+                invoiceNumber: pdfData.invoice_number || '',
+                amount:        fmt(total),
+                dueDate:       pdfData.due_date || '',
+                businessName:  settings?.business_name || '',
+              })}
               onClose={() => setShowEmailModal(false)}
               onSent={async () => {
                 // Mark sent_from_app on successful email send (status NOT auto-promoted)
@@ -2468,6 +2475,16 @@ function ReminderModal({ invoice, clients, settings, onClose, onReminderSent }) 
     const amount = fmt(invoice?.total ?? 0)
     const issued = invoice?.issue_date || '—'
     const due    = invoice?.due_date   || '—'
+
+    const configured = fillMessageTemplate(settings?.email_overdue_message, {
+      clientName:    clientName,
+      invoiceNumber: invNum,
+      amount:        amount,
+      dueDate:       due,
+      businessName:  businessName,
+    })
+    if (configured.trim()) return configured
+
     return [
       `This is a friendly reminder that invoice ${invNum} for ${amount} issued on ${issued} is still outstanding.`,
       '',

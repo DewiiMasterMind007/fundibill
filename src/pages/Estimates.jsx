@@ -8,6 +8,7 @@ import { useTrialStatus } from '../context/TrialContext'
 import { useAppData } from '../context/AppDataContext'
 import HelpButton from '../components/HelpButton'
 import { buildPdfBuffer } from '../lib/pdfBuffer'
+import { fillMessageTemplate } from '../lib/emailTemplates'
 import { sendPdfViaWhatsApp, buildEstimateWhatsAppMessage } from '../lib/whatsapp'
 import useIsMobile from '../hooks/useIsMobile'
 
@@ -1563,6 +1564,13 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
               settings={settings}
               docType="ESTIMATE"
               clientEmail={selectedClient?.email || ''}
+              configuredMessage={fillMessageTemplate(settings?.email_quote_message, {
+                clientName:   selectedClient?.company_name || selectedClient?.name || '',
+                quoteNumber:  pdfData.estimate_number || '',
+                amount:       fmt(total),
+                expiryDate:   pdfData.expiry_date || '',
+                businessName: settings?.business_name || '',
+              })}
               onClose={() => setShowEmailModal(false)}
               onSent={async () => {
                 // Status NOT auto-promoted on email send — user clicks "Mark as Sent" manually

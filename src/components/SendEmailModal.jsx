@@ -21,23 +21,28 @@ function smtpFromSettings(settings) {
  * SendEmailModal — send an invoice or estimate as a PDF attachment.
  *
  * Props:
- *   isOpen        boolean
- *   data          Full invoice/estimate object with items[]
- *   settings      Business settings (raw Supabase profile row)
- *   docType       "INVOICE" | "ESTIMATE"
- *   clientEmail   Pre-filled To address (from the selected client)
- *   onClose       () => void
+ *   isOpen             boolean
+ *   data               Full invoice/estimate object with items[]
+ *   settings           Business settings (raw Supabase profile row)
+ *   docType            "INVOICE" | "ESTIMATE"
+ *   clientEmail        Pre-filled To address (from the selected client)
+ *   configuredMessage  Optional — the user's configured email_invoice_message /
+ *                       email_quote_message template, with placeholders already
+ *                       filled in by the caller. Used as the seed body instead of
+ *                       the hardcoded default when provided and non-empty.
+ *   onClose            () => void
  */
-export function SendEmailModal({ isOpen, data, settings, docType, clientEmail, onClose, onSent }) {
+export function SendEmailModal({ isOpen, data, settings, docType, clientEmail, configuredMessage, onClose, onSent }) {
   const isInvoice   = docType === 'INVOICE'
   const docNumber   = isInvoice ? data?.invoice_number : data?.estimate_number
   const docLabel    = isInvoice ? 'Invoice' : 'Estimate'
   const businessName = settings?.business_name || settings?.smtp_from_name || 'us'
 
   const defaultSubject = `${docLabel} ${docNumber || ''} from ${businessName}`.trim()
-  const defaultBody    = isInvoice
+  const hardcodedBody   = isInvoice
     ? `Hi,\n\nPlease find your invoice ${docNumber || ''} attached.\n\nIf you have any questions, feel free to reach out.\n\nThank you for your business!`
     : `Hi,\n\nPlease find your estimate ${docNumber || ''} attached.\n\nLet us know if you'd like to discuss any of the details.\n\nThank you!`
+  const defaultBody    = configuredMessage && configuredMessage.trim() ? configuredMessage : hardcodedBody
 
   const [to,      setTo]      = useState(clientEmail || '')
   const [subject, setSubject] = useState(defaultSubject)
@@ -57,7 +62,7 @@ export function SendEmailModal({ isOpen, data, settings, docType, clientEmail, o
       setError('')
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, docNumber, clientEmail])
+  }, [isOpen, docNumber, clientEmail, configuredMessage])
 
   // Escape key closes modal
   useEffect(() => {

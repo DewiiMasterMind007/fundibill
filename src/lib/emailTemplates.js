@@ -41,6 +41,36 @@ function fmtAmount(n) {
 export const PLAIN_TEXT_FOOTER =
   '\n\n---\nSent by FundiBill - SA Built Invoicing Software | fundibill.online'
 
+// ─── Message template placeholders ────────────────────────────────────────────
+
+/**
+ * Fill a user-configured message template (profiles.email_invoice_message /
+ * email_quote_message / email_overdue_message) with real values.
+ * Mirrors the placeholder syntax used by the WhatsApp templates in whatsapp.js.
+ *
+ * @param {string} template  Raw template text, e.g. from the profile row.
+ * @returns {string}  Empty string if no template was supplied.
+ */
+export function fillMessageTemplate(template, {
+  clientName    = '',
+  invoiceNumber = '',
+  quoteNumber   = '',
+  amount        = '',
+  dueDate       = '',
+  expiryDate    = '',
+  businessName  = '',
+} = {}) {
+  if (!template) return ''
+  return template
+    .replaceAll('{clientName}',    clientName)
+    .replaceAll('{invoiceNumber}', invoiceNumber)
+    .replaceAll('{quoteNumber}',   quoteNumber)
+    .replaceAll('{amount}',        amount)
+    .replaceAll('{dueDate}',       dueDate)
+    .replaceAll('{expiryDate}',    expiryDate)
+    .replaceAll('{businessName}',  businessName)
+}
+
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
 /**
