@@ -259,6 +259,16 @@ export function SendEmailModal({ isOpen, data, settings, docType, clientEmail, c
                   style={INPUT}
                   disabled={sending}
                 />
+                {settings?.email_provider === 'gmail' && (
+                  <p style={{ fontSize: 11, color: '#94a3b8', margin: '5px 0 0' }}>
+                    Sending via Gmail ({settings?.gmail_connected_email})
+                  </p>
+                )}
+                {settings?.email_provider === 'smtp' && (
+                  <p style={{ fontSize: 11, color: '#94a3b8', margin: '5px 0 0' }}>
+                    Sending via Custom SMTP
+                  </p>
+                )}
               </div>
               <div>
                 <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 5 }}>Subject</label>

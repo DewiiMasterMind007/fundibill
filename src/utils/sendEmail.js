@@ -69,6 +69,15 @@ export async function sendEmail({ supabase, userId, profile, to, subject, html, 
       }),
     })
 
+    // 401 means the Gmail connection itself is dead server-side — either it
+    // was never connected, or the refresh token has been revoked/expired
+    // (e.g. the user removed FundiBill from their Google account permissions).
+    // Surface one specific, actionable message instead of the generic error —
+    // and throw either way, so no caller marks the send as successful.
+    if (response.status === 401) {
+      throw new Error('Gmail connection lost. Please reconnect Gmail in Settings → Email Settings → Google / Gmail.')
+    }
+
     const result = await response.json().catch(() => ({}))
     if (!response.ok) {
       throw new Error(result?.error || 'Failed to send email via Gmail.')

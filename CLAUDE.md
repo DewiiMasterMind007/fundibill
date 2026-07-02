@@ -578,19 +578,32 @@ Identical columns to `invoice_items` but with `estimate_id` instead of `invoice_
 - The SMTP fields (`smtp_host`, `smtp_port`, `smtp_user`, `smtp_password`, `smtp_from_name`) are only shown/editable under the **Custom SMTP** tab
 - Every send flow in the app (invoice, estimate, payment reminder, payment confirmation, Settings test email) routes through the shared `src/utils/sendEmail.js` provider router — see "Email sending — provider routing" below
 
-### Gmail OAuth (v2 branch) — complete
+### Gmail OAuth — built, complete end-to-end
 
 **Google Cloud Console project:** FundiBill  
 **OAuth Client ID:** `475513706412-9lhbtur6spj97n9lrt5mejhae421fsc9.apps.googleusercontent.com`  
 **Client Secret:** Stored in Vercel environment variable `GMAIL_CLIENT_SECRET` — **never in code**  
 **Scope:** `https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/userinfo.email` — the `userinfo.email` scope is required because `gmail.send` alone does not grant access to the profile/userinfo endpoint used to fetch the connected address  
-**App status:** Testing mode — max 100 users, manual whitelist via Google Cloud Console
+**App status:** Testing mode — max 100 users, manual whitelist via Google Cloud Console. Google app verification (demo video, privacy policy review, domain verification) is required before public rollout beyond the 100-user cap — see Known Issues.
 
-**Architecture chosen:** Vercel Serverless API Routes (files in `/api/` directory)
-- `/api/gmail-auth.js` — **built.** Accepts `?user_id=`, builds the Google OAuth consent URL (client_id, redirect_uri, scope, access_type=offline, prompt=consent, state=user_id), 302-redirects the browser to it.
-- `/api/gmail-callback.js` — **built.** Google redirects here with `?code=&state=`. Exchanges the code for tokens at `https://oauth2.googleapis.com/token`, fetches the connected address from `https://www.googleapis.com/oauth2/v2/userinfo` (`response.email`), writes `gmail_access_token`, `gmail_refresh_token`, `gmail_token_expiry`, `gmail_connected_email`, and `email_provider = 'gmail'` onto the `profiles` row (via `SUPABASE_SERVICE_ROLE_KEY`, bypassing RLS), then 302-redirects to `{VITE_APP_URL}/#/settings?gmail=connected` (or `...?gmail=error` on failure). **Note:** the redirect must include the `#/` HashRouter prefix — a plain `/settings?...` path is invisible to react-router under `HashRouter` and the SPA falls back to its default route instead of landing on Settings. OAuth scope is `gmail.send` + `userinfo.email` (see below).
-- `/api/send-gmail.js` — **built.** POST endpoint. Accepts `{ user_id, to, subject, html, pdf_base64, pdf_filename, from_name }`. Fetches the user's `gmail_access_token`/`gmail_refresh_token`/`gmail_token_expiry`/`gmail_connected_email` via `SUPABASE_SERVICE_ROLE_KEY`; if the access token is expired or within 5 minutes of expiring, refreshes it via `https://oauth2.googleapis.com/token` (`grant_type=refresh_token`) and persists the new `gmail_access_token`/`gmail_token_expiry` back onto `profiles`. Builds a raw RFC 2822 message (multipart/mixed with a base64 PDF part when `pdf_base64` is present, otherwise a plain `text/html` message), base64url-encodes it, and POSTs to `https://gmail.googleapis.com/gmail/v1/users/me/messages/send`. Returns `{ success: true, messageId }` on success, `401 { error: "Gmail not connected" }` / `401 { error: "Gmail token expired. Please reconnect Gmail in Settings." }` / `500 { error: "Failed to send email", details }` on failure.
-  - **Subject encoding:** the `Subject:` header is passed through `encodeEmailSubject()` before being written into the raw message. A raw UTF-8 subject in a MIME header corrupts non-ASCII characters (em dashes, smart quotes, accented characters) in most clients. If the subject is pure ASCII it's used as-is; otherwise it's wrapped in RFC 2047 encoded-word syntax: `` =?UTF-8?B?${base64(subject)}?= ``. This is the single choke point for every Gmail send (invoice, estimate, reminder, payment confirmation, test email all funnel through this one endpoint via `src/utils/sendEmail.js`), so the fix covers all of them automatically — no per-caller changes needed.
+**End-to-end flow:**
+1. Settings → Email Settings → Gmail tab, not connected → **Connect Gmail** button (official Google "Sign in with Google" asset, `public/Google Signin Button.png`)
+2. Click → `supabase.auth.getUser()` → full-page redirect to `/api/gmail-auth?user_id=<id>` → 302 to Google's OAuth consent screen
+3. User grants access → Google redirects to `/api/gmail-callback?code=...&state=<id>`
+4. Callback exchanges the code for tokens, fetches the connected address, writes `gmail_access_token`/`gmail_refresh_token`/`gmail_token_expiry`/`gmail_connected_email`/`email_provider='gmail'` onto `profiles`, then 302-redirects to `{VITE_APP_URL}/#/settings?gmail=connected` (or `?gmail=error`)
+5. Settings reads `?gmail=` from the URL on mount, re-fetches the profile, updates local state + `refreshProfile()` (`AppDataContext`), shows a toast, strips the query param via `window.history.replaceState`
+6. Every subsequent send (invoice, estimate, reminder, payment confirmation, test email) routes through `src/utils/sendEmail.js` → `POST /api/send-gmail`, which sends via the Gmail API using the stored tokens, refreshing server-side when needed
+7. Disconnect: revokes the token with Google, then clears the 4 token columns + resets `email_provider` in Supabase
+
+**API routes** (all in `/api/`, Vercel Serverless Functions):
+- `/api/gmail-auth.js` — accepts `?user_id=`, builds the Google OAuth consent URL (`client_id`, `redirect_uri`, scope, `access_type=offline`, `prompt=consent`, `state=user_id`), 302-redirects the browser to it.
+- `/api/gmail-callback.js` — Google redirects here with `?code=&state=`. Exchanges the code for tokens at `https://oauth2.googleapis.com/token`, fetches the connected address from `https://www.googleapis.com/oauth2/v2/userinfo` (`response.email`), writes the 4 token columns + `email_provider='gmail'` onto `profiles` (via `SUPABASE_SERVICE_ROLE_KEY`, bypassing RLS), then 302-redirects to `{VITE_APP_URL}/#/settings?gmail=connected` (or `...?gmail=error`). **Note:** the redirect must include the `#/` HashRouter prefix — a plain `/settings?...` path is invisible to react-router under `HashRouter` and the SPA falls back to its default route instead of landing on Settings.
+- `/api/send-gmail.js` — POST endpoint. Accepts `{ user_id, to, subject, html, pdf_base64, pdf_filename, from_name }`.
+  - **Token refresh:** fetches the user's tokens via `SUPABASE_SERVICE_ROLE_KEY`; if the access token is expired or within 5 minutes of expiring, refreshes it via `POST https://oauth2.googleapis.com/token` (`grant_type=refresh_token`, using `GMAIL_CLIENT_ID`/`GMAIL_CLIENT_SECRET`) and persists the new `gmail_access_token`/`gmail_token_expiry` back onto `profiles` before sending. If the refresh_token itself has been revoked/expired (e.g. the user removed FundiBill from their Google account permissions manually), returns `401 { error: "Gmail token expired. Please reconnect Gmail in Settings." }`. Also returns `401 { error: "Gmail not connected" }` if no tokens exist at all.
+  - **Message construction:** builds a raw RFC 2822 message (multipart/mixed with a base64 PDF part when `pdf_base64` is present, otherwise a plain `text/html` message), base64url-encodes it, and POSTs to `https://gmail.googleapis.com/gmail/v1/users/me/messages/send`. Returns `{ success: true, messageId }` on success, `500 { error: "Failed to send email", details }` on any other failure.
+  - **Subject encoding (RFC 2047):** the `Subject:` header is passed through `encodeEmailSubject()` before being written into the raw message. A raw UTF-8 subject in a MIME header corrupts non-ASCII characters (em dashes, smart quotes, accented characters) in most clients. Pure-ASCII subjects are used as-is; anything else is wrapped in encoded-word syntax: `` =?UTF-8?B?${base64(subject)}?= ``. This is the single choke point for every Gmail send (invoice, estimate, reminder, payment confirmation, test email all funnel through this one endpoint via `src/utils/sendEmail.js`), so the fix covers all of them automatically — no per-caller changes needed.
+
+No other API routes were added for this feature — `gmail-auth.js`, `gmail-callback.js`, and `send-gmail.js` are the complete set.
 
 **Token storage:** Per user in Supabase `profiles` table — columns added (see Section 4):
 - `gmail_access_token` (text)
@@ -598,19 +611,19 @@ Identical columns to `invoice_items` but with `estimate_id` instead of `invoice_
 - `gmail_token_expiry` (timestamptz)
 - `gmail_connected_email` (text)
 
-**New env vars required by the API routes (not yet set anywhere — see Section 11):**
+**Env vars required by the API routes (see Section 11):**
 - `GMAIL_CLIENT_ID`
-- `GMAIL_REDIRECT_URI` (should point at `/api/gmail-callback`)
+- `GMAIL_REDIRECT_URI` (points at `/api/gmail-callback`)
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `VITE_APP_URL`
 
-**UI flow — built in `src/pages/Settings.jsx` (Email Settings → Gmail tab):**
-1. **Not connected (State A):** "Connect Gmail" button + helper text "Send invoices and estimates directly from your Gmail address". Click → `supabase.auth.getUser()` → `window.location.href = '/api/gmail-auth?user_id=<id>'` (full-page redirect, leaves the app)
-2. Google's consent screen → redirects to `/api/gmail-callback?code=...&state=<id>` → tokens exchanged and stored → redirects back to `/#/settings?gmail=connected` (or `?gmail=error`)
-3. On mount, Settings reads `?gmail=` from the URL (`useLocation().search`, works under HashRouter): on `connected` it re-fetches `email_provider`/`gmail_connected_email`, updates local state + calls `refreshProfile()` (`AppDataContext`) so other pages see the change, shows a success toast, and strips the query param via `window.history.replaceState`; on `error` it shows an error toast and strips the param the same way
-4. **Connected (State B):** green dot + "Connected: {gmail_connected_email}", with a "Disconnect" text link below, a **From Name** field (bound to `form.business_name` — the same `profiles.business_name` column used everywhere else in the app, not a separate Gmail-only field), and a **Send Test Email** button (same styling/behavior as the Custom SMTP tab's — sends to `gmail_connected_email`, blocked with "Gmail not connected. Please reconnect Gmail in Settings." if `profile.gmail_access_token` is missing, success toast reads "Test email sent! Check your inbox."). The provider toggle buttons at the top of the tab reflect `form.email_provider === 'gmail'` automatically
-5. **Disconnect:** `window.confirm(...)` → nulls `gmail_access_token`/`gmail_refresh_token`/`gmail_token_expiry`/`gmail_connected_email` and sets `email_provider = 'smtp'` directly via Supabase (not gated behind the page's Save button) → `refreshProfile()` → success toast "Gmail disconnected"
-6. Subsequent sends route through `/api/send-gmail.js` instead of SMTP — **built**, see below
+**UI — built in `src/pages/Settings.jsx` (Email Settings → Gmail tab):**
+1. **Not connected (State A):** the official Google "Sign in with Google" pill button (`public/Google Signin Button.png`, rendered edge-to-edge inside an unstyled `<button>` per Google branding requirements) + helper text "Send invoices and estimates directly from your Gmail address". The provider toggle above it uses the official multicolor "G" logo (`public/G Logo.png`), also per Google branding requirements — no custom-drawn Google icons remain anywhere in the app.
+2. **Connected (State B):** green dot + "Connected: {gmail_connected_email}", a "Disconnect" text link, a **From Name** field (bound to `form.business_name` — the same `profiles.business_name` column used everywhere else in the app, not a separate Gmail-only field), and a **Send Test Email** button (same styling/behavior as the Custom SMTP tab's — sends to `gmail_connected_email`, blocked with "Gmail not connected. Please reconnect Gmail in Settings." if `profile.gmail_access_token` is missing, success toast reads "Test email sent! Check your inbox."). The provider toggle buttons reflect `form.email_provider === 'gmail'` automatically.
+3. **Disconnect (`handleDisconnectGmail`):** `window.confirm(...)` →
+   1. **Revokes the token with Google first**, while the value is still in hand: `fetch('https://oauth2.googleapis.com/revoke?token=' + profile.gmail_access_token)`, so the app disappears from the user's Google account permissions list too. Best-effort only, wrapped in try/catch — a failed/blocked revoke (e.g. CORS, network) is logged to console and never surfaced to the user or allowed to block the rest of disconnect.
+   2. Then nulls `gmail_access_token`/`gmail_refresh_token`/`gmail_token_expiry`/`gmail_connected_email` and sets `email_provider='smtp'` directly via Supabase (not gated behind the page's Save button) → `refreshProfile()` → success toast "Gmail disconnected".
+4. **Provider indicator in send modals:** `SendEmailModal.jsx` shows a small grey line below the "To" field — "Sending via Gmail ({gmail_connected_email})" or "Sending via Custom SMTP" — read from the `settings`/`profile` prop already passed in; omitted entirely if no provider is set. Display-only, no effect on the send logic itself.
 
 ### Email sending — provider routing (`src/utils/sendEmail.js`)
 
@@ -620,13 +633,16 @@ A single shared router, **not** to be confused with `src/lib/sendEmail.js` (the 
 sendEmail({ supabase, userId, profile, to, subject, html, pdfBase64, pdfFilename })
 ```
 
-- **`profile.email_provider === 'gmail'`** → throws immediately if `profile.gmail_access_token` is missing ("Gmail not connected. Please connect Gmail in Settings."); otherwise POSTs to `/api/send-gmail` with `{ user_id, to, subject, html, pdf_base64, pdf_filename, from_name: profile.business_name || 'FundiBill' }`. A merely-expired (not missing) token is **not** blocked client-side — `/api/send-gmail.js` refreshes it server-side. Throws with the API's error message on failure; returns `{ success: true, messageId }` on success.
+- **`profile.email_provider === 'gmail'`** → throws immediately if `profile.gmail_access_token` is missing ("Gmail not connected. Please connect Gmail in Settings."); otherwise POSTs to `/api/send-gmail` with `{ user_id, to, subject, html, pdf_base64, pdf_filename, from_name: profile.business_name || 'FundiBill' }`. A merely-expired (not missing) token is **not** blocked client-side — `/api/send-gmail.js` refreshes it server-side.
+  - **401 handling:** a `401` response from `/api/send-gmail` (dead Gmail connection — never connected, or refresh token revoked/expired server-side) is caught specifically and re-thrown with a single, actionable message: `"Gmail connection lost. Please reconnect Gmail in Settings → Email Settings → Google / Gmail."` This replaces whatever generic error the API returned, so every caller's existing `catch (e) { setError(e.message) }`/toast pattern surfaces the specific message automatically — no per-caller changes needed. Since the function throws (rather than returning a success value), no caller ever marks the invoice/estimate as sent when this happens.
+  - Any other non-2xx response throws the API's own error message (or a generic fallback).
+  - Returns `{ success: true, messageId }` on success.
 - **`profile.email_provider === 'smtp'` (or anything else)** → delegates to the **existing, unmodified** `sendEmail()` in `src/lib/sendEmail.js`, which still does the Electron-IPC-or-PHP-relay routing exactly as before (`window.electronAPI.sendEmail` in the desktop app, `POST https://api.fundibill.online/send-reminder.php` in the PWA). SMTP credentials are pulled from the passed `profile` object (`smtp_host`/`smtp_port`/`smtp_user`/`smtp_password`/`smtp_from_name`). Throws on `{ success: false }`.
 - `pdfBase64` (string) is converted back to an `ArrayBuffer` before being handed to the legacy SMTP path, since that path (and the Electron `send-email` IPC handler in `electron/main.js`) expects a raw buffer, not base64. Also exports `arrayBufferToBase64()` for callers building the PDF as an `ArrayBuffer` via `buildPdfBuffer()`.
-- **Known limitation:** the shared signature only carries one `html` field (no separate plain-text body). For the SMTP/PHP-relay path this means the plain-text fallback (`text_body`) is now the raw HTML string rather than a dedicated plain-text message — a minor regression from the pre-Phase-4 behavior, which built a separate plain-text string with `PLAIN_TEXT_FOOTER`.
+- **Known limitation:** the shared signature only carries one `html` field (no separate plain-text body). For the SMTP/PHP-relay path this means the plain-text fallback (`text_body`) is now the raw HTML string rather than a dedicated plain-text message — a minor regression from the pre-Gmail-integration behavior, which built a separate plain-text string with `PLAIN_TEXT_FOOTER`.
 
 **Wired into every send flow** (all pass `supabase`, `userId` from `supabase.auth.getUser()`, and the relevant `profile`/`settings` object):
-- `SendEmailModal.jsx` — invoice + estimate send (shared modal, both doc types)
+- `SendEmailModal.jsx` — invoice + estimate send (shared modal, both doc types); also shows the provider indicator described above
 - `Invoices.jsx` `ReminderModal` — overdue payment reminder
 - `Invoices.jsx` `handleConfirmMarkPaidWithEmail` (detail view) and `handleConfirmMarkPaidWithEmailFromList` (list view) — payment confirmation email, both non-fatal/best-effort like before
 - `Settings.jsx` `sendTestEmail` — test email, no PDF attachment; recipient is `gmail_connected_email` when the Gmail tab is active, otherwise `smtp_user`
@@ -661,7 +677,7 @@ sendEmail({ supabase, userId, profile, to, subject, html, pdfBase64, pdfFilename
 
 2. **Recurring invoice future scheduling:** Only the FIRST invoice is created by the frontend save flow. Subsequent invoices for ongoing schedules (monthly/weekly/etc.) require a Supabase cron job or edge function. The `send-payment-reminders` function is a template for this pattern — not yet implemented.
 
-3. **Gmail OAuth:** Complete on `v2` (see Section 7) — connect/disconnect UI, callback handling, DB schema, and actual Gmail-API sending via `/api/send-gmail.js` are all built and wired into every send flow.
+3. **Gmail OAuth:** app is in Testing mode (100 user cap). Google verification submission required before public rollout. Needs: demo video, privacy policy review, domain verification.
 
 4. **Blank name fields in PayFast emails:** `fundibill-buy.php` sends `name_first` / `name_last` to PayFast but they appear blank in confirmation emails. Under investigation.
 

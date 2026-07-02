@@ -739,6 +739,19 @@ export default function Settings() {
     if (!user) return
 
     setGmailLoading(true)
+
+    // Revoke the token on Google's side first, while we still have the value,
+    // so the app disappears from the user's Google account permissions too.
+    // Best-effort only — a failed/blocked revoke call must never stop the
+    // local disconnect below, and the user should never see it fail.
+    if (profile?.gmail_access_token) {
+      try {
+        await fetch(`https://oauth2.googleapis.com/revoke?token=${encodeURIComponent(profile.gmail_access_token)}`)
+      } catch (revokeError) {
+        console.error('[Settings] Failed to revoke Gmail token with Google:', revokeError)
+      }
+    }
+
     const { error } = await supabase
       .from('profiles')
       .update({
@@ -763,7 +776,7 @@ export default function Settings() {
     setOriginalForm(prev => ({ ...prev, email_provider: 'smtp' }))
     await refreshProfile()
     showGmailToast('Gmail disconnected', 'success')
-  }, [user, refreshProfile, showGmailToast])
+  }, [user, profile, refreshProfile, showGmailToast])
 
   // ── Event handlers ────────────────────────────────────────────────────────
 
