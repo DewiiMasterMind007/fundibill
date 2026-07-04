@@ -12,6 +12,22 @@ import useIsMobile from '../hooks/useIsMobile'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+function SparklesIcon({ size = 22, color = '#98C93E' }) {
+  const star = (transform) => (
+    <path
+      transform={transform}
+      d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"
+    />
+  )
+  return (
+    <svg width={size} height={size} viewBox="0 0 40 40" fill={color}>
+      {star('translate(0,10) scale(1.05)')}
+      {star('translate(22,0) scale(0.55)')}
+      {star('translate(24,15) scale(0.5)')}
+    </svg>
+  )
+}
+
 const fmtZAR = (n) => {
   const num = Number(n) || 0
   const [int, dec] = num.toFixed(2).split('.')
@@ -370,8 +386,10 @@ export default function Dashboard() {
           const { title, subtitle } = getDailyGreeting(profile?.name)
           return (
             <div>
-              <h1 style={{ fontSize: 24, fontWeight: 800, color: '#0f172a', margin: 0, marginBottom: 2 }}>Dashboard</h1>
-              <p style={{ fontSize: 19, fontWeight: 700, color: '#0f172a', margin: '0 0 2px', lineHeight: 1.2 }}>{title}</p>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
+                <p style={{ fontSize: 28, fontWeight: 800, color: '#0f172a', margin: 0, lineHeight: 1.2 }}>{title}</p>
+                <SparklesIcon />
+              </div>
               <p style={{ fontSize: 14, color: '#64748b', margin: 0 }}>{subtitle}</p>
             </div>
           )
@@ -490,7 +508,7 @@ export default function Dashboard() {
         marginBottom:        isMobile ? 14 : 24,
       }}>
         <StatCard isMobile={isMobile} loading={loading} label="Total Invoiced"    value={fmtZAR(totalInvoiced)}  sub={periodLabel}          accent="#14b8a6"
-          icon={<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>} />
+          icon={<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><text x="12" y="18" textAnchor="middle" fontSize="18" fontWeight="700" fontFamily="Arial, Helvetica, sans-serif">R</text></svg>} />
         <StatCard isMobile={isMobile} loading={loading} label="Invoices Issued"   value={invoicesIssued}          sub={periodLabel}          accent="#6366f1"
           icon={<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>} />
         <StatCard isMobile={isMobile} loading={loading} label="Total Collected"   value={fmtZAR(totalCollected)}  sub={periodLabel}          accent="#10b981"
