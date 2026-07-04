@@ -51,6 +51,14 @@ const CONFETTI_COLORS = ['#0891b2', '#0d9488', '#16a34a', '#f59e0b', '#ec4899', 
 
 function ConfettiExplosion({ onDone }) {
   const canvasRef = useRef(null)
+  // Mirrors the latest onDone in a ref so the effect below never needs
+  // onDone in its dependency array. Parent re-renders while the confetti is
+  // showing (e.g. handleSaved's toast/editing/state updates) previously
+  // created a new onDone closure each time, which — with onDone in the
+  // deps array — cancelled and restarted the whole animation from scratch,
+  // making a single burst look like it exploded 2-3 times.
+  const onDoneRef = useRef(onDone)
+  onDoneRef.current = onDone
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -62,19 +70,19 @@ function ConfettiExplosion({ onDone }) {
     const particles = Array.from({ length: 160 }, () => ({
       x:    Math.random() * canvas.width,
       y:    Math.random() * canvas.height * 0.4 - canvas.height * 0.1,
-      vx:   (Math.random() - 0.5) * 10,
-      vy:   Math.random() * -12 - 4,
+      vx:   (Math.random() - 0.5) * 5,
+      vy:   Math.random() * -6 - 2,
       w:    Math.random() * 10 + 5,
       h:    Math.random() * 6 + 3,
       rot:  Math.random() * Math.PI * 2,
-      rotV: (Math.random() - 0.5) * 0.25,
+      rotV: (Math.random() - 0.5) * 0.125,
       color: CONFETTI_COLORS[Math.floor(Math.random() * CONFETTI_COLORS.length)],
       alpha: 1,
     }))
 
     let frame
     let elapsed = 0
-    const DURATION = 2800
+    const DURATION = 5600
 
     function tick() {
       elapsed += 16
@@ -83,7 +91,7 @@ function ConfettiExplosion({ onDone }) {
 
       for (const p of particles) {
         p.x  += p.vx
-        p.vy += 0.35
+        p.vy += 0.175
         p.y  += p.vy
         p.rot += p.rotV
         p.alpha = fade
@@ -100,13 +108,13 @@ function ConfettiExplosion({ onDone }) {
       if (elapsed < DURATION) {
         frame = requestAnimationFrame(tick)
       } else {
-        onDone?.()
+        onDoneRef.current?.()
       }
     }
 
     frame = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(frame)
-  }, [onDone])
+  }, [])
 
   return (
     <canvas

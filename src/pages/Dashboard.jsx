@@ -385,12 +385,12 @@ export default function Dashboard() {
         {!isMobile && (() => {
           const { title, subtitle } = getDailyGreeting(profile?.name)
           return (
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
-                <p style={{ fontSize: 28, fontWeight: 800, color: '#0f172a', margin: 0, lineHeight: 1.2 }}>{title}</p>
-                <SparklesIcon />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <SparklesIcon size={44} />
+              <div>
+                <p style={{ fontSize: 28, fontWeight: 800, color: '#0f172a', margin: 0, marginBottom: 2, lineHeight: 1.2 }}>{title}</p>
+                <p style={{ fontSize: 14, color: '#64748b', margin: 0 }}>{subtitle}</p>
               </div>
-              <p style={{ fontSize: 14, color: '#64748b', margin: 0 }}>{subtitle}</p>
             </div>
           )
         })()}
