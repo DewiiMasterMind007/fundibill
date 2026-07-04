@@ -13,6 +13,7 @@ import { sendEmail, arrayBufferToBase64 } from '../utils/sendEmail'
 import { buildPdfBuffer } from '../lib/pdfBuffer'
 import { sendPdfViaWhatsApp, buildInvoiceWhatsAppMessage } from '../lib/whatsapp'
 import useIsMobile from '../hooks/useIsMobile'
+import whatsappIcon from '../../public/whatsapp icon.png'
 
 const READONLY_MSG = 'Your trial has ended. Upgrade to continue.'
 
@@ -1295,7 +1296,7 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
                       <button onClick={handleSendWhatsApp} style={{ width: '100%', padding: '10px 16px', border: 'none', background: 'none', textAlign: 'left', fontSize: 13, fontWeight: 600, color: '#374151', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 9 }}
                         onMouseEnter={e => e.currentTarget.style.background = '#f1f5f9'}
                         onMouseLeave={e => e.currentTarget.style.background = 'none'}>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="#25D366"><path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.85.5 3.58 1.46 5.08L2 22l5.2-1.36a9.9 9.9 0 0 0 4.84 1.24h.01c5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.82 9.82 0 0 0 12.04 2zm-3.94 6.08c.16 0 .43.06.61.27.18.21.7.69.7 1.67 0 .98-.71 1.93-.81 2.06-.1.14-1.41 2.19-3.47 3.05-1.71.71-2.31.66-2.71.61-.4-.05-1.28-.52-1.46-1.03-.18-.51-.18-.94-.13-1.03.05-.1.18-.16.38-.27.2-.1 1.28-.63 1.48-.7.2-.07.34-.1.49.1.14.21.56.7.69.84.13.14.25.16.46.06.21-.1.88-.33 1.68-1.04.62-.55 1.04-1.23 1.16-1.44.12-.21.01-.32-.1-.43-.1-.1-.23-.27-.35-.4-.12-.14-.16-.24-.24-.4-.08-.16-.04-.3.03-.43.07-.13.62-1.5.85-2.04.18-.43.36-.4.51-.41z"/></svg>
+                        <img src={whatsappIcon} alt="" width={14} height={14} style={{ display: 'block', borderRadius: 3 }} />
                         WhatsApp
                       </button>
                       <button onClick={handleOpenEmail} style={{ width: '100%', padding: '10px 16px', border: 'none', background: 'none', textAlign: 'left', fontSize: 13, fontWeight: 600, color: '#374151', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 9 }}
@@ -1350,7 +1351,7 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
                       <button onClick={handleSendWhatsApp} style={{ width: '100%', padding: '10px 16px', border: 'none', background: 'none', textAlign: 'left', fontSize: 13, fontWeight: 600, color: '#374151', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 9 }}
                         onMouseEnter={e => e.currentTarget.style.background = '#f1f5f9'}
                         onMouseLeave={e => e.currentTarget.style.background = 'none'}>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="#25D366"><path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.85.5 3.58 1.46 5.08L2 22l5.2-1.36a9.9 9.9 0 0 0 4.84 1.24h.01c5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.82 9.82 0 0 0 12.04 2zm-3.94 6.08c.16 0 .43.06.61.27.18.21.7.69.7 1.67 0 .98-.71 1.93-.81 2.06-.1.14-1.41 2.19-3.47 3.05-1.71.71-2.31.66-2.71.61-.4-.05-1.28-.52-1.46-1.03-.18-.51-.18-.94-.13-1.03.05-.1.18-.16.38-.27.2-.1 1.28-.63 1.48-.7.2-.07.34-.1.49.1.14.21.56.7.69.84.13.14.25.16.46.06.21-.1.88-.33 1.68-1.04.62-.55 1.04-1.23 1.16-1.44.12-.21.01-.32-.1-.43-.1-.1-.23-.27-.35-.4-.12-.14-.16-.24-.24-.4-.08-.16-.04-.3.03-.43.07-.13.62-1.5.85-2.04.18-.43.36-.4.51-.41z"/></svg>
+                        <img src={whatsappIcon} alt="" width={14} height={14} style={{ display: 'block', borderRadius: 3 }} />
                         WhatsApp
                       </button>
                       <button onClick={handleOpenEmail} style={{ width: '100%', padding: '10px 16px', border: 'none', background: 'none', textAlign: 'left', fontSize: 13, fontWeight: 600, color: '#374151', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 9 }}
@@ -1669,7 +1670,7 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
               {showShareDialog && (
                 <div style={{ marginTop: 6, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, boxShadow: '0 4px 16px rgba(15,23,42,0.10)', overflow: 'hidden' }}>
                   <button onClick={handleSendWhatsApp} style={{ width: '100%', padding: '13px 16px', border: 'none', borderBottom: '1px solid #f1f5f9', background: 'none', textAlign: 'left', fontSize: 14, fontWeight: 600, color: '#374151', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10, fontFamily: 'inherit' }}>
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="#25D366"><path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.85.5 3.58 1.46 5.08L2 22l5.2-1.36a9.9 9.9 0 0 0 4.84 1.24h.01c5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.82 9.82 0 0 0 12.04 2zm-3.94 6.08c.16 0 .43.06.61.27.18.21.7.69.7 1.67 0 .98-.71 1.93-.81 2.06-.1.14-1.41 2.19-3.47 3.05-1.71.71-2.31.66-2.71.61-.4-.05-1.28-.52-1.46-1.03-.18-.51-.18-.94-.13-1.03.05-.1.18-.16.38-.27.2-.1 1.28-.63 1.48-.7.2-.07.34-.1.49.1.14.21.56.7.69.84.13.14.25.16.46.06.21-.1.88-.33 1.68-1.04.62-.55 1.04-1.23 1.16-1.44.12-.21.01-.32-.1-.43-.1-.1-.23-.27-.35-.4-.12-.14-.16-.24-.24-.4-.08-.16-.04-.3.03-.43.07-.13.62-1.5.85-2.04.18-.43.36-.4.51-.41z"/></svg>
+                    <img src={whatsappIcon} alt="" width={16} height={16} style={{ display: 'block', borderRadius: 3 }} />
                     WhatsApp
                   </button>
                   <button onClick={handleOpenEmail} style={{ width: '100%', padding: '13px 16px', border: 'none', background: 'none', textAlign: 'left', fontSize: 14, fontWeight: 600, color: '#374151', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10, fontFamily: 'inherit' }}>
