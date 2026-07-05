@@ -2058,7 +2058,8 @@ function RecurringForm({ recurringInvoice, clients, catalog, settings, onBack, o
   }
 
   const inputStyle = (hasErr) => ({
-    width: '100%', padding: '9px 12px', borderRadius: 8, fontSize: 14,
+    width: '100%', height: 38, padding: '9px 12px', borderRadius: 8, fontSize: 14,
+    lineHeight: '20px',
     border: `1px solid ${hasErr ? '#ef4444' : '#e2e8f0'}`, background: '#f8fafc',
     color: '#0f172a', outline: 'none', boxSizing: 'border-box',
   })
