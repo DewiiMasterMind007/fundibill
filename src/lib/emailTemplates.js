@@ -124,9 +124,19 @@ function baseTemplate({ primaryColor, logoUrl, businessName, bodyHtml }) {
   // accessible https:// URL; otherwise show the business name as text.
   const emailLogoUrl = (logoUrl && logoUrl.startsWith('http')) ? logoUrl : ''
 
-  const headerInner = emailLogoUrl
-    ? `<img src="${esc(emailLogoUrl)}" alt="${safeName}" style="max-height:52px;max-width:180px;display:block;" />`
-    : `<span style="color:#ffffff;font-size:22px;font-weight:700;font-family:Arial,Helvetica,sans-serif;">${safeName}</span>`
+  // With a real logo, the logo itself becomes the full-width header banner
+  // (matches how Zoho Invoice and similar tools render branded emails) —
+  // no coloured bar around it. Without one, fall back to the coloured bar
+  // + business name text so the header never looks empty.
+  const header = emailLogoUrl
+    ? `<img src="${esc(emailLogoUrl)}" alt="${safeName}" width="600" style="display:block;width:100%;max-width:600px;height:auto;border-radius:10px 10px 0 0;" />`
+    : `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+         <tr>
+           <td style="background-color:${safeColor};border-radius:10px 10px 0 0;padding:24px 32px;">
+             <span style="color:#ffffff;font-size:22px;font-weight:700;font-family:Arial,Helvetica,sans-serif;">${safeName}</span>
+           </td>
+         </tr>
+       </table>`
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -148,10 +158,8 @@ function baseTemplate({ primaryColor, logoUrl, businessName, bodyHtml }) {
 
           <!-- ── Header ───────────────────────────────────────────────── -->
           <tr>
-            <td style="background-color:${safeColor};
-                        border-radius:10px 10px 0 0;
-                        padding:24px 32px;">
-              ${headerInner}
+            <td style="padding:0;border-radius:10px 10px 0 0;overflow:hidden;">
+              ${header}
             </td>
           </tr>
 
