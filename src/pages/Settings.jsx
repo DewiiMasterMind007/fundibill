@@ -542,6 +542,7 @@ export default function Settings() {
   const [cancelling,    setCancelling]    = useState(false)
   const toastTimer  = useRef(null)
   const logoRef     = useRef(null)
+  const [logoUploading, setLogoUploading] = useState(false)
 
   // ── Gmail OAuth connection state ─────────────────────────────────────────
   const [gmailConnected, setGmailConnected] = useState(false)
@@ -802,16 +803,53 @@ export default function Settings() {
       }
     })
 
-  const handleLogoChange = (e) => {
+  // Uploads to Supabase Storage (public "logos" bucket) and stores the
+  // resulting HTTPS URL — NOT a base64 data URL. Email clients (Gmail,
+  // Outlook, etc.) strip base64 images for security, so a real hosted URL
+  // is required for the logo to actually show up in sent emails/PDFs.
+  const handleLogoChange = async (e) => {
     const file = e.target.files?.[0]
-    if (!file) return
-    const reader = new FileReader()
-    reader.onload = (ev) => setForm(prev => ({ ...prev, logo_path: ev.target.result }))
-    reader.readAsDataURL(file)
+    if (!file || !user) return
     e.target.value = ''
+
+    setLogoUploading(true)
+    setSaveError('')
+    try {
+      const ext = (file.name.split('.').pop() || 'png').toLowerCase()
+      const path = `${user.id}/logo.${ext}`
+
+      const { error: uploadError } = await supabase.storage
+        .from('logos')
+        .upload(path, file, { upsert: true, contentType: file.type })
+      if (uploadError) throw uploadError
+
+      const { data } = supabase.storage.from('logos').getPublicUrl(path)
+      // Cache-bust so the new logo shows immediately (the storage path is
+      // constant per user, so browsers/clients could otherwise cache the
+      // previous image indefinitely).
+      setForm(prev => ({ ...prev, logo_path: `${data.publicUrl}?t=${Date.now()}` }))
+    } catch (err) {
+      setSaveError('Failed to upload logo: ' + (err.message || 'unknown error'))
+    } finally {
+      setLogoUploading(false)
+    }
   }
 
-  const handleLogoRemove = () => setForm(prev => ({ ...prev, logo_path: '' }))
+  const handleLogoRemove = async () => {
+    const previousPath = form.logo_path
+    setForm(prev => ({ ...prev, logo_path: '' }))
+    // Best-effort cleanup — deleting the file from storage isn't required
+    // for correctness (the profile just stops referencing it), so a failure
+    // here shouldn't block the user from removing the logo locally.
+    if (user && previousPath) {
+      const ext = previousPath.split('?')[0].split('.').pop()
+      try {
+        await supabase.storage.from('logos').remove([`${user.id}/logo.${ext}`])
+      } catch (err) {
+        console.error('[Settings] Failed to delete logo from storage:', err)
+      }
+    }
+  }
 
   // ── Save all fields ───────────────────────────────────────────────────────
   const handleSave = async () => {
@@ -1123,12 +1161,13 @@ export default function Settings() {
           {/* Logo upload */}
           <Field label="Business Logo" hint="PNG or JPG, square recommended" style={{ gridColumn: isMobile ? undefined : '1 / -1' }}>
             <div
-              onClick={() => logoRef.current?.click()}
+              onClick={() => !logoUploading && logoRef.current?.click()}
               style={{
                 border:      '2px dashed #e2e8f0',
                 borderRadius: 10,
                 padding:     isMobile ? '20px 16px' : '16px 20px',
-                cursor:      'pointer',
+                cursor:      logoUploading ? 'wait' : 'pointer',
+                opacity:     logoUploading ? 0.7 : 1,
                 display:     'flex',
                 alignItems:  'center',
                 gap:         16,
@@ -1138,7 +1177,14 @@ export default function Settings() {
               onMouseEnter={e => { e.currentTarget.style.borderColor = '#14b8a6'; e.currentTarget.style.background = '#f0fdfa' }}
               onMouseLeave={e => { e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.background = '#f8fafc' }}
             >
-              {form.logo_path ? (
+              {logoUploading ? (
+                <>
+                  <div style={{ width: 52, height: 52, borderRadius: 10, background: '#e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#64748b" strokeWidth="2.5" style={{ animation: 'testEmailSpin 0.8s linear infinite' }}><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+                  </div>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: '#374151' }}>Uploading…</div>
+                </>
+              ) : form.logo_path ? (
                 <>
                   <img
                     src={form.logo_path}
@@ -1167,7 +1213,7 @@ export default function Settings() {
               )}
             </div>
 
-            {form.logo_path && (
+            {form.logo_path && !logoUploading && (
               <button
                 onClick={e => { e.stopPropagation(); handleLogoRemove() }}
                 style={{

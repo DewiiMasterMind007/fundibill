@@ -681,7 +681,7 @@ sendEmail({ supabase, userId, profile, to, subject, html, pdfBase64, pdfFilename
 
 4. **Blank name fields in PayFast emails:** `fundibill-buy.php` sends `name_first` / `name_last` to PayFast but they appear blank in confirmation emails. Under investigation.
 
-5. **Logo in emails:** base64 data-URL logos are stripped by Gmail, Outlook, and most clients for security. Only HTTPS logo URLs appear in emails. Users who upload via file picker get base64 which won't show in emailed PDFs — only in the in-app preview.
+5. **Logo in emails — resolved:** base64 data-URL logos are stripped by Gmail, Outlook, and most clients for security, so only HTTPS logo URLs appear in emails. `Settings.jsx`'s logo upload now uploads to the Supabase Storage `logos` bucket (public, path `{user_id}/logo.{ext}`, `upsert: true`) and stores the resulting public URL (with a `?t=` cache-busting suffix) in `profiles.logo_url` — no more base64. Requires the `logos` bucket + RLS policies to exist in Supabase (see the SQL in the commit that introduced this, or re-run: create a public bucket named `logos`, `select` policy open to everyone, `insert`/`update`/`delete` policies scoped to `auth.uid()::text = (storage.foldername(name))[1]`). Accounts that uploaded a logo before this fix still have a base64 `logo_url` until they re-upload.
 
 6. **`send-payment-reminders` edge function:** Deployed and scheduled but not used by active UI flow. It could send unexpected reminder emails if a user had `reminder_opted_in = true` on old invoices. Review before leaving deployed indefinitely.
 
