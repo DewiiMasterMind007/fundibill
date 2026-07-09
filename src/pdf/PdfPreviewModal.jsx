@@ -92,15 +92,29 @@ export function PdfPreviewModal({ isOpen, data, settings, docType, onClose }) {
     }
   }, [isOpen])
 
-  // ── Save via Electron save dialog ──────────────────────────────────────────
+  // ── Save: Electron native save dialog, or a browser/PWA download fallback ──
   const handleSave = useCallback(async () => {
     if (!blobRef.current || saving) return
     setSaving(true)
     try {
-      const buffer = await blobRef.current.arrayBuffer()
-      const res    = await window.db?.pdf?.save(buffer, filename)
-      if (res?.success === false && !res?.canceled) {
-        setError(res?.error || 'Failed to save PDF.')
+      if (window.db?.pdf?.save) {
+        const buffer = await blobRef.current.arrayBuffer()
+        const res    = await window.db.pdf.save(buffer, filename)
+        if (res?.success === false && !res?.canceled) {
+          setError(res?.error || 'Failed to save PDF.')
+        }
+      } else {
+        // Browser / mobile PWA — no native save dialog exists, so trigger a
+        // normal download via a temporary anchor tag (same pattern used by
+        // the WhatsApp share flow's downloadPdfBlob()).
+        const url = URL.createObjectURL(blobRef.current)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = filename
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+        setTimeout(() => URL.revokeObjectURL(url), 1000)
       }
     } catch (e) {
       setError(`Save error: ${e.message}`)
