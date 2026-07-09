@@ -35,19 +35,14 @@ export function PdfPreviewModal({ isOpen, data, settings, docType, onClose }) {
       setPdfUrl(null)
 
       try {
-        // Resolve logo to a base64 data URL for @react-pdf/renderer
-        // settings may use logo_path (Settings form) or logo_url (raw Supabase profile row)
+        // settings may use logo_path (Settings form) or logo_url (raw Supabase profile row).
+        // It's either a data: URL (legacy accounts, pre-Storage-upload) or an
+        // https:// URL (Supabase Storage, current) — @react-pdf/renderer's
+        // <Image> component accepts both directly, no file-system read needed.
         let settingsWithLogo = settings || {}
         const logoSrc = settings?.logo_path || settings?.logo_url || ''
         if (logoSrc) {
-          if (logoSrc.startsWith('data:')) {
-            // Already a data URL (stored directly in the DB)
-            settingsWithLogo = { ...settings, _logoSrc: logoSrc }
-          } else {
-            // File path — read via IPC in main process
-            const res = await window.db?.pdf?.getLogoBase64(logoSrc)
-            if (res?.success) settingsWithLogo = { ...settings, _logoSrc: res.data }
-          }
+          settingsWithLogo = { ...settings, _logoSrc: logoSrc }
         }
 
         // Dynamically import to keep @react-pdf/renderer out of the static

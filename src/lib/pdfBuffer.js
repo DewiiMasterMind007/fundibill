@@ -11,15 +11,15 @@ import React from 'react'
  * settings may use logo_path (Settings form state) or logo_url (raw DB row).
  */
 export async function buildPdfBuffer(data, settings, docType) {
+  // logo_url is either a data: URL (legacy accounts, pre-Storage-upload) or
+  // an https:// URL (Supabase Storage, current). @react-pdf/renderer's
+  // <Image> component accepts both directly — no file-system read needed.
+  // (The old window.db.pdf.getLogoBase64 IPC call only worked for local
+  // filesystem paths and silently failed on remote URLs.)
   let settingsWithLogo = settings || {}
   const logoSrc = settings?.logo_path || settings?.logo_url || ''
   if (logoSrc) {
-    if (logoSrc.startsWith('data:')) {
-      settingsWithLogo = { ...settings, _logoSrc: logoSrc }
-    } else {
-      const res = await window.db?.pdf?.getLogoBase64(logoSrc)
-      if (res?.success) settingsWithLogo = { ...settings, _logoSrc: res.data }
-    }
+    settingsWithLogo = { ...settings, _logoSrc: logoSrc }
   }
 
   const [{ pdf }, { PdfDocument }] = await Promise.all([
