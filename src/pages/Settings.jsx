@@ -521,6 +521,10 @@ export default function Settings() {
   const location = useLocation()
 
   const savedSmtp = useRef({ host: '', port: '' })
+  // Set right before a deliberate full-page navigation away from the app
+  // (e.g. the Gmail OAuth redirect) so the beforeunload handler below doesn't
+  // show the browser's native "Leave site?" prompt for that navigation.
+  const skipUnloadWarningRef = useRef(false)
 
   const [form, setForm]                   = useState(DEFAULTS)
   const [originalForm, setOriginalForm]   = useState(DEFAULTS)
@@ -633,6 +637,7 @@ export default function Settings() {
   useEffect(() => {
     if (!hasChanges) return
     const handler = (e) => {
+      if (skipUnloadWarningRef.current) return
       e.preventDefault()
       e.returnValue = ''
       return ''
@@ -732,6 +737,9 @@ export default function Settings() {
       return
     }
     // Full-page redirect — the OAuth round trip leaves and re-enters the app.
+    // This is a deliberate, expected navigation, so suppress the browser's
+    // native "Leave site?" unsaved-changes prompt for it.
+    skipUnloadWarningRef.current = true
     window.location.href = `/api/gmail-auth?user_id=${authUser.id}`
   }, [showGmailToast])
 
