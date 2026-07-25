@@ -323,7 +323,7 @@ export default function Auth() {
               Welcome to FundiBill
             </h1>
             <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.72)', margin: '0 0 28px', lineHeight: 1.5, textAlign: 'center' }}>
-              South Africa&apos;s invoicing app for small businesses and freelancers.
+              Sign up to get started or Login if you already have an account.
             </p>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
