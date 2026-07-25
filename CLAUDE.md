@@ -125,6 +125,7 @@ All tables have Row Level Security enabled. All PKs are UUIDs. Access policy: `a
 | `gmail_refresh_token` | text | Gmail OAuth refresh token — v2 Gmail OAuth feature |
 | `gmail_token_expiry` | timestamptz | Expiry of `gmail_access_token` — v2 Gmail OAuth feature |
 | `gmail_connected_email` | text | Gmail address connected via OAuth — v2 Gmail OAuth feature |
+| `welcome_email_sent` | boolean | Dedup guard — set `true` by the `send-welcome-email` edge function after the one-time welcome email is sent; prevents re-sending on subsequent `auth.users` updates |
 
 ### `clients` — Client address book
 
@@ -347,10 +348,14 @@ Identical columns to `invoice_items` but with `estimate_id` instead of `invoice_
 │   │   │                          still defined/used internally as a no-op safety net.
 │   │   ├── emailTemplates.js   — generateInvoiceEmail, generateEstimateEmail,
 │   │   │                          generateReminderEmail, generatePaymentConfirmationEmail,
-│   │   │                          generateTestEmail, PLAIN_TEXT_FOOTER, fillMessageTemplate
-│   │   │                          (fills {clientName}/{invoiceNumber}/etc. placeholders in
-│   │   │                          the profiles.email_invoice_message/email_quote_message/
-│   │   │                          email_overdue_message templates)
+│   │   │                          generateTestEmail, generateWelcomeEmail, PLAIN_TEXT_FOOTER,
+│   │   │                          fillMessageTemplate (fills {clientName}/{invoiceNumber}/etc.
+│   │   │                          placeholders in the profiles.email_invoice_message/
+│   │   │                          email_quote_message/email_overdue_message templates).
+│   │   │                          generateWelcomeEmail() is self-contained (no baseTemplate())
+│   │   │                          and is mirrored by hand in
+│   │   │                          supabase/functions/send-welcome-email/index.ts since Deno
+│   │   │                          can't import the Vite app's source tree.
 │   │   ├── pdfBuffer.js        — buildPdfBuffer(data, settings, docType) — dynamically
 │   │   │                          imports PdfDocument, returns ArrayBuffer
 │   │   └── whatsapp.js         — formatPhoneForWhatsApp, buildInvoiceWhatsAppMessage,
@@ -374,15 +379,24 @@ Identical columns to `invoice_items` but with `estimate_id` instead of `invoice_
 │                                    refreshing the access token first if it's expired/near-expiry
 │
 ├── supabase/
-│   └── functions/
-│       ├── cancel-subscription/index.ts  — Deno edge function; called from Settings page;
-│       │                                    calls PayFast API to cancel subscription token,
-│       │                                    then sets subscription_status = 'cancelled' in DB
-│       └── send-payment-reminders/       — Deno edge function (deployed, scheduled daily
-│                                           at 07:00 UTC via pg_cron + pg_net); auto-sends
-│                                           reminder emails for opted-in overdue invoices.
-│                                           Currently superseded by manual bell flow but
-│                                           still deployed.
+│   ├── functions/
+│   │   ├── cancel-subscription/index.ts  — Deno edge function; called from Settings page;
+│   │   │                                    calls PayFast API to cancel subscription token,
+│   │   │                                    then sets subscription_status = 'cancelled' in DB
+│   │   ├── send-payment-reminders/       — Deno edge function (deployed, scheduled daily
+│   │   │                                    at 07:00 UTC via pg_cron + pg_net); auto-sends
+│   │   │                                    reminder emails for opted-in overdue invoices.
+│   │   │                                    Currently superseded by manual bell flow but
+│   │   │                                    still deployed.
+│   │   └── send-welcome-email/index.ts   — Deno edge function; triggered by a Database
+│   │                                        Webhook on auth.users (UPDATE, email_confirmed_at
+│   │                                        null → timestamp); sends the one-time welcome
+│   │                                        email via send-reminder.php, dedup-guarded by
+│   │                                        profiles.welcome_email_sent
+│   └── migrations/
+│       ├── add_gmail_oauth_columns.sql   — gmail_access_token/refresh_token/token_expiry/
+│       │                                    connected_email columns on profiles
+│       └── add_welcome_email_column.sql  — welcome_email_sent column on profiles
 │
 ├── assets/icon.ico             — App icon for Electron installer / taskbar
 ├── public/
@@ -669,6 +683,17 @@ sendEmail({ supabase, userId, profile, to, subject, html, pdfBase64, pdfFilename
 - **What it does:** Auto-sends reminder emails for `reminder_opted_in = true` overdue invoices using user's SMTP settings. Respects `reminder_interval_days` since last send.
 - **Current relevance:** Superseded in the main UI by the manual bell 🔔 flow. Still deployed and running. Can be re-enabled or removed.
 
+### `send-welcome-email`
+- **Location:** `supabase/functions/send-welcome-email/index.ts`
+- **Triggered by:** a Postgres trigger on `auth.users` (`UPDATE`), created via SQL Editor — **not** a dashboard Database Webhook. Confirmed in this project that neither the Database → Webhooks screen nor the Triggers UI's table picker (which only lists `public.*` tables) can target `auth.users`, so the trigger + `pg_net.http_post()` call must be created directly via SQL (see Known Issues). The trigger fires on every `auth.users` UPDATE; the function itself filters so it only proceeds on the transition `email_confirmed_at: null → timestamp` (i.e. the user has just confirmed their email for the first time). There is no existing `notify-new-signup` function or webhook-secret-verification convention in this repo to follow; this function uses the same service-role-`Supabase` client pattern as `send-payment-reminders`, and relies on the Edge Functions gateway's default JWT verification (the SQL trigger sends the service role key as a Bearer token in its `pg_net.http_post()` headers — do **not** deploy with `--no-verify-jwt`).
+- **What it does:**
+  1. Reads `record`/`old_record` from the webhook payload; no-ops (returns `200 { skipped: true }`) unless `record.email_confirmed_at` is set and `old_record.email_confirmed_at` was null
+  2. Dedup guard: looks up `profiles.welcome_email_sent` for the user — no-ops if already `true`
+  3. Builds the welcome email HTML inline (mirrors `generateWelcomeEmail()` in `src/lib/emailTemplates.js` — Edge Functions run on Deno and can't import the Vite app's source tree, so the HTML is duplicated; keep both in sync by hand if the design changes)
+  4. `POST`s to `https://api.fundibill.online/send-reminder.php` with `to_email`/`subject`/`html_body`/`from_name` (field names matched to the existing contract used by `src/lib/sendEmail.js` — see Known Issues about the unverified `from_email` field and the relay's usual SMTP-credential requirement)
+  5. On success, sets `profiles.welcome_email_sent = true`
+- **Env vars:** `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (same as `send-payment-reminders`)
+
 ---
 
 ## 9. KNOWN ISSUES
@@ -694,6 +719,10 @@ sendEmail({ supabase, userId, profile, to, subject, html, pdfBase64, pdfFilename
    ALTER TABLE estimates ADD COLUMN IF NOT EXISTS discount_value     numeric DEFAULT 0;
    ALTER TABLE estimates ADD COLUMN IF NOT EXISTS discount_type      text;
    ```
+
+8. **`send-welcome-email` relay payload — unverified assumption:** the function POSTs `to_email`/`subject`/`html_body`/`from_email`/`from_name` to `send-reminder.php` with **no SMTP credentials** (`smtp_host`/`smtp_user`/`smtp_password`), unlike every other caller of that endpoint in this codebase (`src/lib/sendEmail.js`), which always sends a per-user SMTP host/user/password. This assumes the PHP script has (or will have) a fallback system sender when SMTP fields are omitted. `from_email` also isn't a field any other caller sends — the PHP script's actual behavior for both cases needs confirming server-side before relying on this in production; a failed send will surface as a `500` from the edge function but won't be retried automatically.
+
+9. **`auth.users` Database Webhooks — no dashboard UI in this project:** confirmed neither the Database → Webhooks screen nor the Database → Triggers "Create a new trigger" table picker expose the `auth` schema (Triggers only lists `public.*` tables) — there is no dashboard path to attach a webhook/trigger to `auth.users` in this project. The `send-welcome-email` trigger **must** be created via the SQL Editor using the `pg_net`-based function/trigger shown in the `send-welcome-email` setup instructions — this is the only working method, not a fallback.
 
 ---
 
