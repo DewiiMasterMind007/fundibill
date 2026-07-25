@@ -438,7 +438,7 @@ function AutocompleteInput({ value, onChange, catalog, placeholder }) {
   const ref = useRef(null)
 
   const suggestions = value.trim()
-    ? catalog.filter(i => i.name.toLowerCase().includes(value.toLowerCase()) || (i.description || '').toLowerCase().includes(value.toLowerCase())).slice(0, 8)
+    ? catalog.filter(i => i.name.toLowerCase().startsWith(value.trim().toLowerCase())).slice(0, 8)
     : []
 
   return (
