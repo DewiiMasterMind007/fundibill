@@ -692,7 +692,7 @@ sendEmail({ supabase, userId, profile, to, subject, html, pdfBase64, pdfFilename
   3. Builds the welcome email HTML inline (mirrors `generateWelcomeEmail()` in `src/lib/emailTemplates.js` — Edge Functions run on Deno and can't import the Vite app's source tree, so the HTML is duplicated; keep both in sync by hand if the design changes)
   4. `POST`s to `https://api.fundibill.online/send-reminder.php` with `to_email`/`subject`/`html_body`/`from_name` (field names matched to the existing contract used by `src/lib/sendEmail.js` — see Known Issues about the unverified `from_email` field and the relay's usual SMTP-credential requirement)
   5. On success, sets `profiles.welcome_email_sent = true`
-- **Env vars:** `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (same as `send-payment-reminders`)
+- **Env vars:** `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (same as `send-payment-reminders`), plus `WELCOME_EMAIL_SMTP_HOST`/`WELCOME_EMAIL_SMTP_PORT`/`WELCOME_EMAIL_SMTP_USER`/`WELCOME_EMAIL_SMTP_PASSWORD` — set via `supabase secrets set` (never committed). `send-reminder.php` rejects requests with `"Missing required fields"` unless SMTP credentials are included, same as every other caller in this codebase; since this is a system email with no per-user profile to pull SMTP settings from, it uses its own `info@fundibill.online` mailbox (`mail.fundibill.online:465`) instead.
 
 ---
 
@@ -720,7 +720,7 @@ sendEmail({ supabase, userId, profile, to, subject, html, pdfBase64, pdfFilename
    ALTER TABLE estimates ADD COLUMN IF NOT EXISTS discount_type      text;
    ```
 
-8. **`send-welcome-email` relay payload — unverified assumption:** the function POSTs `to_email`/`subject`/`html_body`/`from_email`/`from_name` to `send-reminder.php` with **no SMTP credentials** (`smtp_host`/`smtp_user`/`smtp_password`), unlike every other caller of that endpoint in this codebase (`src/lib/sendEmail.js`), which always sends a per-user SMTP host/user/password. This assumes the PHP script has (or will have) a fallback system sender when SMTP fields are omitted. `from_email` also isn't a field any other caller sends — the PHP script's actual behavior for both cases needs confirming server-side before relying on this in production; a failed send will surface as a `500` from the edge function but won't be retried automatically.
+8. **`send-welcome-email` relay payload — resolved:** confirmed via `select * from net._http_response` that `send-reminder.php` returns `{"error":"Missing required fields"}` when `smtp_host`/`smtp_port`/`smtp_user`/`smtp_password` are omitted — there is no fallback system sender. The function now sends FundiBill's own `info@fundibill.online` mailbox credentials (`mail.fundibill.online:465`) read from the `WELCOME_EMAIL_SMTP_*` Supabase secrets (see Section 8). The unused `from_email` field was dropped — `send-reminder.php` doesn't read it, same as every other caller. A failed send still surfaces as a `500` from the edge function and is not retried automatically.
 
 9. **`auth.users` Database Webhooks — no dashboard UI in this project:** confirmed neither the Database → Webhooks screen nor the Database → Triggers "Create a new trigger" table picker expose the `auth` schema (Triggers only lists `public.*` tables) — there is no dashboard path to attach a webhook/trigger to `auth.users` in this project. The `send-welcome-email` trigger **must** be created via the SQL Editor using the `pg_net`-based function/trigger shown in the `send-welcome-email` setup instructions — this is the only working method, not a fallback.
 

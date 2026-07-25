@@ -141,6 +141,25 @@ function StatusBadge({ status }) {
   )
 }
 
+// Small pill shown on list rows to cross-link a converted invoice back to its source quote.
+function LinkPill({ label, onClick, title }) {
+  return (
+    <span
+      onClick={e => { e.stopPropagation(); onClick() }}
+      title={title}
+      style={{
+        display: 'inline-block', padding: '2px 8px', borderRadius: 20,
+        fontSize: 11, fontWeight: 600, background: '#ede9fe', color: '#7c3aed',
+        cursor: 'pointer', whiteSpace: 'nowrap', marginTop: 4,
+      }}
+      onMouseEnter={e => { e.currentTarget.style.background = '#ddd6fe' }}
+      onMouseLeave={e => { e.currentTarget.style.background = '#ede9fe' }}
+    >
+      {label}
+    </span>
+  )
+}
+
 function UndoButton({ onClick, title }) {
   const isMobile  = useIsMobile()
   const [expanded, setExpanded] = useState(false)
@@ -195,6 +214,7 @@ function RevertConfirmModal({ message, onConfirm, onCancel, confirming }) {
 function MobileInvoiceCard({ inv, onSelect, onOpenReminder, onMarkPaid, onDelete, isReadOnly }) {
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef(null)
+  const navigate = useNavigate()
   const isOverdueBell = inv.status !== 'paid' && inv.status !== 'draft' && inv.due_date && inv.due_date < todayStr()
 
   useEffect(() => {
@@ -291,9 +311,18 @@ function MobileInvoiceCard({ inv, onSelect, onOpenReminder, onMarkPaid, onDelete
         )}
       </div>
 
-      {/* ── Status badge ── */}
+      {/* ── Status badge + linked quote pill ── */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <StatusBadge status={inv.status} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <StatusBadge status={inv.status} />
+          {inv.from_estimate && (
+            <LinkPill
+              label={`from ${inv.from_estimate.estimate_number}`}
+              title={`View quote ${inv.from_estimate.estimate_number}`}
+              onClick={() => navigate('/estimates', { state: { openId: inv.from_estimate.id } })}
+            />
+          )}
+        </div>
         {inv.status === 'paid' && inv.payment_date && (
           <span style={{ fontSize: 12, fontWeight: 600, color: '#15803d' }}>Paid: {inv.payment_date}</span>
         )}
@@ -2644,6 +2673,7 @@ const STATUS_TABS = ['all', 'draft', 'sent', 'paid', 'overdue']
 function ListView({ invoices, onNew, onRecurring, onSelect, onOpenReminder, onMarkPaid, onDelete, isReadOnly }) {
   const [tab, setTab]   = useState('all')
   const isMobile        = useIsMobile()
+  const navigate        = useNavigate()
   const filtered        = tab === 'all' ? invoices : invoices.filter(inv => inv.status === tab)
 
   const tabStyle = (active) => ({
@@ -2794,7 +2824,16 @@ function ListView({ invoices, onNew, onRecurring, onSelect, onOpenReminder, onMa
                   style={{ display: 'grid', gridTemplateColumns: '140px 1fr 110px 110px 120px 110px 100px 32px', padding: '14px 20px', borderBottom: '1px solid #f9fafb', cursor: 'pointer', alignItems: 'center' }}
                   onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
                   onMouseLeave={e => e.currentTarget.style.background = '#fff'}>
-                  <span style={{ fontSize: 13, fontWeight: 600, color: '#0f172a' }}>{inv.invoice_number}</span>
+                  <div>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: '#0f172a', display: 'block' }}>{inv.invoice_number}</span>
+                    {inv.from_estimate && (
+                      <LinkPill
+                        label={`from ${inv.from_estimate.estimate_number}`}
+                        title={`View quote ${inv.from_estimate.estimate_number}`}
+                        onClick={() => navigate('/estimates', { state: { openId: inv.from_estimate.id } })}
+                      />
+                    )}
+                  </div>
                   <div>
                     <div style={{ fontSize: 13, fontWeight: 600, color: '#0f172a' }}>{inv.client_name || '—'}</div>
                     {inv.client_company && <div style={{ fontSize: 12, color: '#94a3b8' }}>{inv.client_company}</div>}
@@ -2901,14 +2940,29 @@ export default function Invoices() {
       await supabase.from('invoices').update({ status: 'overdue' }).in('id', overdueIds)
     }
 
+    // Batch-fetch the source estimate (if any) for every invoice, so the list
+    // can show a "from QT-XXXX" pill without a per-row query.
+    const invoiceIds = (rawInvData ?? []).map(inv => inv.id)
+    let sourceEstimateByInvoiceId = {}
+    if (invoiceIds.length > 0) {
+      const { data: estData } = await supabase
+        .from('estimates')
+        .select('id, estimate_number, converted_invoice_id')
+        .in('converted_invoice_id', invoiceIds)
+      sourceEstimateByInvoiceId = Object.fromEntries(
+        (estData ?? []).map(e => [e.converted_invoice_id, e])
+      )
+    }
+
     // Enrich with client names using the globally cached clients list
     const clientMap = {}
     for (const c of clients) clientMap[c.id] = c
     const enriched = (rawInvData ?? []).map(inv => ({
       ...inv,
-      status:         overdueIds.includes(inv.id) ? 'overdue' : inv.status,
-      client_name:    clientMap[inv.client_id]?.name || '',
-      client_company: clientMap[inv.client_id]?.company_name || '',
+      status:          overdueIds.includes(inv.id) ? 'overdue' : inv.status,
+      client_name:     clientMap[inv.client_id]?.name || '',
+      client_company:  clientMap[inv.client_id]?.company_name || '',
+      from_estimate:   sourceEstimateByInvoiceId[inv.id] || null, // { id, estimate_number }
     }))
 
     setInvoices(enriched)

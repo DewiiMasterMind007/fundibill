@@ -49,6 +49,25 @@ function StatusBadge({ status }) {
   )
 }
 
+// Small pill shown on list rows to cross-link a converted estimate to its invoice.
+function LinkPill({ label, onClick, title }) {
+  return (
+    <span
+      onClick={e => { e.stopPropagation(); onClick() }}
+      title={title}
+      style={{
+        display: 'inline-block', padding: '2px 8px', borderRadius: 20,
+        fontSize: 11, fontWeight: 600, background: '#ede9fe', color: '#7c3aed',
+        cursor: 'pointer', whiteSpace: 'nowrap', marginTop: 4,
+      }}
+      onMouseEnter={e => { e.currentTarget.style.background = '#ddd6fe' }}
+      onMouseLeave={e => { e.currentTarget.style.background = '#ede9fe' }}
+    >
+      {label}
+    </span>
+  )
+}
+
 function UndoButton({ onClick, title }) {
   const isMobile  = useIsMobile()
   const [expanded, setExpanded] = useState(false)
@@ -103,6 +122,7 @@ function RevertConfirmModal({ title = 'Revert Status?', message, confirmLabel = 
 function MobileEstimateCard({ est, onSelect, onApprove, onDelete, isReadOnly }) {
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef(null)
+  const navigate = useNavigate()
 
   useEffect(() => {
     const fn = (e) => { if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false) }
@@ -205,8 +225,17 @@ function MobileEstimateCard({ est, onSelect, onApprove, onDelete, isReadOnly }) 
         )}
       </div>
 
-      {/* ── Status badge ── */}
-      <StatusBadge status={est.status} />
+      {/* ── Status badge + linked invoice pill ── */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <StatusBadge status={est.status} />
+        {est.converted_invoice_id && (
+          <LinkPill
+            label={`→ ${est.converted_invoice_number || 'Invoice'}`}
+            title={`View invoice ${est.converted_invoice_number || ''}`}
+            onClick={() => navigate('/invoices', { state: { openId: est.converted_invoice_id } })}
+          />
+        )}
+      </div>
     </div>
   )
 }
@@ -1564,6 +1593,7 @@ const STATUS_TABS = ['all', 'draft', 'sent', 'approved']
 function ListView({ estimates, onNew, onSelect, onApprove, onDelete, isReadOnly }) {
   const [tab, setTab] = useState('all')
   const isMobile      = useIsMobile()
+  const navigate      = useNavigate()
 
   // 'approved' tab shows both approved and converted estimates
   const filtered = tab === 'all'
@@ -1704,7 +1734,16 @@ function ListView({ estimates, onNew, onSelect, onApprove, onDelete, isReadOnly 
                   onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
                   onMouseLeave={e => e.currentTarget.style.background = '#fff'}
                 >
-                  <span style={{ fontSize: 13, fontWeight: 600, color: '#0f172a' }}>{est.estimate_number}</span>
+                  <div>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: '#0f172a', display: 'block' }}>{est.estimate_number}</span>
+                    {est.converted_invoice_id && (
+                      <LinkPill
+                        label={`→ ${est.converted_invoice_number || 'Invoice'}`}
+                        title={`View invoice ${est.converted_invoice_number || ''}`}
+                        onClick={() => navigate('/invoices', { state: { openId: est.converted_invoice_id } })}
+                      />
+                    )}
+                  </div>
                   <div>
                     <div style={{ fontSize: 13, fontWeight: 600, color: '#0f172a' }}>{est.client_name || '—'}</div>
                     {est.client_company && <div style={{ fontSize: 12, color: '#94a3b8' }}>{est.client_company}</div>}
@@ -1780,12 +1819,23 @@ export default function Estimates() {
     const { data: estData } = await supabase
       .from('estimates').select('*').eq('user_id', user.id).order('created_at', { ascending: false })
 
+    // Batch-fetch invoice numbers for any estimates already converted to an
+    // invoice, so the list can show a "→ INV-XXXX" pill without a per-row query.
+    const convertedIds = [...new Set((estData ?? []).map(e => e.converted_invoice_id).filter(Boolean))]
+    let invoiceNumberById = {}
+    if (convertedIds.length > 0) {
+      const { data: invData } = await supabase
+        .from('invoices').select('id, invoice_number').in('id', convertedIds)
+      invoiceNumberById = Object.fromEntries((invData ?? []).map(i => [i.id, i.invoice_number]))
+    }
+
     const clientMap = {}
     for (const c of clients) clientMap[c.id] = c
     const enriched = (estData ?? []).map(e => ({
       ...e,
       client_name:    clientMap[e.client_id]?.name    || '',
       client_company: clientMap[e.client_id]?.company_name || '',
+      converted_invoice_number: e.converted_invoice_id ? (invoiceNumberById[e.converted_invoice_id] || null) : null,
     }))
 
     setEstimates(enriched)

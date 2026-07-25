@@ -273,11 +273,24 @@ Deno.serve(async (req: Request) => {
     // Step 6
     const html = buildWelcomeEmailHtml()
 
-    // Step 7 — field names (to_email/html_body/from_name) match the exact
-    // contract used by src/lib/sendEmail.js elsewhere in this codebase for
-    // the same PHP relay endpoint. from_email is included too even though
-    // no other caller in this repo uses it — see the accompanying summary
-    // for why this needs confirming against the actual PHP script.
+    // Step 7 — field names match the exact contract used by
+    // src/lib/sendEmail.js elsewhere in this codebase for the same PHP
+    // relay endpoint. send-reminder.php rejected the request with
+    // "Missing required fields" when smtp_host/smtp_port/smtp_user/
+    // smtp_password were omitted (confirmed via net._http_response), so —
+    // unlike a per-user send — this system email supplies FundiBill's own
+    // info@fundibill.online mailbox credentials, read from Supabase secrets
+    // (never hardcoded). Set them with:
+    //   supabase secrets set WELCOME_EMAIL_SMTP_HOST=... WELCOME_EMAIL_SMTP_PORT=...
+    //     WELCOME_EMAIL_SMTP_USER=... WELCOME_EMAIL_SMTP_PASSWORD=...
+    const smtpHost = Deno.env.get('WELCOME_EMAIL_SMTP_HOST')
+    const smtpPort = Deno.env.get('WELCOME_EMAIL_SMTP_PORT')
+    const smtpUser = Deno.env.get('WELCOME_EMAIL_SMTP_USER')
+    const smtpPassword = Deno.env.get('WELCOME_EMAIL_SMTP_PASSWORD')
+    if (!smtpHost || !smtpPort || !smtpUser || !smtpPassword) {
+      throw new Error('Missing WELCOME_EMAIL_SMTP_* secrets — run `supabase secrets set` for HOST/PORT/USER/PASSWORD')
+    }
+
     const sendResponse = await fetch('https://api.fundibill.online/send-reminder.php', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -285,8 +298,11 @@ Deno.serve(async (req: Request) => {
         to_email: userEmail,
         subject: 'Welcome to FundiBill — Your Free Trial Has Started! 🎉',
         html_body: html,
-        from_email: 'info@fundibill.online',
         from_name: 'The FundiBill Team',
+        smtp_host: smtpHost,
+        smtp_port: smtpPort,
+        smtp_user: smtpUser,
+        smtp_password: smtpPassword,
       }),
     })
 
