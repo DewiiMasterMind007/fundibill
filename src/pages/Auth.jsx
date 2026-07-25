@@ -7,8 +7,8 @@ import fundibillLogo from '../../public/FundiBill long.png'
 export default function Auth() {
   const { signIn, signUp, signOut, recoveryMode, clearRecoveryMode } = useAuth()
 
-  // mode: 'login' | 'register' | 'forgot'
-  const [mode,       setMode]       = useState('login')
+  // mode: 'choice' | 'login' | 'register' | 'forgot'
+  const [mode,       setMode]       = useState('choice')
   const [email,      setEmail]      = useState('')
   const [password,   setPassword]   = useState('')
   const [confirm,    setConfirm]    = useState('')
@@ -316,6 +316,64 @@ export default function Auth() {
             </>
           )
 
+        ) : mode === 'choice' ? (
+          /* ── CHOICE: SIGN UP OR LOGIN ── */
+          <>
+            <h1 style={{ fontSize: 20, fontWeight: 700, color: '#ffffff', margin: '0 0 4px', textShadow: '0 1px 4px rgba(0,0,0,0.15)', textAlign: 'center' }}>
+              Welcome to FundiBill
+            </h1>
+            <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.72)', margin: '0 0 28px', lineHeight: 1.5, textAlign: 'center' }}>
+              South Africa&apos;s invoicing app for small businesses and freelancers.
+            </p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <button
+                onClick={() => switchMode('register')}
+                style={{
+                  width: '100%', padding: '16px 0', borderRadius: 12,
+                  background: '#ffffff', color: '#0d9488',
+                  border: 'none', fontSize: 16, fontWeight: 700,
+                  cursor: 'pointer', boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
+                  fontFamily: 'inherit',
+                }}
+              >
+                Sign Up
+              </button>
+              <button
+                onClick={() => switchMode('login')}
+                style={{
+                  width: '100%', padding: '16px 0', borderRadius: 12,
+                  background: 'rgba(255,255,255,0.15)', color: '#ffffff',
+                  border: '1.5px solid rgba(255,255,255,0.50)', fontSize: 16, fontWeight: 700,
+                  cursor: 'pointer', fontFamily: 'inherit',
+                  backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)',
+                }}
+              >
+                Login
+              </button>
+            </div>
+
+            {/* Legal */}
+            <p style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', textAlign: 'center', margin: '24px 0 0', lineHeight: 1.6 }}>
+              By using FundiBill you agree to our{' '}
+              <a
+                href="https://fundibill.online/terms"
+                target="_blank" rel="noopener noreferrer"
+                style={{ color: 'rgba(255,255,255,0.65)', textDecoration: 'underline', textUnderlineOffset: 2 }}
+              >
+                terms of service
+              </a>
+              {' '}and{' '}
+              <a
+                href="https://fundibill.online/privacy"
+                target="_blank" rel="noopener noreferrer"
+                style={{ color: 'rgba(255,255,255,0.65)', textDecoration: 'underline', textUnderlineOffset: 2 }}
+              >
+                privacy policy
+              </a>
+            </p>
+          </>
+
         ) : registered ? (
           <div style={{ textAlign: 'center', padding: '8px 0 16px' }}>
             <div style={{ fontSize: 48, marginBottom: 16 }}>✅</div>
@@ -435,6 +493,17 @@ export default function Auth() {
         ) : (
           /* ── LOGIN / REGISTER SCREEN ── */
           <>
+            <button
+              onClick={() => switchMode('choice')}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 4,
+                background: 'none', border: 'none', padding: 0, marginBottom: 10,
+                color: 'rgba(255,255,255,0.70)', fontWeight: 600, fontSize: 13,
+                cursor: 'pointer', fontFamily: 'inherit',
+              }}
+            >
+              ← Back
+            </button>
             <h1 style={{ fontSize: 20, fontWeight: 700, color: '#ffffff', margin: '0 0 4px', textShadow: '0 1px 4px rgba(0,0,0,0.15)' }}>
               {isRegister ? 'Create your account' : 'Welcome back'}
             </h1>
