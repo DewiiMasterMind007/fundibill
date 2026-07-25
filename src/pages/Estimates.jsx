@@ -1588,7 +1588,13 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
 
 // ─── List View ────────────────────────────────────────────────────────────────
 
-const STATUS_TABS = ['all', 'draft', 'sent', 'approved']
+const STATUS_TABS = ['all', 'draft', 'sent', 'approved', 'expired']
+
+// A quote is "expired" when its expiry date has passed and it's still
+// pending — approved/converted/rejected quotes are never shown as expired.
+function isExpiredEstimate(e) {
+  return !!e.expiry_date && e.expiry_date < today() && !['approved', 'converted', 'rejected'].includes(e.status)
+}
 
 function ListView({ estimates, onNew, onSelect, onApprove, onDelete, isReadOnly }) {
   const [tab, setTab] = useState('all')
@@ -1600,7 +1606,9 @@ function ListView({ estimates, onNew, onSelect, onApprove, onDelete, isReadOnly 
     ? estimates
     : tab === 'approved'
       ? estimates.filter(e => e.status === 'approved' || e.status === 'converted')
-      : estimates.filter(e => e.status === tab)
+      : tab === 'expired'
+        ? estimates.filter(isExpiredEstimate)
+        : estimates.filter(e => e.status === tab)
 
   const tabStyle = (active) => ({
     padding:    isMobile ? '5px 12px' : '6px 14px',
@@ -1686,7 +1694,7 @@ function ListView({ estimates, onNew, onSelect, onApprove, onDelete, isReadOnly 
       >
         {STATUS_TABS.map(t => (
           <button key={t} onClick={() => setTab(t)} style={tabStyle(tab === t)}>
-            {t === 'all' ? 'All' : STATUS_META[t]?.label || t}
+            {t === 'all' ? 'All' : t === 'expired' ? 'Expired' : STATUS_META[t]?.label || t}
           </button>
         ))}
       </div>

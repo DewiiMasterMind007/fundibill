@@ -1310,7 +1310,11 @@ export default function Settings() {
                 value={form.estimate_prefix}
                 placeholder="QT-"
                 onChange={handleChange('estimate_prefix')}
-                onBlur={blurStyle} onFocus={focusStyle}
+                onBlur={(e) => {
+                  if (!form.estimate_prefix?.trim()) setForm(p => ({ ...p, estimate_prefix: 'QT-' }))
+                  blurStyle(e)
+                }}
+                onFocus={focusStyle}
               />
               <div style={{
                 background:   '#f1f5f9', border: '1.5px solid #e2e8f0', borderLeft: 'none',
@@ -1334,7 +1338,7 @@ export default function Settings() {
             />
           </Field>
 
-          <Field label="Starting Estimate Number">
+          <Field label="Starting Quote Number">
             <input
               style={inp} type="number" min={1}
               value={form.starting_estimate_number}
