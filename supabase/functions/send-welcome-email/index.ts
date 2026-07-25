@@ -39,19 +39,15 @@ function json(body: unknown, status = 200) {
 // source tree). Keep this in sync with generateWelcomeEmail() in
 // src/lib/emailTemplates.js if the design changes.
 //
-// REPLACE THESE URLs:
-// LOGO_URL: replace with WordPress media URL for FundiBill logo
-// HERO_IMAGE_URL: replace with WordPress media URL for hero PNG
-// GOOGLE_REVIEW_URL: replace with Google Business review link
-// FACEBOOK_URL: replace with Facebook page URL
-// INSTAGRAM_URL: replace with Instagram profile URL
+// All URLs below are kept in sync by hand with generateWelcomeEmail() in
+// src/lib/emailTemplates.js — update both if any of them change.
 
 const LOGO_URL = 'https://www.fundibill.online/wp-content/uploads/2026/06/FundiBill-Logo.png'
-const LOGO_URL_WHITE = LOGO_URL // no white/reversed logo asset exists yet — same URL used in the dark footer
+const LOGO_URL_WHITE = 'https://www.fundibill.online/wp-content/uploads/2026/06/FundiAI-Logo-1.png'
 const HERO_IMAGE_URL = 'https://www.fundibill.online/wp-content/uploads/2026/07/FundiBill-Welcome-Email-Header.png'
-const GOOGLE_REVIEW_URL = 'https://REPLACE-WITH-GOOGLE-REVIEW-URL'
-const FACEBOOK_URL = 'https://REPLACE-WITH-FACEBOOK-URL'
-const INSTAGRAM_URL = 'https://REPLACE-WITH-INSTAGRAM-URL'
+const GOOGLE_REVIEW_URL = 'https://g.page/r/CW6EkPEWdnCREBM/review'
+const FACEBOOK_URL = 'https://www.facebook.com/fundibill'
+const INSTAGRAM_URL = 'https://www.instagram.com/fundibillza'
 const APP_URL = 'https://app.fundibill.online'
 
 const FONT = 'Arial,Helvetica,sans-serif'
