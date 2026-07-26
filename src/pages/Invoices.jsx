@@ -2929,7 +2929,7 @@ export default function Invoices() {
       .from('invoices')
       .select('*')
       .eq('user_id', user.id)
-      .order('created_at', { ascending: false })
+      .order('issue_date', { ascending: false })
 
     // Auto-overdue: update any invoice past due_date that isn't already paid/overdue
     const todayIso = new Date().toISOString().slice(0, 10)

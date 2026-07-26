@@ -578,7 +578,7 @@ export default function Items() {
   // ── Render ───────────────────────────────────────────────────────────────
 
   return (
-    <div style={{ padding: isMobile ? 16 : 32, height: '100%', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ padding: isMobile ? 16 : 32, display: 'flex', flexDirection: 'column' }}>
 
       {/* ── Header ── */}
       <div style={{
@@ -669,8 +669,8 @@ export default function Items() {
 
       {/* ── Item list ── */}
       {isMobile ? (
-        /* Mobile: card list */
-        <div style={{ flex: 1, overflowY: 'auto', paddingBottom: 80 }}>
+        /* Mobile: card list — scrolls with the page, no inner scroll container */
+        <div style={{ paddingBottom: 80 }}>
           {loading ? (
             <div style={{ padding: '56px 0', textAlign: 'center', color: '#94a3b8', fontSize: 14 }}>Loading…</div>
           ) : filtered.length === 0 ? (
@@ -688,18 +688,19 @@ export default function Items() {
           )}
         </div>
       ) : (
-        /* Desktop: table (unchanged) */
+        /* Desktop: table — grows to fit all rows, no inner scroll/height cap;
+           the page itself scrolls naturally via the surrounding <main>. */
         <div className="items-table" style={{
           background: '#fff', borderRadius: 12,
           border: '1px solid #e2e8f0',
           boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
-          overflow: 'hidden', flex: 1,
         }}>
           {/* Column headers */}
           <div style={{
             display: 'grid', gridTemplateColumns: '2fr 3fr 140px',
             padding: '11px 20px',
             background: '#f8fafc',
+            borderRadius: '12px 12px 0 0',
             borderBottom: '1px solid #f1f5f9',
           }}>
             {['Item Name', 'Description', 'Unit Price'].map(h => (
