@@ -166,10 +166,10 @@ All tables have Row Level Security enabled. All PKs are UUIDs. Access policy: `a
 | `subtotal` | numeric | Ex-VAT (after discount) |
 | `vat_amount` | numeric | |
 | `total` | numeric | Inc-VAT (after discount) |
-| `amount_paid` | numeric | For partial payments |
+| `amount_paid` | numeric | Kept in sync with `SUM(payments.amount)` for this invoice by `src/utils/payments.js` — see Section 6 "Partial Payments" |
 | `discount_value` | numeric | Discount amount or percentage |
 | `discount_type` | text | `'percent'` or `'fixed'` |
-| `status` | text | `draft` \| `sent` \| `paid` \| `overdue` |
+| `status` | text | `draft` \| `sent` \| `partial` \| `paid` \| `overdue` — `'partial'` added by the partial-payments feature, see Section 6 |
 | `from_recurring` | boolean | Set when auto-created by recurring invoice system |
 | `notification_dismissed` | boolean | Controls amber recurring-invoice banner visibility |
 | `sent_from_app` | boolean | Set true when emailed via Send by Email |
@@ -260,6 +260,25 @@ Identical columns to `invoice_items` but with `estimate_id` instead of `invoice_
 | `user_id` | uuid |
 | `activated_at` | timestamptz |
 
+### `payments` — Individual payments recorded against an invoice
+
+Introduced by the **Partial Payments** feature (`v3`, see Section 6). Migration: `supabase/migrations/add_payments_table.sql`.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | uuid | PK, `gen_random_uuid()` |
+| `invoice_id` | uuid | FK → `invoices(id)`, `ON DELETE CASCADE` |
+| `user_id` | uuid | FK → `auth.users(id)`, `ON DELETE CASCADE` |
+| `amount` | numeric | Payment amount |
+| `payment_date` | date | |
+| `payment_method` | text | Free text — `'Cash'`, `'EFT'`, `'Credit Card'`, `'Debit Card'`, `'Cheque'`, `'Other'` in the UI, but not DB-constrained |
+| `note` | text | Optional |
+| `created_at` | timestamptz | |
+
+RLS: `"Users can manage their own payments" FOR ALL USING (auth.uid() = user_id)`. Indexed on `invoice_id` and `user_id`.
+
+> ⚠️ **Legacy `amount_paid` values have no `payments` rows.** Invoices migrated from Zoho (or any invoice with `amount_paid > 0` recorded before this feature shipped) have that balance reflected only in `invoices.amount_paid` — there is no corresponding row in `payments` and none was backfilled. This is intentional (explicitly requested — no backfill was performed). Practical effect: such an invoice's PDF/detail-view Payment History section will be empty (guarded by `payments.length > 0`) even though `amount_paid` is nonzero, and its status may show `'partial'` with a correct balance-due figure but no itemized history to back it. Recording a new payment on that invoice going forward works normally — it's summed on top of whatever `amount_paid` already held before being recalculated from `payments` alone, so **the first new payment recorded on such an invoice will overwrite `amount_paid` to just that new payment's amount**, effectively dropping the un-backfilled legacy portion. If this matters for a specific invoice, manually insert a `payments` row matching the legacy `amount_paid` first.
+
 ---
 
 ## 5. PROJECT STRUCTURE
@@ -298,9 +317,11 @@ Identical columns to `invoice_items` but with `estimate_id` instead of `invoice_
 │   │   ├── Dashboard.jsx   — Stat cards, monthly revenue/expense chart, period filters,
 │   │   │                     payments-by-method breakdown, expenses-by-category,
 │   │   │                     personalised two-line daily greeting
-│   │   ├── Invoices.jsx    — Full invoice CRUD, recurring invoices tab, mark as paid
-│   │   │                     with payment confirmation email option, manual reminder bell,
-│   │   │                     WhatsApp share, overdue auto-detection, quickCreate state
+│   │   ├── Invoices.jsx    — Full invoice CRUD, recurring invoices tab, Record Payment
+│   │   │                     (partial payments, primary) + legacy Mark as Paid (secondary,
+│   │   │                     see "Partial Payments" in Section 6), payment confirmation
+│   │   │                     email option, manual reminder bell, WhatsApp share, overdue
+│   │   │                     auto-detection, quickCreate state
 │   │   ├── Estimates.jsx   — Quote CRUD, convert to invoice (populates converted_invoice_id),
 │   │   │                     view converted invoice number, WhatsApp share, quickCreate state
 │   │   ├── Clients.jsx     — Client management, per-client invoice/quote history panel,
@@ -328,12 +349,15 @@ Identical columns to `invoice_items` but with `estimate_id` instead of `invoice_
 │   │   ├── Tutorial.jsx         — 12-step click-through tutorial with spotlight overlay
 │   │   ├── UpdateNotification.jsx — Electron auto-update banner (update-available / ready)
 │   │   ├── WhatsAppButton.jsx   — WhatsApp share button (icon-only or full)
-│   │   └── PasswordInput.jsx    — Password field with show/hide toggle
+│   │   ├── PasswordInput.jsx    — Password field with show/hide toggle
+│   │   └── RecordPaymentModal.jsx — Partial-payments modal: record a payment, live payment
+│   │                                 history with delete, auto-closes on full payment
 │   │
 │   ├── pdf/
 │   │   ├── PdfDocument.jsx     — @react-pdf/renderer branded A4 document; dynamic header
 │   │   │                          height; fixed header+footer every page; PAID watermark;
-│   │   │                          discount row in totals
+│   │   │                          discount row in totals; Payment History section
+│   │   │                          (only when data.payments is non-empty)
 │   │   └── PdfPreviewModal.jsx — In-app PDF preview; Save to disk; Send Email trigger
 │   │
 │   ├── lib/
@@ -370,7 +394,10 @@ Identical columns to `invoice_items` but with `estimate_id` instead of `invoice_
 │       │                          confirmations, Settings test email). Routes to
 │       │                          /api/send-gmail when email_provider === 'gmail', otherwise
 │       │                          delegates to src/lib/sendEmail.js unchanged. See Section 7.
-│       └── pdf.js              — Legacy jsPDF builder (unused in active flow, kept for reference)
+│       ├── pdf.js              — Legacy jsPDF builder (unused in active flow, kept for reference)
+│       └── payments.js         — recordPayment, deletePayment, getPayments, getBalanceDue —
+│                                   partial-payments data layer, keeps invoices.amount_paid/
+│                                   status in sync with the payments table. See Section 6.
 │
 ├── api/                        — Vercel Serverless Functions (Gmail OAuth — see Section 7)
 │   ├── gmail-auth.js            — Starts the OAuth flow, redirects to Google's consent screen
@@ -396,7 +423,11 @@ Identical columns to `invoice_items` but with `estimate_id` instead of `invoice_
 │   └── migrations/
 │       ├── add_gmail_oauth_columns.sql   — gmail_access_token/refresh_token/token_expiry/
 │       │                                    connected_email columns on profiles
-│       └── add_welcome_email_column.sql  — welcome_email_sent column on profiles
+│       ├── add_welcome_email_column.sql  — welcome_email_sent column on profiles
+│       └── add_payments_table.sql        — payments table + RLS policy; conditionally widens
+│                                            any existing invoices.status CHECK constraint to
+│                                            allow 'partial'. Must be run manually — see
+│                                            Section 6 "Partial Payments" and Known Issue #10.
 │
 ├── assets/icon.ico             — App icon for Electron installer / taskbar
 ├── public/
@@ -440,18 +471,43 @@ Identical columns to `invoice_items` but with `estimate_id` instead of `invoice_
 - Auto-number: max existing number + 1, skips already-used numbers, duplicate check before save
 - VAT toggle (15%), VAT-inclusive pricing model: `grossTotal = Σ(qty × price)`, `subtotal = grossTotal / 1.15`
 - Discount: optional % or fixed-R discount on gross total (enabled via Document Settings)
-- Status: draft → sent → paid / overdue. Overdue auto-detected on load if `due_date < today && status !== 'paid'`
+- Status: draft → sent → partial → paid / overdue. Overdue auto-detected on load if `due_date < today && status !== 'paid'`
 - **Status revert on save:** If status is 'overdue' but due_date is now ≥ today, reverts to 'sent' on save
 - PDF preview and download
 - Send by Email: advances status from draft → sent, sets `sent_from_app = true`
-- Mark as Paid: opens modal with payment method selector and optional payment confirmation email
+- Mark as Paid: opens modal with payment method selector and optional payment confirmation email — the original one-shot flow, see "Partial Payments" below for how it coexists with Record Payment
 - Undo mark-as-paid: reverts to previous status
-- Manual payment reminder: amber bell 🔔 on overdue non-paid invoices; opens ReminderModal with pre-filled email
+- Manual payment reminder: amber bell 🔔 on overdue non-paid invoices (includes `'partial'`); opens ReminderModal with pre-filled email — message includes outstanding balance wording when the invoice is partially paid
 - WhatsApp share: Web Share API (mobile) or `wa.me` deep-link (desktop)
 - Add new client inline (without leaving the form)
 - Item autocomplete from catalog
 - Recurring invoices: schedule (daily/weekly/monthly/yearly), immediate first invoice creation, `next_send_date` advancement, pause/resume, edit, amber notification banner on auto-creation
 - **Quick-create:** Navigating with `location.state.quickCreate = true` auto-opens new invoice form
+
+### Partial Payments (`v3`)
+
+Lets a user record one or more partial payments against an invoice instead of only the original one-shot "Mark as Paid". Built on a new `payments` table (Section 4) — migration in `supabase/migrations/add_payments_table.sql`, which must be run manually in the Supabase SQL Editor (see the file for the exact SQL and its self-inspecting CHECK-constraint step).
+
+**Data layer — `src/utils/payments.js`:**
+- `recordPayment(supabase, { invoiceId, userId, amount, paymentDate, paymentMethod, note })` — inserts a `payments` row, then recalculates and returns the updated invoice.
+- `deletePayment(supabase, { paymentId, invoiceId, userId })` — deletes a `payments` row, then recalculates and returns the updated invoice.
+- `getPayments(supabase, invoiceId)` — all payments for an invoice, oldest first.
+- `getBalanceDue(invoice)` — `max(0, invoice.total - invoice.amount_paid)`, pure/no DB call.
+- Internally, both `recordPayment`/`deletePayment` call a shared `recalculateInvoiceFromPayments()` which **sums `payments.amount` for the invoice from scratch** (not incremented) and writes `invoices.amount_paid`/`status` (and `payment_date` when fully paid, set to the latest payment's date): `'paid'` if `amountPaid >= total` and `total > 0`, `'partial'` if `amountPaid > 0`, else `'sent'`. This means deleting the only payment on an invoice correctly reverts its status to `'sent'`, and deleting one of several payments correctly drops it back to `'partial'` with the recalculated balance.
+- ⚠️ Because the recalc is a from-scratch sum of `payments` rows only, invoices with a pre-existing `amount_paid` from before this feature (no `payments` row backing it) will have that legacy amount **overwritten** the first time a new payment is recorded against them — see the `payments` table note in Section 4.
+
+**UI — `src/components/RecordPaymentModal.jsx`:** shows invoice number + live balance due, a form (Amount / Payment Date / Payment Method / Note) to record a new payment, and a live payment history list (with per-row delete + confirm). Stays open after a partial payment so the user can record another; **auto-closes itself** (after calling `onPaymentRecorded`) once a payment brings the invoice to `status === 'paid'`.
+
+**Two parallel "paid" flows — both intentionally kept working:**
+- **Record Payment** (new, primary): desktop primary button + mobile bottom-bar button, shown when `!isReadOnly && !isNew && ['sent','overdue','partial'].includes(status) && balanceDue > 0`. Opens `RecordPaymentModal`. On full payment, triggers confetti + the existing `MarkAsPaidEmailModal` "thank you" email flow (email-only, no DB write — the DB was already updated by `payments.js`).
+- **Mark as Paid** (original, still fully functional): demoted to a secondary/outlined desktop button only (removed from the mobile bottom bar, replaced there by Record Payment). Condition unchanged except it **deliberately excludes `'partial'`** — once any payment has been recorded, the invoice is always `'partial'` or `'paid'`, and letting the one-shot Mark-as-Paid flow fire on top of an existing payments ledger would silently invalidate the ledger. It remains reachable for `'sent'`/`'overdue'` invoices that have no payments recorded yet, exactly as before this feature shipped.
+- Both flows are wired independently in both `InvoiceForm` (detail view) and the mobile list's three-dot menu in the top-level `Invoices()` component (the codebase already had duplicated mark-as-paid logic across those two places before this feature).
+
+**List views:** `STATUS_TABS` now includes `'partial'` between `sent` and `paid` (real stored status value, filtered with the existing `inv.status === tab` logic — no special-casing needed, unlike the computed "Expired" quotes tab). Amber `STATUS_META.partial` badge. The Total column shows a two-line `{balanceDue} due` (amber) / `of {total}` (grey) for partial invoices, both desktop `ListView` and `MobileInvoiceCard`.
+
+**Detail view:** a "Payment History" card (Date / Method / Note / Amount rows + Total Paid / Balance Due summary) renders between the line-items/totals card and the Notes card, but only `{invoicePayments.length > 0 && (...)}` — empty for invoices with no recorded payments.
+
+**PDF (`src/pdf/PdfDocument.jsx`):** a "Payment History" section (same Date/Method/Note/Amount table + Total Paid/Balance Due summary) is inserted after the main totals block and before the fixed footer, guarded by `Array.isArray(data.payments) && data.payments.length > 0` — renders nothing when there are no payments. Shows green **"PAID IN FULL"** in place of the Balance Due row when the recalculated balance is 0. Every PDF-building call site in `Invoices.jsx` (5 total: mark-as-paid thank-you email, WhatsApp share, the shared preview/send-email IIFE, `ReminderModal`, and the list-view mark-as-paid thank-you email) was updated to include a `payments` key in its `pdfData` object — no changes were needed to `pdfBuffer.js`/`PdfPreviewModal.jsx` themselves, since they pass `data` straight through.
 
 ### Quotes (Estimates)
 - Same CRUD and numbering as Invoices (prefix: QT- by default)
@@ -724,6 +780,8 @@ sendEmail({ supabase, userId, profile, to, subject, html, pdfBase64, pdfFilename
 
 9. **`auth.users` Database Webhooks — no dashboard UI in this project:** confirmed neither the Database → Webhooks screen nor the Database → Triggers "Create a new trigger" table picker expose the `auth` schema (Triggers only lists `public.*` tables) — there is no dashboard path to attach a webhook/trigger to `auth.users` in this project. The `send-welcome-email` trigger **must** be created via the SQL Editor using the `pg_net`-based function/trigger shown in the `send-welcome-email` setup instructions — this is the only working method, not a fallback.
 
+10. **Partial payments — `payments` table migration required, and legacy `amount_paid` was not backfilled:** `supabase/migrations/add_payments_table.sql` must be run manually in the Supabase SQL Editor before the Partial Payments feature (Section 6) works — it creates the `payments` table + RLS policy and conditionally widens any existing `invoices.status` CHECK constraint to allow `'partial'` (the migration is self-inspecting; if no CHECK constraint exists on `status` it safely no-ops, since the column is already unconstrained text). By explicit decision, **no backfill was performed** for invoices with a pre-existing nonzero `amount_paid` (e.g. Zoho-migrated data) — those invoices have no corresponding `payments` rows. Their Payment History section (both detail view and PDF) will be empty despite `amount_paid > 0`, and recording a new payment against one of them will recalculate `amount_paid` from `payments` alone, overwriting the un-backfilled legacy figure. See the `payments` table note in Section 4 for the full explanation and the manual-backfill workaround if a specific invoice needs it.
+
 ---
 
 ## 10. CODING RULES & PATTERNS
@@ -739,6 +797,8 @@ sendEmail({ supabase, userId, profile, to, subject, html, pdfBase64, pdfFilename
 - `smtp_port` must be sent as `null` (not `""`) to Supabase — the DB column is integer
 - `profiles.terms` is the DB column name for Terms & Conditions (form field is `terms_conditions`)
 - `banking_details` is stored as a JSON string `{ bank_name, account_number, branch_code }` — parse/stringify correctly
+- `payments` also does **NOT** have RLS scoped through a parent table — it has its own `user_id` column and RLS policy (unlike `invoice_items`/`estimate_items`); always insert `user_id` when writing to it
+- Never write directly to `invoices.amount_paid`/`status` for a payment change — always go through `src/utils/payments.js`'s `recordPayment()`/`deletePayment()` so the two stay in sync with the `payments` table
 
 ### Currency & Formatting
 - ZAR format throughout: `R 1 234,00` (space thousands separator, comma decimal)

@@ -108,6 +108,26 @@ const S = StyleSheet.create({
   balLabel:    { fontSize: 11, fontFamily: 'Helvetica-Bold', color: C.teal },
   balVal:      { fontSize: 11, fontFamily: 'Helvetica-Bold', color: C.teal },
 
+  // ── Payment History (partial payments) ──
+  paymentsSection:     { marginBottom: 16 },
+  paymentsHeading:     { fontSize: 11, fontFamily: 'Helvetica-Bold', color: C.dark, marginBottom: 6 },
+  paymentsTableHeader: { flexDirection: 'row', backgroundColor: C.light,
+                         paddingVertical: 6, paddingHorizontal: 8, borderRadius: 3 },
+  paymentsHCell:       { fontSize: 8, fontFamily: 'Helvetica-Bold', color: C.muted,
+                         textTransform: 'uppercase', letterSpacing: 0.6 },
+  paymentsRow:         { flexDirection: 'row', paddingVertical: 5, paddingHorizontal: 8,
+                         borderBottomWidth: 0.5, borderBottomColor: C.border },
+  paymentsCell:        { fontSize: 9, color: C.slate },
+  paymentsCellNum:      { fontSize: 9, color: C.dark, fontFamily: 'Helvetica-Bold', textAlign: 'right' },
+  paymentsColDate:     { width: 70 },
+  paymentsColMethod:   { width: 90 },
+  paymentsColNote:     { flex: 1 },
+  paymentsColAmount:   { width: 76, textAlign: 'right' },
+  paymentsSummaryRow:  { flexDirection: 'row', justifyContent: 'space-between',
+                         paddingVertical: 3, paddingHorizontal: 8, marginTop: 4 },
+  paidInFullText:      { fontSize: 12, fontFamily: 'Helvetica-Bold', color: C.green,
+                         letterSpacing: 0.5 },
+
   // ── Footer
   footColumns:   { flexDirection: 'row', gap: 24 },
   footColLeft:   { flex: 1 },
@@ -403,6 +423,45 @@ export function PdfDocument({ data, settings, docType }) {
             )}
           </View>
         </View>
+
+        {/* ── Payment History — only when the invoice has recorded payments ── */}
+        {Array.isArray(data.payments) && data.payments.length > 0 && (
+          <View wrap={false} style={S.paymentsSection}>
+            <Text style={S.paymentsHeading}>Payment History</Text>
+
+            <View style={S.paymentsTableHeader}>
+              <Text style={[S.paymentsHCell, S.paymentsColDate]}>Date</Text>
+              <Text style={[S.paymentsHCell, S.paymentsColMethod]}>Method</Text>
+              <Text style={[S.paymentsHCell, S.paymentsColNote]}>Note</Text>
+              <Text style={[S.paymentsHCell, S.paymentsColAmount]}>Amount</Text>
+            </View>
+
+            {data.payments.map((p, idx) => (
+              <View key={p.id || idx} style={S.paymentsRow}>
+                <Text style={[S.paymentsCell, S.paymentsColDate]}>{p.payment_date || '—'}</Text>
+                <Text style={[S.paymentsCell, S.paymentsColMethod]}>{p.payment_method || '—'}</Text>
+                <Text style={[S.paymentsCell, S.paymentsColNote]}>{p.note || '—'}</Text>
+                <Text style={[S.paymentsCellNum, S.paymentsColAmount]}>{fmtZAR(p.amount)}</Text>
+              </View>
+            ))}
+
+            <View style={S.paymentsSummaryRow}>
+              <Text style={S.totLabel}>Total Paid</Text>
+              <Text style={S.totVal}>{fmtZAR(amountPaid)}</Text>
+            </View>
+
+            {balanceDue === 0 ? (
+              <View style={S.paymentsSummaryRow}>
+                <Text style={S.paidInFullText}>PAID IN FULL</Text>
+              </View>
+            ) : (
+              <View style={S.paymentsSummaryRow}>
+                <Text style={[S.balLabel, D.balLabel]}>Balance Due</Text>
+                <Text style={[S.balVal,   D.balVal]}>{fmtZAR(balanceDue)}</Text>
+              </View>
+            )}
+          </View>
+        )}
 
         {/* ═══════════════════════════════════════════════════════════════════
             FIXED FOOTER — absolutely positioned; repeats on every page.

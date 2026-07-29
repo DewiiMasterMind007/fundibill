@@ -14,6 +14,8 @@ import { buildPdfBuffer } from '../lib/pdfBuffer'
 import { sendPdfViaWhatsApp, buildInvoiceWhatsAppMessage } from '../lib/whatsapp'
 import useIsMobile from '../hooks/useIsMobile'
 import whatsappIcon from '../../public/whatsapp icon.png'
+import RecordPaymentModal from '../components/RecordPaymentModal'
+import { getPayments, getBalanceDue } from '../utils/payments'
 
 const READONLY_MSG = 'Your trial has ended. Upgrade to continue.'
 
@@ -127,6 +129,7 @@ function ConfettiExplosion({ onDone }) {
 const STATUS_META = {
   draft:   { label: 'Draft',   bg: '#f1f5f9', color: '#475569' },
   sent:    { label: 'Sent',    bg: '#dbeafe', color: '#1d4ed8' },
+  partial: { label: 'Partial', bg: '#fef3c7', color: '#b45309' },
   paid:    { label: 'Paid',    bg: '#dcfce7', color: '#15803d' },
   overdue: { label: 'Overdue', bg: '#fee2e2', color: '#dc2626' },
 }
@@ -211,7 +214,7 @@ function RevertConfirmModal({ message, onConfirm, onCancel, confirming }) {
 
 // ─── Mobile Invoice Card ──────────────────────────────────────────────────────
 
-function MobileInvoiceCard({ inv, onSelect, onOpenReminder, onMarkPaid, onDelete, isReadOnly }) {
+function MobileInvoiceCard({ inv, onSelect, onOpenReminder, onRecordPayment, onDelete, isReadOnly }) {
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef(null)
   const navigate = useNavigate()
@@ -225,7 +228,7 @@ function MobileInvoiceCard({ inv, onSelect, onOpenReminder, onMarkPaid, onDelete
 
   const menuItems = [
     { label: 'View / Edit',  fn: () => { setMenuOpen(false); onSelect(inv) } },
-    !isReadOnly && inv.status !== 'paid' && { label: 'Mark as Paid',  fn: () => { setMenuOpen(false); onMarkPaid(inv) } },
+    !isReadOnly && inv.status !== 'paid' && { label: 'Record Payment',  fn: () => { setMenuOpen(false); onRecordPayment(inv) } },
     { label: 'Send Invoice',  fn: () => { setMenuOpen(false); onSelect(inv) } },
     { label: 'Download PDF',  fn: () => { setMenuOpen(false); onSelect(inv) } },
     !isReadOnly && { label: 'Delete', fn: () => { setMenuOpen(false); onDelete(inv) }, danger: true },
@@ -305,7 +308,14 @@ function MobileInvoiceCard({ inv, onSelect, onOpenReminder, onMarkPaid, onDelete
 
       {/* ── Amount + due date ── */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-        <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--primary, #14b8a6)' }}>{fmt(inv.total)}</span>
+        {inv.status === 'partial' ? (
+          <div>
+            <span style={{ fontSize: 15, fontWeight: 700, color: '#b45309', display: 'block' }}>{fmt(getBalanceDue(inv))} due</span>
+            <span style={{ fontSize: 11, color: '#94a3b8' }}>of {fmt(inv.total)}</span>
+          </div>
+        ) : (
+          <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--primary, #14b8a6)' }}>{fmt(inv.total)}</span>
+        )}
         {inv.due_date && (
           <span style={{ fontSize: 12, color: '#94a3b8' }}>Due {inv.due_date}</span>
         )}
@@ -687,6 +697,11 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
   const [pendingPaymentMethod, setPendingPaymentMethod] = useState(null)
   const [showMarkPaidEmailModal, setShowMarkPaidEmailModal] = useState(false)
   const [sendingPaymentEmail, setSendingPaymentEmail] = useState(false)
+  // Record Payment (partial payments)
+  const [showRecordPaymentModal, setShowRecordPaymentModal] = useState(false)
+  const [showThankYouEmailModal, setShowThankYouEmailModal] = useState(false)
+  const [sendingThankYouEmail, setSendingThankYouEmail] = useState(false)
+  const [invoicePayments, setInvoicePayments] = useState([])
   const [undoTarget, setUndoTarget] = useState(null) // 'paid' | 'sent' | null
   const [undoing, setUndoing] = useState(false)
   const [waLoading, setWaLoading] = useState(false)
@@ -777,6 +792,19 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
       })
     return () => { cancelled = true }
   }, [isNew, invoice?.id])
+
+  // Payment history (partial payments feature)
+  const reloadInvoicePayments = useCallback(async () => {
+    if (isNew || !invoice?.id) { setInvoicePayments([]); return }
+    try {
+      const data = await getPayments(supabase, invoice.id)
+      setInvoicePayments(data)
+    } catch (_) {
+      // Non-fatal — payment history is supplementary display only.
+    }
+  }, [isNew, invoice?.id])
+
+  useEffect(() => { reloadInvoicePayments() }, [reloadInvoicePayments])
 
   // VAT-inclusive: unit_price is the price the client pays (VAT already inside)
   const grossTotal    = lineItems.reduce((s, li) => s + (Number(li.quantity) || 0) * (Number(li.unit_price) || 0), 0)
@@ -1049,6 +1077,7 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
         client_phone:   selectedClient?.phone || '',
         client_address: selectedClient?.address || '',
         items:          lineItems.filter(li => li.item_name.trim()),
+        payments:       invoicePayments,
       }
       let pdfBuffer
       try {
@@ -1073,6 +1102,111 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
       // Non-fatal — the invoice has already been marked as paid.
     } finally {
       setSendingPaymentEmail(false)
+    }
+  }
+
+  // Called by RecordPaymentModal after each record/delete of a payment.
+  // Keeps the detail view's own amount_paid/status/payment_date in sync
+  // immediately (rather than waiting on a full onSaved() round trip), and
+  // triggers the existing paid-in-full celebration + thank-you email flow
+  // once the balance reaches zero.
+  function handlePaymentRecorded(updatedInvoice) {
+    setForm(prev => ({
+      ...prev,
+      amount_paid:  updatedInvoice.amount_paid,
+      status:       updatedInvoice.status,
+      payment_date: updatedInvoice.payment_date ?? prev.payment_date,
+    }))
+    onSaved(updatedInvoice)
+    reloadInvoicePayments()
+    if (updatedInvoice.status === 'paid') {
+      setShowConfetti(true)
+      setShowThankYouEmailModal(true)
+    }
+  }
+
+  // Thank-you email after a payment (via RecordPaymentModal) brings the
+  // invoice to fully paid. Unlike handleConfirmMarkPaidWithEmail above, the
+  // DB update already happened inside RecordPaymentModal/payments.js — this
+  // only sends the optional payment-confirmation email.
+  async function handleThankYouEmailAfterPayment({ sendEmail: shouldSend, to, subject, message }) {
+    setShowThankYouEmailModal(false)
+    if (!shouldSend) return
+
+    setSendingThankYouEmail(true)
+    try {
+      const businessName  = settings?.business_name || ''
+      const businessEmail = settings?.email || settings?.smtp_user || ''
+      const smtp = {
+        host:      settings?.smtp_host      || '',
+        port:      settings?.smtp_port      || '587',
+        user:      settings?.smtp_user      || '',
+        password:  settings?.smtp_password  || '',
+        from_name: settings?.smtp_from_name || businessName || '',
+      }
+      const isGmailProvider = settings?.email_provider === 'gmail'
+      if (!to) return
+      if (isGmailProvider && !settings?.gmail_access_token) return
+      if (!isGmailProvider && (!smtp.host || !smtp.user || !smtp.password)) return
+
+      const html = generatePaymentConfirmationEmail({
+        businessName,
+        businessEmail,
+        businessPhone: settings?.phone    || '',
+        logoUrl:       settings?.logo_url || settings?.logo_path || '',
+        primaryColor:  settings?.primary_color || '#14b8a6',
+        clientName:    selectedClient?.company_name || selectedClient?.name || '',
+        invoiceNumber: form.invoice_number,
+        amount:        total,
+        customMessage: message,
+      })
+
+      let pdfBuffer
+      try {
+        const invoicePayments = await getPayments(supabase, invoice.id)
+        const pdfData = {
+          ...(invoice || {}),
+          invoice_number: form.invoice_number,
+          issue_date:     form.issue_date,
+          due_date:       form.due_date,
+          notes:          form.notes,
+          vat_enabled:    form.vat_enabled,
+          vat_rate:       form.vat_enabled ? 15 : 0,
+          subtotal,
+          vat_amount:     vatAmount,
+          total,
+          amount_paid:    form.amount_paid,
+          status:         'paid',
+          payment_date:   form.payment_date,
+          client_name:    selectedClient?.name || '',
+          client_company: selectedClient?.company_name || '',
+          client_email:   selectedClient?.email || '',
+          client_phone:   selectedClient?.phone || '',
+          client_address: selectedClient?.address || '',
+          items:          lineItems.filter(li => li.item_name.trim()),
+          payments:       invoicePayments,
+        }
+        pdfBuffer = await buildPdfBuffer(pdfData, settings, 'INVOICE')
+      } catch (_) {
+        pdfBuffer = undefined
+      }
+
+      const { data: { user: authUser } } = await supabase.auth.getUser()
+
+      await sendEmail({
+        supabase,
+        userId:      authUser?.id,
+        profile:     settings,
+        to,
+        subject,
+        html,
+        pdfBase64:   pdfBuffer ? arrayBufferToBase64(pdfBuffer) : null,
+        pdfFilename: `Invoice-${form.invoice_number || 'paid'}.pdf`,
+      })
+    } catch (_) {
+      // Non-fatal — the payment has already been recorded.
+    } finally {
+      setSendingThankYouEmail(false)
     }
   }
 
@@ -1174,6 +1308,7 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
         client_phone:   selectedClient?.phone || '',
         client_address: selectedClient?.address || '',
         items:          lineItems.filter(li => li.item_name.trim()),
+        payments:       invoicePayments,
       }
 
       let arrayBuffer
@@ -1346,8 +1481,21 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
                   )}
                 </div>
               )}
+              {!isReadOnly && !isNew && ['sent', 'overdue', 'partial'].includes(form.status) && balanceDue > 0 && (
+                <button onClick={() => setShowRecordPaymentModal(true)} style={{ ...btnStyle('#15803d'), background: '#16a34a' }}>
+                  Record Payment
+                </button>
+              )}
               {!isReadOnly && !isNew && (form.status === 'sent' || form.status === 'overdue') && (
-                <button onClick={() => setShowPayModal(true)} disabled={markingPaid} style={{ ...btnStyle('#15803d'), background: '#16a34a' }}>
+                <button
+                  onClick={() => setShowPayModal(true)}
+                  disabled={markingPaid}
+                  title="Mark the full amount as paid in one step"
+                  style={{
+                    padding: '9px 12px', borderRadius: 8, border: '1px solid #bbf7d0',
+                    background: '#fff', color: '#15803d', fontWeight: 600, fontSize: 13, cursor: 'pointer',
+                  }}
+                >
                   {markingPaid ? 'Marking…' : 'Mark as Paid'}
                 </button>
               )}
@@ -1645,6 +1793,35 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
             </div>
           </div>
 
+          {/* ── Payment History (partial payments) ── */}
+          {invoicePayments.length > 0 && (
+            <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0', padding: isMobile ? 16 : 24 }}>
+              <h3 style={{ margin: `0 0 ${isMobile ? 10 : 12}px`, fontSize: 14, fontWeight: 700, color: '#0f172a' }}>Payment History</h3>
+              <div style={{ border: '1px solid #e2e8f0', borderRadius: 8, overflow: 'hidden', marginBottom: 14 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '90px 1fr 90px' : '110px 130px 1fr 100px', padding: '8px 12px', background: '#f8fafc', borderBottom: '1px solid #f1f5f9' }}>
+                  {(isMobile ? ['Date', 'Method', 'Amount'] : ['Date', 'Method', 'Note', 'Amount']).map(h => (
+                    <span key={h} style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</span>
+                  ))}
+                </div>
+                {invoicePayments.map(p => (
+                  <div key={p.id} style={{ display: 'grid', gridTemplateColumns: isMobile ? '90px 1fr 90px' : '110px 130px 1fr 100px', padding: '9px 12px', alignItems: 'center', borderBottom: '1px solid #f8fafc', fontSize: 13 }}>
+                    <span style={{ color: '#475569' }}>{p.payment_date}</span>
+                    <span style={{ color: '#475569' }}>{p.payment_method || '—'}</span>
+                    {!isMobile && <span style={{ color: '#94a3b8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingRight: 8 }}>{p.note || '—'}</span>}
+                    <span style={{ fontWeight: 600, color: '#0f172a' }}>{fmt(p.amount)}</span>
+                  </div>
+                ))}
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#64748b', marginBottom: 4 }}>
+                <span>Total Paid</span><span style={{ fontWeight: 600, color: '#0f172a' }}>{fmt(form.amount_paid)}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, fontWeight: 700 }}>
+                <span style={{ color: '#0f172a' }}>Balance Due</span>
+                <span style={{ color: balanceDue > 0 ? '#b45309' : '#15803d' }}>{fmt(balanceDue)}</span>
+              </div>
+            </div>
+          )}
+
           {/* ── Notes ── */}
           <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0', padding: isMobile ? 16 : 24 }}>
             <h3 style={{ margin: `0 0 ${isMobile ? 10 : 12}px`, fontSize: 14, fontWeight: 700, color: '#0f172a' }}>Notes</h3>
@@ -1709,11 +1886,11 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
               </button>
             )}
 
-            {/* Mark as Paid — for sent/overdue invoices */}
-            {!isReadOnly && !isNew && (form.status === 'sent' || form.status === 'overdue') && (
-              <button onClick={() => setShowPayModal(true)} disabled={markingPaid}
-                style={{ flex: 1.5, padding: '11px', borderRadius: 8, border: 'none', background: '#16a34a', color: '#fff', fontWeight: 600, fontSize: 14, cursor: markingPaid ? 'not-allowed' : 'pointer', opacity: markingPaid ? 0.7 : 1, fontFamily: 'inherit' }}>
-                {markingPaid ? 'Marking…' : 'Mark as Paid'}
+            {/* Record Payment — for sent/overdue/partial invoices with a balance */}
+            {!isReadOnly && !isNew && ['sent', 'overdue', 'partial'].includes(form.status) && balanceDue > 0 && (
+              <button onClick={() => setShowRecordPaymentModal(true)}
+                style={{ flex: 1.5, padding: '11px', borderRadius: 8, border: 'none', background: '#16a34a', color: '#fff', fontWeight: 600, fontSize: 14, cursor: 'pointer', fontFamily: 'inherit' }}>
+                Record Payment
               </button>
             )}
 
@@ -1772,6 +1949,7 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
           client_phone:   selectedClient?.phone || '',
           client_address: selectedClient?.address || '',
           items:          lineItems.filter(li => li.item_name.trim()),
+          payments:       invoicePayments,
         }
         return (
           <>
@@ -1846,6 +2024,30 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
           saving={markingPaid || sendingPaymentEmail}
           onConfirm={handleConfirmMarkPaidWithEmail}
           onCancel={() => { setShowMarkPaidEmailModal(false); setPendingPaymentMethod(null) }}
+        />
+      )}
+
+      {/* Record Payment (partial payments) */}
+      {showRecordPaymentModal && (
+        <RecordPaymentModal
+          invoice={{ ...invoice, ...form, total }}
+          supabase={supabase}
+          onClose={() => setShowRecordPaymentModal(false)}
+          onPaymentRecorded={handlePaymentRecorded}
+        />
+      )}
+
+      {/* Thank-you email after a payment reaches full amount */}
+      {showThankYouEmailModal && (
+        <MarkAsPaidEmailModal
+          invoiceNumber={form.invoice_number}
+          amount={total}
+          clientName={selectedClient?.company_name || selectedClient?.name || ''}
+          clientEmail={selectedClient?.email || ''}
+          businessName={settings?.business_name || ''}
+          saving={sendingThankYouEmail}
+          onConfirm={handleThankYouEmailAfterPayment}
+          onCancel={() => setShowThankYouEmailModal(false)}
         />
       )}
 
@@ -2479,7 +2681,13 @@ function ReminderModal({ invoice, clients, settings, onClose, onReminderSent }) 
 
   function buildDefault() {
     const invNum = invoice?.invoice_number || '—'
-    const amount = fmt(invoice?.total ?? 0)
+    const total = invoice?.total ?? 0
+    const amountPaid = invoice?.amount_paid ?? 0
+    const balanceDue = Math.max(0, total - amountPaid)
+    const isPartial = invoice?.status === 'partial'
+    // For partial invoices the reminder is about what's still outstanding,
+    // not the full invoice amount.
+    const amount = fmt(isPartial ? balanceDue : total)
     const issued = invoice?.issue_date || '—'
     const due    = invoice?.due_date   || '—'
 
@@ -2490,18 +2698,23 @@ function ReminderModal({ invoice, clients, settings, onClose, onReminderSent }) 
       dueDate:       due,
       businessName:  businessName,
     })
-    if (configured.trim()) return configured
+    if (configured.trim()) {
+      return isPartial
+        ? `${configured}\n\nOutstanding balance: ${fmt(balanceDue)} (${fmt(amountPaid)} already paid of ${fmt(total)} total).`
+        : configured
+    }
 
     return [
-      `This is a friendly reminder that invoice ${invNum} for ${amount} issued on ${issued} is still outstanding.`,
+      `This is a friendly reminder that invoice ${invNum} for ${amount}${isPartial ? ' (outstanding balance)' : ''} issued on ${issued} is still outstanding.`,
       '',
       `Due Date: ${due}`,
+      isPartial ? `Amount Paid: ${fmt(amountPaid)}` : null,
       `Amount Due: ${amount}`,
       '',
       `If you have already made payment, please disregard this email or send your proof of payment to ${businessEmail}.`,
       '',
       'Thank you for your prompt attention to this matter.',
-    ].join('\n')
+    ].filter(Boolean).join('\n')
   }
 
   const [to,      setTo]      = useState(clientEmail)
@@ -2549,10 +2762,10 @@ function ReminderModal({ invoice, clients, settings, onClose, onReminderSent }) 
       // Build a PDF of the invoice to attach to the reminder
       let pdfBuffer
       try {
-        const { data: itemsData } = await supabase
-          .from('invoice_items')
-          .select('*')
-          .eq('invoice_id', invoice.id)
+        const [{ data: itemsData }, invoicePayments] = await Promise.all([
+          supabase.from('invoice_items').select('*').eq('invoice_id', invoice.id),
+          getPayments(supabase, invoice.id),
+        ])
 
         const pdfData = {
           ...invoice,
@@ -2562,6 +2775,7 @@ function ReminderModal({ invoice, clients, settings, onClose, onReminderSent }) 
           client_phone:   client?.phone || '',
           client_address: client?.address || '',
           items:          itemsData ?? [],
+          payments:       invoicePayments,
         }
         pdfBuffer = await buildPdfBuffer(pdfData, settings, 'INVOICE')
       } catch (_) {
@@ -2668,9 +2882,9 @@ function ReminderModal({ invoice, clients, settings, onClose, onReminderSent }) 
 
 // ─── List View ────────────────────────────────────────────────────────────────
 
-const STATUS_TABS = ['all', 'draft', 'sent', 'paid', 'overdue']
+const STATUS_TABS = ['all', 'draft', 'sent', 'partial', 'paid', 'overdue']
 
-function ListView({ invoices, onNew, onRecurring, onSelect, onOpenReminder, onMarkPaid, onDelete, isReadOnly }) {
+function ListView({ invoices, onNew, onRecurring, onSelect, onOpenReminder, onRecordPayment, onDelete, isReadOnly }) {
   const [tab, setTab]   = useState('all')
   const isMobile        = useIsMobile()
   const navigate        = useNavigate()
@@ -2803,7 +3017,7 @@ function ListView({ invoices, onNew, onRecurring, onSelect, onOpenReminder, onMa
               inv={inv}
               onSelect={onSelect}
               onOpenReminder={onOpenReminder}
-              onMarkPaid={onMarkPaid}
+              onRecordPayment={onRecordPayment}
               onDelete={onDelete}
               isReadOnly={isReadOnly}
             />
@@ -2840,7 +3054,14 @@ function ListView({ invoices, onNew, onRecurring, onSelect, onOpenReminder, onMa
                   </div>
                   <span style={{ fontSize: 13, color: '#475569' }}>{inv.issue_date}</span>
                   <span style={{ fontSize: 13, color: inv.status === 'overdue' ? '#dc2626' : '#475569', fontWeight: inv.status === 'overdue' ? 600 : 400 }}>{inv.due_date || '—'}</span>
-                  <span style={{ fontSize: 13, fontWeight: 600, color: '#0f172a' }}>{fmt(inv.total)}</span>
+                  {inv.status === 'partial' ? (
+                    <div>
+                      <span style={{ fontSize: 12, fontWeight: 600, color: '#b45309', display: 'block' }}>{fmt(getBalanceDue(inv))} due</span>
+                      <span style={{ fontSize: 11, color: '#94a3b8' }}>of {fmt(inv.total)}</span>
+                    </div>
+                  ) : (
+                    <span style={{ fontSize: 13, fontWeight: 600, color: '#0f172a' }}>{fmt(inv.total)}</span>
+                  )}
                   <StatusBadge status={inv.status} />
                   <span style={{ fontSize: 12, fontWeight: 600, color: '#15803d' }}>
                     {inv.status === 'paid' && inv.payment_date ? `Paid: ${inv.payment_date}` : ''}
@@ -2920,6 +3141,10 @@ export default function Invoices() {
   const [pendingMarkPaidMethod, setPendingMarkPaidMethod] = useState(null)
   const [showMarkPaidEmailModalList, setShowMarkPaidEmailModalList] = useState(false)
   const [sendingPaymentEmailList, setSendingPaymentEmailList] = useState(false)
+  // Record Payment (partial payments) from the mobile list-view menu
+  const [recordPaymentListInv, setRecordPaymentListInv] = useState(null)
+  const [thankYouEmailListInv, setThankYouEmailListInv] = useState(null)
+  const [sendingThankYouEmailList, setSendingThankYouEmailList] = useState(false)
 
   // load() only fetches invoices — clients/settings/catalog come from AppDataContext
   const load = useCallback(async () => {
@@ -3094,10 +3319,10 @@ export default function Invoices() {
       // Build a PDF of the now-paid invoice (with PAID watermark) to attach
       let pdfBuffer
       try {
-        const { data: itemsData } = await supabase
-          .from('invoice_items')
-          .select('*')
-          .eq('invoice_id', inv.id)
+        const [{ data: itemsData }, invoicePayments] = await Promise.all([
+          supabase.from('invoice_items').select('*').eq('invoice_id', inv.id),
+          getPayments(supabase, inv.id),
+        ])
 
         const pdfData = {
           ...inv,
@@ -3110,6 +3335,7 @@ export default function Invoices() {
           client_phone:   client?.phone || '',
           client_address: client?.address || '',
           items:          itemsData ?? [],
+          payments:       invoicePayments,
         }
         pdfBuffer = await buildPdfBuffer(pdfData, settings, 'INVOICE')
       } catch (_) {
@@ -3132,6 +3358,85 @@ export default function Invoices() {
       // Non-fatal — the invoice has already been marked as paid.
     } finally {
       setSendingPaymentEmailList(false)
+    }
+  }
+
+  // Called from the thank-you-email modal after a Record Payment (mobile list
+  // flow) brought an invoice to fully paid. Unlike handleConfirmMarkPaidWithEmailFromList
+  // above, the DB update already happened inside RecordPaymentModal/payments.js
+  // — this only sends the optional payment-confirmation email.
+  async function handleThankYouEmailListConfirm({ sendEmail: shouldSend, to, subject, message }) {
+    const inv = thankYouEmailListInv
+    setThankYouEmailListInv(null)
+    if (!shouldSend || !inv) return
+
+    setSendingThankYouEmailList(true)
+    try {
+      const client = clients.find(c => c.id === inv.client_id)
+      const businessName  = settings?.business_name || ''
+      const businessEmail = settings?.email || settings?.smtp_user || ''
+      const smtp = {
+        host:      settings?.smtp_host      || '',
+        port:      settings?.smtp_port      || '587',
+        user:      settings?.smtp_user      || '',
+        password:  settings?.smtp_password  || '',
+        from_name: settings?.smtp_from_name || businessName || '',
+      }
+      const isGmailProvider = settings?.email_provider === 'gmail'
+      if (!to) return
+      if (isGmailProvider && !settings?.gmail_access_token) return
+      if (!isGmailProvider && (!smtp.host || !smtp.user || !smtp.password)) return
+
+      const html = generatePaymentConfirmationEmail({
+        businessName,
+        businessEmail,
+        businessPhone: settings?.phone    || '',
+        logoUrl:       settings?.logo_url || settings?.logo_path || '',
+        primaryColor:  settings?.primary_color || '#14b8a6',
+        clientName:    client?.company_name || client?.name || '',
+        invoiceNumber: inv.invoice_number,
+        amount:        inv.total,
+        customMessage: message,
+      })
+
+      let pdfBuffer
+      try {
+        const [{ data: itemsData }, invoicePayments] = await Promise.all([
+          supabase.from('invoice_items').select('*').eq('invoice_id', inv.id),
+          getPayments(supabase, inv.id),
+        ])
+
+        const pdfData = {
+          ...inv,
+          client_name:    client?.name || '',
+          client_company: client?.company_name || '',
+          client_email:   client?.email || '',
+          client_phone:   client?.phone || '',
+          client_address: client?.address || '',
+          items:          itemsData ?? [],
+          payments:       invoicePayments,
+        }
+        pdfBuffer = await buildPdfBuffer(pdfData, settings, 'INVOICE')
+      } catch (_) {
+        pdfBuffer = undefined
+      }
+
+      const { data: { user: authUser } } = await supabase.auth.getUser()
+
+      await sendEmail({
+        supabase,
+        userId:      authUser?.id,
+        profile:     settings,
+        to,
+        subject,
+        html,
+        pdfBase64:   pdfBuffer ? arrayBufferToBase64(pdfBuffer) : null,
+        pdfFilename: `Invoice-${inv.invoice_number || 'paid'}.pdf`,
+      })
+    } catch (_) {
+      // Non-fatal — the payment has already been recorded.
+    } finally {
+      setSendingThankYouEmailList(false)
     }
   }
 
@@ -3218,7 +3523,7 @@ export default function Invoices() {
           onRecurring={openRecurringList}
           onSelect={openEdit}
           onOpenReminder={openReminder}
-          onMarkPaid={inv => setMarkPaidListInv(inv)}
+          onRecordPayment={inv => setRecordPaymentListInv(inv)}
           onDelete={inv  => setDeleteListConfirmInv(inv)}
           isReadOnly={isReadOnly}
         />
@@ -3297,6 +3602,35 @@ export default function Invoices() {
           saving={sendingPaymentEmailList}
           onConfirm={handleConfirmMarkPaidWithEmailFromList}
           onCancel={() => { setShowMarkPaidEmailModalList(false); setPendingMarkPaidMethod(null); setMarkPaidListInv(null) }}
+        />
+      )}
+
+      {/* ── Mobile: Record Payment (partial payments) ── */}
+      {recordPaymentListInv && (
+        <RecordPaymentModal
+          invoice={recordPaymentListInv}
+          supabase={supabase}
+          onClose={() => setRecordPaymentListInv(null)}
+          onPaymentRecorded={async (updatedInvoice) => {
+            await load()
+            if (updatedInvoice.status === 'paid') {
+              setThankYouEmailListInv(updatedInvoice)
+            }
+          }}
+        />
+      )}
+
+      {/* ── Mobile: thank-you-email modal after a payment reaches full amount ── */}
+      {thankYouEmailListInv && (
+        <MarkAsPaidEmailModal
+          invoiceNumber={thankYouEmailListInv.invoice_number}
+          amount={thankYouEmailListInv.total}
+          clientName={thankYouEmailListInv.client_company || thankYouEmailListInv.client_name || clients.find(c => c.id === thankYouEmailListInv.client_id)?.company_name || ''}
+          clientEmail={clients.find(c => c.id === thankYouEmailListInv.client_id)?.email || ''}
+          businessName={settings?.business_name || ''}
+          saving={sendingThankYouEmailList}
+          onConfirm={handleThankYouEmailListConfirm}
+          onCancel={() => setThankYouEmailListInv(null)}
         />
       )}
 
