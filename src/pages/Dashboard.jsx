@@ -268,11 +268,14 @@ export default function Dashboard() {
   const totalInvoiced     = periodInvoices.reduce((s, i) => s + (Number(i.total) || 0), 0)
   const invoicesIssued    = periodInvoices.length
   const totalCollected    = periodInvoices
-    .filter(i => i.status === 'paid')
-    .reduce((s, i) => s + (Number(i.amount_paid) || Number(i.total) || 0), 0)
+    .reduce((s, i) => {
+      if (i.status === 'paid') return s + (Number(i.amount_paid) || Number(i.total) || 0)
+      if (i.status === 'partial') return s + (Number(i.amount_paid) || 0)
+      return s
+    }, 0)
   const overdueCount      = invoices.filter(i => i.status === 'overdue').length
   const outstanding       = invoices
-    .filter(i => ['sent', 'overdue'].includes(i.status))
+    .filter(i => ['sent', 'overdue', 'partial'].includes(i.status))
     .reduce((s, i) => s + Math.max(0, (Number(i.total) || 0) - (Number(i.amount_paid) || 0)), 0)
   const estimatesPending  = estimates.filter(e => e.status === 'sent').length
 
