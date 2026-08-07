@@ -140,6 +140,7 @@ function BarTooltip({ active, payload, label }) {
 const BADGE = {
   draft:   { label: 'Draft',   bg: '#f1f5f9', color: '#475569' },
   sent:    { label: 'Sent',    bg: '#dbeafe', color: '#1d4ed8' },
+  partial: { label: 'Partial', bg: '#fef3c7', color: '#b45309' },
   paid:    { label: 'Paid',    bg: '#dcfce7', color: '#15803d' },
   overdue: { label: 'Overdue', bg: '#fee2e2', color: '#dc2626' },
 }
@@ -179,6 +180,7 @@ export default function Dashboard() {
   const [filterKey,    setFilterKey]    = useState('30d')
   const [chartPeriod,  setChartPeriod]  = useState('6m')
   const [invoices,     setInvoices]     = useState([])
+  const [payments,     setPayments]     = useState([])
   const [estimates,    setEstimates]    = useState([])
   const [expenses,     setExpenses]     = useState([])
   const [chartInvoices, setChartInvoices] = useState([])
@@ -201,15 +203,18 @@ export default function Dashboard() {
     try {
       const [
         { data: invData,  error: invErr  },
+        { data: payData,  error: payErr  },
         { data: estData,  error: estErr  },
         { data: expData,  error: expErr  },
       ] = await Promise.all([
         supabase.from('invoices').select('*').eq('user_id', user.id).order('created_at', { ascending: false }),
+        supabase.from('payments').select('invoice_id, amount, payment_date, payment_method').eq('user_id', user.id),
         supabase.from('estimates').select('id, status').eq('user_id', user.id),
         supabase.from('expenses').select('*').eq('user_id', user.id).order('date', { ascending: false }),
       ])
 
       if (invErr) throw new Error(invErr.message)
+      if (payErr) throw new Error(payErr.message)
       if (estErr) throw new Error(estErr.message)
       if (expErr) throw new Error(expErr.message)
 
@@ -223,6 +228,7 @@ export default function Dashboard() {
       }))
 
       setInvoices(enriched)
+      setPayments(payData ?? [])
       setEstimates(estData ?? [])
       setExpenses(expData ?? [])
     } catch (e) {
@@ -262,17 +268,35 @@ export default function Dashboard() {
     return true
   }
 
+  const dateInPeriod = (d) => {
+    if (!d) return false
+    if (d < fromDate) return false
+    if (toDate && d > toDate) return false
+    return true
+  }
+
   const periodInvoices = invoices.filter(inPeriod)
 
   // ── Stat computations ───────────────────────────────────────────────────────
   const totalInvoiced     = periodInvoices.reduce((s, i) => s + (Number(i.total) || 0), 0)
   const invoicesIssued    = periodInvoices.length
-  const totalCollected    = periodInvoices
-    .reduce((s, i) => {
-      if (i.status === 'paid') return s + (Number(i.amount_paid) || Number(i.total) || 0)
-      if (i.status === 'partial') return s + (Number(i.amount_paid) || 0)
-      return s
-    }, 0)
+
+  // Total Collected reflects money actually RECEIVED in the period, not invoices
+  // issued in the period — an invoice issued weeks ago but paid today must still
+  // count. Sums individual `payments` rows by their own payment_date (so a single
+  // invoice paid across multiple periods is split correctly), plus invoices that
+  // were fully paid via the legacy one-shot Mark-as-Paid flow (which never writes
+  // to the `payments` table — only `invoices.payment_date`/`amount_paid`).
+  const invoiceIdsWithPaymentRows = new Set(payments.map(p => p.invoice_id))
+  const collectedFromPayments = payments
+    .filter(p => dateInPeriod(p.payment_date))
+    .reduce((s, p) => s + (Number(p.amount) || 0), 0)
+  const collectedLegacyPaid = invoices
+    .filter(i => i.status === 'paid' && !invoiceIdsWithPaymentRows.has(i.id))
+    .filter(i => dateInPeriod(i.payment_date))
+    .reduce((s, i) => s + (Number(i.amount_paid) || Number(i.total) || 0), 0)
+  const totalCollected    = collectedFromPayments + collectedLegacyPaid
+
   const overdueCount      = invoices.filter(i => i.status === 'overdue').length
   const outstanding       = invoices
     .filter(i => ['sent', 'overdue', 'partial'].includes(i.status))
@@ -300,12 +324,22 @@ export default function Dashboard() {
     })
   })()
 
-  // ── Payments by method (filtered to the active period) ─────────────────────
+  // ── Payments by method (filtered to the active period, by payment date) ────
   const paymentMethods = (() => {
-    const paidInPeriod = periodInvoices.filter(i => i.status === 'paid' && i.payment_method)
-    if (paidInPeriod.length === 0) return []
     const map = {}
-    for (const inv of paidInPeriod) {
+    for (const p of payments) {
+      if (!dateInPeriod(p.payment_date)) continue
+      const m = p.payment_method || 'Unknown'
+      if (!map[m]) map[m] = { method: m, count: 0, total: 0 }
+      map[m].count++
+      map[m].total += Number(p.amount) || 0
+    }
+    // Legacy one-shot Mark-as-Paid invoices never write to `payments` — fold
+    // their single payment in by invoice.payment_method/payment_date instead.
+    const legacyPaid = invoices.filter(i =>
+      i.status === 'paid' && !invoiceIdsWithPaymentRows.has(i.id) && i.payment_method && dateInPeriod(i.payment_date)
+    )
+    for (const inv of legacyPaid) {
       const m = inv.payment_method || 'Unknown'
       if (!map[m]) map[m] = { method: m, count: 0, total: 0 }
       map[m].count++
@@ -719,7 +753,7 @@ export default function Dashboard() {
       {/* ── Outstanding Invoices ──────────────────────────────────────────── */}
       {(() => {
         const todayMs = Date.now()
-        const outstandingList = invoices.filter(i => ['sent', 'overdue'].includes(i.status))
+        const outstandingList = invoices.filter(i => ['sent', 'overdue', 'partial'].includes(i.status))
         const rowColor = (inv) => {
           const issued = inv.issue_date ? new Date(inv.issue_date).getTime() : 0
           return Math.floor((todayMs - issued) / 86_400_000) > 7 ? '#dc2626' : '#d97706'
@@ -772,7 +806,7 @@ export default function Dashboard() {
                           <td style={{ padding: '10px 0',  fontSize: 13, fontWeight: 700, color }}>{inv.invoice_number}</td>
                           <td style={{ padding: '10px 8px', fontSize: 13, fontWeight: 600, color }}>{inv.client_name || '—'}</td>
                           <td style={{ padding: '10px 8px', fontSize: 13, color, whiteSpace: 'nowrap' }}>{inv.issue_date || '—'}</td>
-                          <td style={{ padding: '10px 0',  fontSize: 13, fontWeight: 700, color, whiteSpace: 'nowrap' }}>{fmtZAR(inv.total)}</td>
+                          <td style={{ padding: '10px 0',  fontSize: 13, fontWeight: 700, color, whiteSpace: 'nowrap' }}>{fmtZAR(Math.max(0, (Number(inv.total) || 0) - (Number(inv.amount_paid) || 0)))}</td>
                         </tr>
                       )
                     })}
