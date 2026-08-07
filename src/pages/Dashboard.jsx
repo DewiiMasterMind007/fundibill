@@ -291,9 +291,12 @@ export default function Dashboard() {
   const collectedFromPayments = payments
     .filter(p => dateInPeriod(p.payment_date))
     .reduce((s, p) => s + (Number(p.amount) || 0), 0)
+  // Older paid invoices (pre-dating this field being set consistently, e.g.
+  // Zoho-migrated data) can have a null payment_date — fall back to issue_date
+  // rather than silently dropping them out of every period.
   const collectedLegacyPaid = invoices
     .filter(i => i.status === 'paid' && !invoiceIdsWithPaymentRows.has(i.id))
-    .filter(i => dateInPeriod(i.payment_date))
+    .filter(i => dateInPeriod(i.payment_date || i.issue_date))
     .reduce((s, i) => s + (Number(i.amount_paid) || Number(i.total) || 0), 0)
   const totalCollected    = collectedFromPayments + collectedLegacyPaid
 
@@ -337,7 +340,7 @@ export default function Dashboard() {
     // Legacy one-shot Mark-as-Paid invoices never write to `payments` — fold
     // their single payment in by invoice.payment_method/payment_date instead.
     const legacyPaid = invoices.filter(i =>
-      i.status === 'paid' && !invoiceIdsWithPaymentRows.has(i.id) && i.payment_method && dateInPeriod(i.payment_date)
+      i.status === 'paid' && !invoiceIdsWithPaymentRows.has(i.id) && i.payment_method && dateInPeriod(i.payment_date || i.issue_date)
     )
     for (const inv of legacyPaid) {
       const m = inv.payment_method || 'Unknown'
