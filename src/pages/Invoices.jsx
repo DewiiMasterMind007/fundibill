@@ -3156,10 +3156,13 @@ export default function Invoices() {
       .eq('user_id', user.id)
       .order('issue_date', { ascending: false })
 
-    // Auto-overdue: update any invoice past due_date that isn't already paid/overdue
+    // Auto-overdue: update any invoice past due_date that isn't already paid/overdue.
+    // Excludes 'partial' too — flipping a partially-paid invoice to 'overdue' here would
+    // silently wipe its partial status (and drop it out of Dashboard's totalCollected)
+    // while leaving amount_paid untouched, since this update only ever touches `status`.
     const todayIso = new Date().toISOString().slice(0, 10)
     const overdueIds = (rawInvData ?? [])
-      .filter(inv => inv.due_date && inv.due_date < todayIso && inv.status !== 'paid' && inv.status !== 'overdue')
+      .filter(inv => inv.due_date && inv.due_date < todayIso && inv.status !== 'paid' && inv.status !== 'overdue' && inv.status !== 'partial')
       .map(inv => inv.id)
     if (overdueIds.length > 0) {
       await supabase.from('invoices').update({ status: 'overdue' }).in('id', overdueIds)
