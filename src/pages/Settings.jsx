@@ -187,7 +187,7 @@ function Section({ id, icon, title, badge, description, children, isOpen, onTogg
   if (!isMobile) {
     // Desktop: original static card layout (unchanged)
     return (
-      <div style={{
+      <div data-wizard={`section-${id}`} style={{
         background:   '#ffffff',
         border:       '1px solid #e2e8f0',
         borderRadius: 12,
@@ -234,7 +234,7 @@ function Section({ id, icon, title, badge, description, children, isOpen, onTogg
 
   // Mobile: collapsible accordion card
   return (
-    <div style={{
+    <div data-wizard={`section-${id}`} style={{
       background:     '#fff',
       borderRadius:   10,
       marginBottom:   10,
@@ -560,6 +560,24 @@ export default function Settings() {
   function toggleSection(id) {
     setOpenSection(prev => prev === id ? null : id)
   }
+
+  // ── Settings setup wizard hooks ─────────────────────────────────────────────
+  // The wizard (rendered at the App level, alongside Tutorial) drives this page
+  // via window events instead of props, since it has no direct access to this
+  // component's form state — the same loosely-coupled pattern Tutorial already
+  // uses via document.querySelector for navigation targets. "Auto save" simply
+  // re-runs the same handleSave() the Save Changes button calls (it always
+  // writes the whole form, so it's safe to call on steps the user didn't touch).
+  useEffect(() => {
+    function onWizardSave() { handleSave() }
+    function onWizardOpenSection(e) { setOpenSection(e.detail) }
+    window.addEventListener('fundibill:wizard-save', onWizardSave)
+    window.addEventListener('fundibill:wizard-open-section', onWizardOpenSection)
+    return () => {
+      window.removeEventListener('fundibill:wizard-save', onWizardSave)
+      window.removeEventListener('fundibill:wizard-open-section', onWizardOpenSection)
+    }
+  })
 
   // ── Load on mount: Supabase profile ──────────────────────────────────────
   useEffect(() => {

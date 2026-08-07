@@ -12,6 +12,7 @@ import BottomNav from './components/BottomNav'
 import MobileHeader from './components/MobileHeader'
 import TrialBanner from './components/TrialBanner'
 import Tutorial from './components/Tutorial'
+import SettingsWizard from './components/SettingsWizard'
 import UpdateNotification from './components/UpdateNotification'
 import Dashboard from './pages/Dashboard'
 import Invoices from './pages/Invoices'
@@ -106,6 +107,54 @@ function RecurringBanners() {
   )
 }
 
+// ─── Settings wizard prompt ───────────────────────────────────────────────────
+
+function SettingsWizardPrompt({ onYes, onNo }) {
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)',
+      zIndex: 9500, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16,
+    }}>
+      <div style={{
+        background: '#fff', borderRadius: 14, padding: '28px 26px 22px',
+        maxWidth: 380, width: '100%',
+        boxShadow: '0 24px 64px rgba(0,0,0,0.25)',
+        fontFamily: 'inherit', textAlign: 'center',
+      }}>
+        <h3 style={{ margin: '0 0 10px', fontSize: 18, fontWeight: 700, color: '#0f172a' }}>
+          Need help with your business settings?
+        </h3>
+        <p style={{ margin: '0 0 22px', fontSize: 14, color: '#475569', lineHeight: 1.6 }}>
+          We can walk you through setting up your profile, branding, banking details and more — step by step.
+        </p>
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+          <button
+            onClick={onNo}
+            style={{
+              padding: '9px 18px', borderRadius: 8,
+              border: '1px solid #e2e8f0', background: '#fff',
+              color: '#475569', fontSize: 13, fontWeight: 600,
+              cursor: 'pointer', fontFamily: 'inherit',
+            }}
+          >
+            No thanks
+          </button>
+          <button
+            onClick={onYes}
+            style={{
+              padding: '9px 18px', borderRadius: 8, border: 'none',
+              background: '#14b8a6', color: '#fff',
+              fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+            }}
+          >
+            Yes, let's do it
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Root ─────────────────────────────────────────────────────────────────────
 
 export default function App() {
@@ -174,14 +223,46 @@ function AuthenticatedApp() {
     setTutorialOpen(true)
   }
 
-  // Called when user finishes or skips — marks tutorial as completed
+  // ── Settings setup wizard state ─────────────────────────────────────────────
+  const [wizardPromptOpen, setWizardPromptOpen] = useState(false)
+  const [wizardOpen,       setWizardOpen]       = useState(false)
+  const [wizardKey,        setWizardKey]        = useState(0)
+  const [wizardStartStep,  setWizardStartStep]  = useState(0)
+
+  // Called when user finishes or skips the main tour — marks it completed,
+  // then offers the settings setup wizard unless it's already been finished.
   async function handleCloseTutorial() {
     setTutorialOpen(false)
     if (user) {
       await supabase
         .from('profiles')
         .upsert({ id: user.id, tutorial_completed: true }, { onConflict: 'id' })
+
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('settings_wizard_completed, settings_wizard_step')
+        .eq('id', user.id)
+        .maybeSingle()
+
+      if (!profile?.settings_wizard_completed) {
+        setWizardStartStep(profile?.settings_wizard_step || 0)
+        setWizardPromptOpen(true)
+      }
     }
+  }
+
+  function handleAcceptWizard() {
+    setWizardPromptOpen(false)
+    setWizardKey(k => k + 1)
+    setWizardOpen(true)
+  }
+
+  function handleDeclineWizard() {
+    setWizardPromptOpen(false)
+  }
+
+  function handleCloseWizard() {
+    setWizardOpen(false)
   }
 
   // ── Shared route tree (identical on both layouts) ──────────────────────────
@@ -290,6 +371,21 @@ function AuthenticatedApp() {
       {/* Tutorial overlay — conditionally rendered; key forces remount on each start */}
       {tutorialOpen && (
         <Tutorial key={tutorialKey} onClose={handleCloseTutorial} />
+      )}
+
+      {/* Settings setup wizard prompt — shown after the main tour closes */}
+      {wizardPromptOpen && (
+        <SettingsWizardPrompt onYes={handleAcceptWizard} onNo={handleDeclineWizard} />
+      )}
+
+      {/* Settings setup wizard — walks the user through each Settings section */}
+      {wizardOpen && (
+        <SettingsWizard
+          key={wizardKey}
+          userId={user?.id}
+          startStep={wizardStartStep}
+          onClose={handleCloseWizard}
+        />
       )}
 
     </HashRouter>
