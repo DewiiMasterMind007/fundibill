@@ -265,6 +265,18 @@ function AuthenticatedApp() {
     setWizardOpen(false)
   }
 
+  // Manual trigger — the 🪄 button on the Settings page. Always restarts from
+  // step 1, matching how the Tutorial button always restarts the main tour.
+  useEffect(() => {
+    function onOpenWizard() {
+      setWizardStartStep(0)
+      setWizardKey(k => k + 1)
+      setWizardOpen(true)
+    }
+    window.addEventListener('fundibill:open-settings-wizard', onOpenWizard)
+    return () => window.removeEventListener('fundibill:open-settings-wizard', onOpenWizard)
+  }, [])
+
   // ── Shared route tree (identical on both layouts) ──────────────────────────
   const appRoutes = (
     <Routes>

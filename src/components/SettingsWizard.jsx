@@ -107,6 +107,20 @@ export default function SettingsWizard({ userId, startStep = 0, onClose }) {
     )
   }
 
+  // ── Lock the page's scroll container for as long as the wizard is open ────
+  // A smooth-scrolling page underneath a `position:fixed` spotlight is a race:
+  // the ring is measured once and then stays put while the page can keep
+  // drifting (smooth-scroll animation, or the user scrolling by hand), so the
+  // ring visibly ends up over the wrong section. Locking scroll removes both
+  // sources of drift; scrollIntoView()/scrollTop still work fine on a
+  // `overflow:hidden` container, only user-driven scrolling is blocked.
+  useEffect(() => {
+    const scroller = document.querySelector('main')
+    const prevOverflow = scroller?.style.overflow
+    if (scroller) scroller.style.overflow = 'hidden'
+    return () => { if (scroller) scroller.style.overflow = prevOverflow || '' }
+  }, [])
+
   // ── Open the matching mobile accordion + find/position the spotlight ──────
   useEffect(() => {
     let cancelled = false
@@ -118,13 +132,15 @@ export default function SettingsWizard({ userId, startStep = 0, onClose }) {
       if (cancelled) return
       const el = document.querySelector(`[data-wizard="section-${current.sectionId}"]`)
       if (el) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        // Instant, not smooth — an animated scroll races the fixed-position
+        // spotlight measurement below and leaves the ring on a stale position.
+        el.scrollIntoView({ behavior: 'auto', block: 'center' })
         const t2 = setTimeout(() => {
           if (cancelled) return
           const r = el.getBoundingClientRect()
           setSpotlight({ top: r.top, left: r.left, w: r.width, h: r.height })
           setVisible(true)
-        }, 150)
+        }, 60)
         return () => clearTimeout(t2)
       } else {
         setSpotlight(null)

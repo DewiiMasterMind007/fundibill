@@ -1055,6 +1055,19 @@ export default function Settings() {
                   {saving ? 'Saving…' : 'Save Changes'}
                 </button>
               )}
+              <button
+                onClick={() => window.dispatchEvent(new CustomEvent('fundibill:open-settings-wizard'))}
+                title="Run the guided settings setup wizard"
+                aria-label="Run the guided settings setup wizard"
+                style={{
+                  width: 28, height: 28, borderRadius: '50%',
+                  border: '1.5px solid #cbd5e1', background: '#fff',
+                  fontSize: 13, cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}
+              >
+                🪄
+              </button>
               <HelpButton page="settings" />
             </div>
           </div>
@@ -1064,9 +1077,22 @@ export default function Settings() {
         </>
       )}
 
-      {/* Mobile: compact header with help button */}
+      {/* Mobile: compact header with wizard + help buttons */}
       {isMobile && (
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginBottom: 12 }}>
+          <button
+            onClick={() => window.dispatchEvent(new CustomEvent('fundibill:open-settings-wizard'))}
+            title="Run the guided settings setup wizard"
+            aria-label="Run the guided settings setup wizard"
+            style={{
+              width: 28, height: 28, borderRadius: '50%',
+              border: '1.5px solid #cbd5e1', background: '#fff',
+              fontSize: 13, cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}
+          >
+            🪄
+          </button>
           <HelpButton page="settings" />
         </div>
       )}
