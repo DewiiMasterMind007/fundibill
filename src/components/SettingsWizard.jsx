@@ -5,69 +5,73 @@ import useIsMobile from '../hooks/useIsMobile'
 
 // ─── Step definitions ─────────────────────────────────────────────────────────
 //
-// One step per Settings section card. `sectionId` matches the `id` prop each
-// <Section> in Settings.jsx is given, which is now also exposed on the DOM as
-// data-wizard="section-{id}" — see Section() in Settings.jsx.
+// One step per individual setting, not per section. `target` matches a
+// data-wizard attribute in Settings.jsx (either `field-{name}` on a single
+// input, or `section-{id}` for the couple of list-style controls that aren't
+// a single field — Payment Methods, Expense Categories). `openSectionId`
+// is the parent <Section> id to auto-expand on mobile (its accordion).
 
 const STEPS = [
-  {
-    sectionId:   'business',
-    title:       'Business Profile',
-    description: "Fill in your business name, address, contact details and VAT number — this appears on every invoice and quote you send. Edit any field below, then click Next to save and continue.",
-  },
-  {
-    sectionId:   'appearance',
-    title:       'Appearance',
-    description: 'Pick your brand colours. They control the look of your generated PDFs and the app theme.',
-  },
-  {
-    sectionId:   'documents',
-    title:       'Document Settings',
-    description: 'Set your invoice and quote numbering prefixes, starting numbers, and whether discounts are enabled.',
-  },
-  {
-    sectionId:   'banking',
-    title:       'Banking Details',
-    description: 'Add your bank name, account number and branch code — these are printed on invoices so clients know where to pay.',
-  },
-  {
-    sectionId:   'whatsapp',
-    title:       'Notifications & Messages',
-    description: 'Customise the default WhatsApp and email message templates sent with invoices, quotes and overdue reminders.',
-  },
-  {
-    sectionId:   'email',
-    title:       'Email Settings',
-    description: 'Connect Gmail or set up your own SMTP server so FundiBill can send invoices and quotes directly from your email address.',
-  },
-  {
-    sectionId:   'payment',
-    title:       'Payment & Reminders',
-    description: 'Set your default payment terms (how many days clients have to pay) and default payment method.',
-  },
-  {
-    sectionId:   'terms',
-    title:       'Terms & Conditions',
-    description: 'Add the terms and conditions text printed at the bottom of your invoices and quotes.',
-  },
-  {
-    sectionId:   'methods',
-    title:       'Payment Methods',
-    description: 'Customise the list of payment methods shown when marking an invoice as paid.',
-    isLast:      true,
-  },
+  // ── Business Profile ──
+  { openSectionId: 'business', target: 'field-name',             title: 'Your Name',        description: 'Your own name — used internally, not printed on documents.' },
+  { openSectionId: 'business', target: 'field-business_name',    title: 'Business Name',    description: 'This is the name printed on every invoice and quote you send.' },
+  { openSectionId: 'business', target: 'field-email',            title: 'Email Address',    description: 'Your business contact email, shown on invoices and quotes.' },
+  { openSectionId: 'business', target: 'field-business_address', title: 'Business Address', description: 'Your business address, printed on invoices and quotes.' },
+  { openSectionId: 'business', target: 'field-phone',            title: 'Contact Number',   description: 'A phone number your clients can reach you on.' },
+  { openSectionId: 'business', target: 'field-vat_number',       title: 'VAT Number',       description: "Optional — add your VAT registration number if you're VAT registered." },
+  { openSectionId: 'business', target: 'field-logo',             title: 'Business Logo',    description: 'Upload your logo — it appears on invoices, quotes and emails.' },
+
+  // ── Appearance ──
+  { openSectionId: 'appearance', target: 'field-primary_color', title: 'Primary Color', description: 'Your main brand colour — used on PDFs and throughout the app.' },
+  { openSectionId: 'appearance', target: 'field-accent_color',  title: 'Accent Color',  description: 'A secondary accent colour for your documents.' },
+
+  // ── Document Settings ──
+  { openSectionId: 'documents', target: 'field-invoice_prefix',           title: 'Invoice Prefix',           description: 'The prefix shown before every invoice number, e.g. INV-.' },
+  { openSectionId: 'documents', target: 'field-estimate_prefix',          title: 'Quote Prefix',              description: 'The prefix shown before every quote number, e.g. QT-.' },
+  { openSectionId: 'documents', target: 'field-starting_invoice_number',  title: 'Starting Invoice Number',  description: 'The number your invoice sequence starts counting from.' },
+  { openSectionId: 'documents', target: 'field-starting_estimate_number', title: 'Starting Quote Number',    description: 'The number your quote sequence starts counting from.' },
+  { openSectionId: 'documents', target: 'field-discounts_enabled',        title: 'Discounts',                description: 'Enable discounts on invoices and quotes, and choose percentage or fixed amount.' },
+
+  // ── Banking Details ──
+  { openSectionId: 'banking', target: 'field-bank_name',      title: 'Bank Name',      description: 'The bank your business account is held with.' },
+  { openSectionId: 'banking', target: 'field-account_number', title: 'Account Number', description: 'Your business bank account number.' },
+  { openSectionId: 'banking', target: 'field-branch_code',    title: 'Branch Code',    description: 'Your bank branch code — printed on invoices so clients know where to pay.' },
+
+  // ── Notifications & Messages ──
+  { openSectionId: 'whatsapp', target: 'field-email_invoice_message', title: 'Invoice Message',          description: 'The default message sent with an invoice, by email or WhatsApp.' },
+  { openSectionId: 'whatsapp', target: 'field-email_quote_message',   title: 'Quote Message',            description: 'The default message sent with a quote, by email or WhatsApp.' },
+  { openSectionId: 'whatsapp', target: 'field-email_overdue_message', title: 'Overdue Reminder Message', description: 'The default message sent when reminding a client about an overdue invoice.' },
+
+  // ── Email Settings ──
+  { openSectionId: 'email', target: 'field-email_provider',   title: 'Email Provider', description: 'Choose Gmail (connect your Google account) or your own Custom SMTP server for sending emails.' },
+  { openSectionId: 'email', target: 'field-smtp_host',        title: 'SMTP Host',      description: 'Your SMTP server address — only needed if using Custom SMTP.' },
+  { openSectionId: 'email', target: 'field-smtp_port',        title: 'SMTP Port',      description: 'Your SMTP server port, usually 587 or 465.' },
+  { openSectionId: 'email', target: 'field-smtp_user',        title: 'From Email',     description: 'Your SMTP username — also used as the from address.' },
+  { openSectionId: 'email', target: 'field-smtp_password',    title: 'SMTP Password',  description: 'Your SMTP password or app password.' },
+  { openSectionId: 'email', target: 'field-smtp_from_name',   title: 'From Name',      description: 'The sender name shown on emails you send.' },
+
+  // ── Payment & Reminders ──
+  { openSectionId: 'payment', target: 'field-payment_terms_days', title: 'Default Payment Terms', description: 'How many days clients have to pay before an invoice is marked overdue.' },
+
+  // ── Terms & Conditions ──
+  { openSectionId: 'terms', target: 'field-terms_conditions', title: 'Terms & Conditions', description: 'Printed at the bottom of every invoice and quote.' },
+
+  // ── Payment Methods / Expense Categories (list controls, not single fields) ──
+  { openSectionId: 'methods',    target: 'section-methods',    title: 'Payment Methods',    description: 'Customise the list of payment methods shown when marking an invoice as paid.' },
+  { openSectionId: 'categories', target: 'section-categories', title: 'Expense Categories', description: 'Customise the categories shown when recording an expense.', isLast: true },
 ]
 
-const TOTAL   = STEPS.length
-const PAD     = 10
-const PW      = 360
-const PGAP    = 16
-const OVERLAY = 'rgba(0,0,0,0.55)'
+const TOTAL       = STEPS.length
+const PAD         = 10
+const PW          = 360
+const PGAP        = 16
+const OVERLAY     = 'rgba(0,0,0,0.55)'
+const SHEET_H_EST = 300   // rough mobile bottom-sheet height, used to keep the target above it
 
 /**
- * Settings setup wizard — walks the user through each Settings section,
- * spotlighting the real live form fields (fully editable underneath the
- * spotlight) and auto-saving after every step.
+ * Settings setup wizard — walks the user through each individual Settings
+ * field, spotlighting the real live form field (fully editable underneath
+ * the spotlight) and auto-saving after every step.
  *
  * Props:
  *   userId     — current user's id, for persisting wizard progress
@@ -107,18 +111,32 @@ export default function SettingsWizard({ userId, startStep = 0, onClose }) {
     )
   }
 
-  // ── Lock the page's scroll container for as long as the wizard is open ────
-  // A smooth-scrolling page underneath a `position:fixed` spotlight is a race:
-  // the ring is measured once and then stays put while the page can keep
-  // drifting (smooth-scroll animation, or the user scrolling by hand), so the
-  // ring visibly ends up over the wrong section. Locking scroll removes both
-  // sources of drift; scrollIntoView()/scrollTop still work fine on a
-  // `overflow:hidden` container, only user-driven scrolling is blocked.
+  // ── Lock all page scrolling for as long as the wizard is open ─────────────
+  // A scrolling page underneath a `position:fixed` spotlight is a race: the
+  // ring is measured once and then stays put while the page can keep moving
+  // (smooth-scroll animation, or the user scrolling by hand/wheel/touch), so
+  // the ring visibly drifts off the field it's meant to highlight. Locking
+  // scroll on every scrollable ancestor, plus swallowing wheel and touchmove
+  // events, removes every source of that drift — scrollIntoView()/scrollTop
+  // still work fine on an `overflow:hidden` container, only user-driven
+  // scrolling is blocked. Settings.jsx's own root div is independently
+  // scrollable (nested inside App.jsx's <main>, which is ALSO scrollable) —
+  // both need locking, not just <main>.
   useEffect(() => {
-    const scroller = document.querySelector('main')
-    const prevOverflow = scroller?.style.overflow
-    if (scroller) scroller.style.overflow = 'hidden'
-    return () => { if (scroller) scroller.style.overflow = prevOverflow || '' }
+    const settingsRoot = document.querySelector('[data-wizard-scroll-root]')
+    const targets = [document.body, document.documentElement, document.querySelector('main'), settingsRoot].filter(Boolean)
+    const prevOverflow = targets.map(el => el.style.overflow)
+    targets.forEach(el => { el.style.overflow = 'hidden' })
+
+    const preventScroll = e => e.preventDefault()
+    window.addEventListener('wheel', preventScroll, { passive: false })
+    window.addEventListener('touchmove', preventScroll, { passive: false })
+
+    return () => {
+      targets.forEach((el, i) => { el.style.overflow = prevOverflow[i] })
+      window.removeEventListener('wheel', preventScroll, { passive: false })
+      window.removeEventListener('touchmove', preventScroll, { passive: false })
+    }
   }, [])
 
   // ── Open the matching mobile accordion + find/position the spotlight ──────
@@ -126,15 +144,23 @@ export default function SettingsWizard({ userId, startStep = 0, onClose }) {
     let cancelled = false
     setVisible(false)
     navigate('/settings')
-    window.dispatchEvent(new CustomEvent('fundibill:wizard-open-section', { detail: current.sectionId }))
+    window.dispatchEvent(new CustomEvent('fundibill:wizard-open-section', { detail: current.openSectionId }))
 
     const t1 = setTimeout(() => {
       if (cancelled) return
-      const el = document.querySelector(`[data-wizard="section-${current.sectionId}"]`)
+      const el = document.querySelector(`[data-wizard="${current.target}"]`)
       if (el) {
-        // Instant, not smooth — an animated scroll races the fixed-position
-        // spotlight measurement below and leaves the ring on a stale position.
-        el.scrollIntoView({ behavior: 'auto', block: 'center' })
+        // Instant positioning — no smooth-scroll animation to race against.
+        // Settings.jsx's own root div (not App.jsx's outer <main>) is the
+        // container that actually scrolls its fields — see data-wizard-scroll-root.
+        const scroller = document.querySelector('[data-wizard-scroll-root]') || document.querySelector('main') || document.scrollingElement
+        const elRect       = el.getBoundingClientRect()
+        const scrollerRect = scroller.getBoundingClientRect()
+        const elTopInScroller = elRect.top - scrollerRect.top + scroller.scrollTop
+
+        const availH = isMobile ? window.innerHeight - SHEET_H_EST : window.innerHeight
+        scroller.scrollTop = Math.max(0, elTopInScroller - Math.max(0, (availH - elRect.height) / 2))
+
         const t2 = setTimeout(() => {
           if (cancelled) return
           const r = el.getBoundingClientRect()
@@ -199,10 +225,19 @@ export default function SettingsWizard({ userId, startStep = 0, onClose }) {
     sBottom = sTop  + sH
   }
 
-  let popupTop, popupLeft
+  // ── Popup position ─────────────────────────────────────────────────────
+  let popupTop, popupLeft, popupStyleExtra = {}
   const popupW = Math.min(PW, vw - 20)
 
-  if (!spotlight) {
+  if (isMobile) {
+    // Always a bottom sheet on mobile — never overlaps the spotlighted field,
+    // since the field is scrolled to sit in the area above it (see effect).
+    popupStyleExtra = {
+      bottom: 0, left: 0, right: 0, top: undefined, width: '100%',
+      borderRadius: '16px 16px 0 0',
+      maxHeight: '48vh', overflowY: 'auto',
+    }
+  } else if (!spotlight) {
     popupTop  = Math.max(10, (vh - 320) / 2)
     popupLeft = Math.max(10, (vw - popupW) / 2)
   } else if (sRight + PGAP + popupW <= vw) {
@@ -234,7 +269,7 @@ export default function SettingsWizard({ userId, startStep = 0, onClose }) {
   return (
     <>
       {/* Overlay with rectangular cutout — the cutout area itself receives no
-          overlay div, so the real, live Settings fields underneath stay fully
+          overlay div, so the real, live Settings field underneath stays fully
           clickable/editable while spotlighted. */}
       {spotlight ? (
         <>
@@ -257,12 +292,16 @@ export default function SettingsWizard({ userId, startStep = 0, onClose }) {
         <div style={{ position: 'fixed', inset: 0, background: OVERLAY, zIndex: 9000, pointerEvents: 'none' }} />
       )}
 
-      {/* Popup card */}
+      {/* Popup card — bottom sheet on mobile, floating card on desktop */}
       <div style={{
-        position: 'fixed', top: popupTop, left: popupLeft, width: popupW,
+        position: 'fixed',
+        top: isMobile ? undefined : popupTop,
+        left: isMobile ? undefined : popupLeft,
+        width: isMobile ? undefined : popupW,
         zIndex: 9002, background: '#ffffff', borderRadius: 14,
         boxShadow: '0 24px 64px rgba(0,0,0,0.2), 0 4px 16px rgba(0,0,0,0.1)',
         padding: '22px 24px 18px', fontFamily: 'inherit',
+        ...popupStyleExtra,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
           <div style={{

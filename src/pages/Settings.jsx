@@ -294,9 +294,9 @@ function Section({ id, icon, title, badge, description, children, isOpen, onTogg
 
 // ─── Field wrapper ────────────────────────────────────────────────────────────
 
-function Field({ label, hint, children, style = {} }) {
+function Field({ id, label, hint, children, style = {} }) {
   return (
-    <div style={{ ...style }}>
+    <div data-wizard={id ? `field-${id}` : undefined} style={{ ...style }}>
       <label style={{
         display:    'block',
         fontSize:   13,
@@ -359,12 +359,12 @@ function PlaceholderTextarea({ value, onChange, placeholder, placeholders, inpSt
 
 // ─── Color picker ─────────────────────────────────────────────────────────────
 
-function ColorPicker({ label, value, onChange, onBlur }) {
+function ColorPicker({ id, label, value, onChange, onBlur }) {
   const isMobile = useIsMobile()
   const swatchSize = isMobile ? 48 : 44
 
   return (
-    <Field label={label}>
+    <Field id={id} label={label}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         {/* Swatch — clicking it opens the native color picker */}
         <label style={{ position: 'relative', cursor: 'pointer', flexShrink: 0 }}>
@@ -1004,7 +1004,7 @@ export default function Settings() {
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div style={{
+    <div data-wizard-scroll-root style={{
       padding:    isMobile ? '16px 16px 96px' : '32px 32px 64px',
       maxWidth:   820,
       overflowY:  'auto',
@@ -1160,7 +1160,7 @@ export default function Settings() {
       >
         <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: isMobile ? 14 : 16 }}>
 
-          <Field label="Your Name">
+          <Field id="name" label="Your Name">
             <input
               style={inp} value={form.name} placeholder="e.g. Dewald"
               onChange={handleChange('name')}
@@ -1168,7 +1168,7 @@ export default function Settings() {
             />
           </Field>
 
-          <Field label="Business Name">
+          <Field id="business_name" label="Business Name">
             <input
               style={inp} value={form.business_name} placeholder="Acme Studio"
               onChange={handleChange('business_name')}
@@ -1176,7 +1176,7 @@ export default function Settings() {
             />
           </Field>
 
-          <Field label="Email Address">
+          <Field id="email" label="Email Address">
             <input
               style={inp} value={form.email} type="email" placeholder="billing@yourbusiness.com"
               onChange={handleChange('email')}
@@ -1184,7 +1184,7 @@ export default function Settings() {
             />
           </Field>
 
-          <Field label="Business Address" style={{ gridColumn: isMobile ? undefined : '1 / -1' }}>
+          <Field id="business_address" label="Business Address" style={{ gridColumn: isMobile ? undefined : '1 / -1' }}>
             <textarea
               style={{ ...inp, minHeight: 80, resize: 'vertical', lineHeight: 1.5 }}
               value={form.business_address}
@@ -1194,7 +1194,7 @@ export default function Settings() {
             />
           </Field>
 
-          <Field label="Contact Number">
+          <Field id="phone" label="Contact Number">
             <input
               style={inp} value={form.phone} placeholder="+27 21 000 0000"
               onChange={handleChange('phone')}
@@ -1202,7 +1202,7 @@ export default function Settings() {
             />
           </Field>
 
-          <Field label="VAT Number" hint="optional">
+          <Field id="vat_number" label="VAT Number" hint="optional">
             <input
               style={inp} value={form.vat_number} placeholder="4010000000"
               onChange={handleChange('vat_number')}
@@ -1211,7 +1211,7 @@ export default function Settings() {
           </Field>
 
           {/* Logo upload */}
-          <Field label="Business Logo" hint="PNG or JPG, square recommended" style={{ gridColumn: isMobile ? undefined : '1 / -1' }}>
+          <Field id="logo" label="Business Logo" hint="PNG or JPG, square recommended" style={{ gridColumn: isMobile ? undefined : '1 / -1' }}>
             <div
               onClick={() => !logoUploading && logoRef.current?.click()}
               style={{
@@ -1301,11 +1301,13 @@ export default function Settings() {
       >
         <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: isMobile ? 14 : 16 }}>
           <ColorPicker
+            id="primary_color"
             label={isMobile ? 'App Theme Color' : 'Primary Color'}
             value={form.primary_color}
             onChange={handleColor('primary_color')}
           />
           <ColorPicker
+            id="accent_color"
             label="Accent Color"
             value={form.accent_color}
             onChange={handleColor('accent_color')}
@@ -1326,7 +1328,7 @@ export default function Settings() {
       >
         <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: isMobile ? 14 : 16 }}>
 
-          <Field label="Invoice Prefix">
+          <Field id="invoice_prefix" label="Invoice Prefix">
             <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
               <input
                 style={{ ...inp, borderRadius: '8px 0 0 8px', flex: 1 }}
@@ -1347,7 +1349,7 @@ export default function Settings() {
             </div>
           </Field>
 
-          <Field label="Quote Prefix">
+          <Field id="estimate_prefix" label="Quote Prefix">
             <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
               <input
                 style={{ ...inp, borderRadius: '8px 0 0 8px', flex: 1 }}
@@ -1372,7 +1374,7 @@ export default function Settings() {
             </div>
           </Field>
 
-          <Field label="Starting Invoice Number">
+          <Field id="starting_invoice_number" label="Starting Invoice Number">
             <input
               style={inp} type="number" min={1}
               value={form.starting_invoice_number}
@@ -1382,7 +1384,7 @@ export default function Settings() {
             />
           </Field>
 
-          <Field label="Starting Quote Number">
+          <Field id="starting_estimate_number" label="Starting Quote Number">
             <input
               style={inp} type="number" min={1}
               value={form.starting_estimate_number}
@@ -1393,7 +1395,7 @@ export default function Settings() {
           </Field>
 
           {/* Discount */}
-          <div style={{ gridColumn: isMobile ? undefined : '1 / -1', display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div data-wizard="field-discounts_enabled" style={{ gridColumn: isMobile ? undefined : '1 / -1', display: 'flex', flexDirection: 'column', gap: 12 }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', userSelect: 'none' }}>
               <input
                 type="checkbox"
@@ -1439,7 +1441,7 @@ export default function Settings() {
       >
         <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: isMobile ? 14 : 16 }}>
 
-          <Field label="Bank Name">
+          <Field id="bank_name" label="Bank Name">
             <input
               style={inp} value={form.bank_name} placeholder="e.g. Capitec Bank"
               onChange={handleChange('bank_name')}
@@ -1447,7 +1449,7 @@ export default function Settings() {
             />
           </Field>
 
-          <Field label="Account Number">
+          <Field id="account_number" label="Account Number">
             <input
               style={inp} value={form.account_number} placeholder="e.g. 1234567890"
               onChange={handleChange('account_number')}
@@ -1455,7 +1457,7 @@ export default function Settings() {
             />
           </Field>
 
-          <Field label="Branch Code">
+          <Field id="branch_code" label="Branch Code">
             <input
               style={inp} value={form.branch_code} placeholder="e.g. 470010"
               onChange={handleChange('branch_code')}
@@ -1481,7 +1483,7 @@ export default function Settings() {
           </p>
 
           {/* Invoice message */}
-          <div style={{ background: '#f8fafc', borderRadius: 10, border: '1px solid #e2e8f0', padding: 16 }}>
+          <div data-wizard="field-email_invoice_message" style={{ background: '#f8fafc', borderRadius: 10, border: '1px solid #e2e8f0', padding: 16 }}>
             <p style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', margin: '0 0 12px' }}>Invoice Default Message</p>
             <PlaceholderTextarea
               value={form.email_invoice_message}
@@ -1501,7 +1503,7 @@ export default function Settings() {
           </div>
 
           {/* Quote message */}
-          <div style={{ background: '#f8fafc', borderRadius: 10, border: '1px solid #e2e8f0', padding: 16 }}>
+          <div data-wizard="field-email_quote_message" style={{ background: '#f8fafc', borderRadius: 10, border: '1px solid #e2e8f0', padding: 16 }}>
             <p style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', margin: '0 0 12px' }}>Quote Default Message</p>
             <PlaceholderTextarea
               value={form.email_quote_message}
@@ -1521,7 +1523,7 @@ export default function Settings() {
           </div>
 
           {/* Overdue reminder message */}
-          <div style={{ background: '#f8fafc', borderRadius: 10, border: '1px solid #e2e8f0', padding: 16 }}>
+          <div data-wizard="field-email_overdue_message" style={{ background: '#f8fafc', borderRadius: 10, border: '1px solid #e2e8f0', padding: 16 }}>
             <p style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', margin: '0 0 12px' }}>Overdue Reminder Message</p>
             <PlaceholderTextarea
               value={form.email_overdue_message}
@@ -1552,7 +1554,7 @@ export default function Settings() {
         isMobile={isMobile}
       >
         {/* Provider toggle */}
-        <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
+        <div data-wizard="field-email_provider" style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
           {[
             {
               id: 'gmail', label: 'Google / Gmail',
@@ -1658,7 +1660,7 @@ export default function Settings() {
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: isMobile ? 14 : 16 }}>
 
-            <Field label="SMTP Host">
+            <Field id="smtp_host" label="SMTP Host">
               <input
                 style={inp} value={form.smtp_host} placeholder="smtp.gmail.com"
                 onChange={handleChange('smtp_host')}
@@ -1666,7 +1668,7 @@ export default function Settings() {
               />
             </Field>
 
-            <Field label="SMTP Port">
+            <Field id="smtp_port" label="SMTP Port">
               <input
                 style={inp} value={form.smtp_port} placeholder="587"
                 onChange={handleChange('smtp_port')}
@@ -1674,7 +1676,7 @@ export default function Settings() {
               />
             </Field>
 
-            <Field label="From Email" hint="also used as SMTP username">
+            <Field id="smtp_user" label="From Email" hint="also used as SMTP username">
               <input
                 style={inp} value={form.smtp_user} placeholder="you@example.com" type="email"
                 onChange={handleChange('smtp_user')}
@@ -1682,7 +1684,7 @@ export default function Settings() {
               />
             </Field>
 
-            <Field label="SMTP Password">
+            <Field id="smtp_password" label="SMTP Password">
               <PasswordInput
                 style={inp} value={form.smtp_password} placeholder="••••••••"
                 onChange={handleChange('smtp_password')}
@@ -1693,7 +1695,7 @@ export default function Settings() {
               </p>
             </Field>
 
-            <Field label="From Name" hint="shown as the sender" style={{ gridColumn: isMobile ? undefined : '1 / -1' }}>
+            <Field id="smtp_from_name" label="From Name" hint="shown as the sender" style={{ gridColumn: isMobile ? undefined : '1 / -1' }}>
               <input
                 style={{ ...inp, maxWidth: isMobile ? undefined : 360 }}
                 value={form.smtp_from_name} placeholder="Acme Studio"
@@ -1762,7 +1764,7 @@ export default function Settings() {
         onToggle={() => toggleSection('payment')}
         isMobile={isMobile}
       >
-        <div>
+        <div data-wizard="field-payment_terms_days">
           <label style={{ display: 'block', fontSize: 13, fontWeight: 500, color: '#374151', marginBottom: 6 }}>
             Default payment terms (days)
           </label>
@@ -1796,16 +1798,18 @@ export default function Settings() {
         onToggle={() => toggleSection('terms')}
         isMobile={isMobile}
       >
-        <textarea
-          style={{ ...inp, minHeight: 140, resize: 'vertical', lineHeight: 1.6 }}
-          value={form.terms_conditions}
-          placeholder="e.g. Payment is due within the specified period. Late payments may incur a fee of 2% per month..."
-          onChange={handleChange('terms_conditions')}
-          onBlur={blurStyle} onFocus={focusStyle}
-        />
-        <p style={{ fontSize: 12, color: '#94a3b8', marginTop: 6 }}>
-          Supports plain text. Keep it concise — it will appear in the footer of each document.
-        </p>
+        <div data-wizard="field-terms_conditions">
+          <textarea
+            style={{ ...inp, minHeight: 140, resize: 'vertical', lineHeight: 1.6 }}
+            value={form.terms_conditions}
+            placeholder="e.g. Payment is due within the specified period. Late payments may incur a fee of 2% per month..."
+            onChange={handleChange('terms_conditions')}
+            onBlur={blurStyle} onFocus={focusStyle}
+          />
+          <p style={{ fontSize: 12, color: '#94a3b8', marginTop: 6 }}>
+            Supports plain text. Keep it concise — it will appear in the footer of each document.
+          </p>
+        </div>
       </Section>
 
       {isReadOnly && (
