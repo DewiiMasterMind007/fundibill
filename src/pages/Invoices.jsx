@@ -555,7 +555,7 @@ function MarkAsPaidEmailModal({ invoiceNumber, amount, clientName, clientEmail, 
 
   const [sendEmailFlag, setSendEmailFlag] = useState(hasEmail)
   const [to,      setTo]      = useState(clientEmail || '')
-  const [subject, setSubject] = useState(`Payment Received — Invoice ${invoiceNumber}`)
+  const [subject, setSubject] = useState(`Payment Received - Invoice ${invoiceNumber}`)
   const [message, setMessage] = useState(buildDefaultMessage)
   const [paymentDate, setPaymentDate] = useState(todayStr())
 
@@ -2718,7 +2718,7 @@ function ReminderModal({ invoice, clients, settings, onClose, onReminderSent }) 
   }
 
   const [to,      setTo]      = useState(clientEmail)
-  const [subject, setSubject] = useState(`Payment Reminder — Invoice ${invoice?.invoice_number || ''} is Outstanding`)
+  const [subject, setSubject] = useState(`Payment Reminder - Invoice ${invoice?.invoice_number || ''} is Outstanding`)
   const [message, setMessage] = useState(buildDefault)
   const [sending, setSending] = useState(false)
   const [sent,    setSent]    = useState(false)

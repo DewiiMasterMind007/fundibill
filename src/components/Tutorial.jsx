@@ -56,16 +56,16 @@ const STEPS = [
     finder: () => document.querySelector('[data-tutorial="recurring"]'),
   },
   {
-    title: 'Send via WhatsApp 💬',
+    title: 'Send via WhatsApp or Email',
     description:
-      "Open any invoice or estimate and click the green WhatsApp button next to Send by Email. FundiBill downloads the PDF and opens WhatsApp Web with a pre-filled message — just attach the downloaded PDF and hit send.",
+      'Open any invoice or quote and click on the Share button. Choose WhatsApp or Email and click send.',
     mobileDescription:
-      "Open any invoice or estimate and tap the green WhatsApp button next to Send by Email. Your share panel will pop up with the PDF ready to send — tap WhatsApp to send it straight to your client.",
+      'Open any invoice or quote and click on the Share button. Choose WhatsApp or Email and click send.',
     path: '/invoices',
     finder: () => null,
   },
   {
-    title: 'Estimates',
+    title: 'Quotes',
     description:
       'Send a quote to a client before the work begins. Once approved, convert it to an invoice with one click — no re-entering data.',
     path: '/estimates',
