@@ -100,3 +100,4 @@ User data (invoices, clients, settings) is stored in a local SQLite file:
 ```
 
 This file is **not deleted** on uninstall, so your data is safe if you reinstall.
+# v4
