@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import PasswordInput from '../components/PasswordInput'
+import GoogleAuthButton from '../components/GoogleAuthButton'
 import fundibillLogo from '../../public/FundiBill long.png'
 
 export default function Auth() {
@@ -46,6 +47,19 @@ export default function Auth() {
     const t = setTimeout(() => setResendCooldown(n => n - 1), 1000)
     return () => clearTimeout(t)
   }, [resendCooldown])
+
+  // Surface a failed Google OAuth redirect (#/login?error=auth_failed from AuthCallback)
+  useEffect(() => {
+    const hash = window.location.hash
+    const queryIndex = hash.indexOf('?')
+    if (queryIndex === -1) return
+    const params = new URLSearchParams(hash.slice(queryIndex + 1))
+    if (params.get('error') === 'auth_failed') {
+      setMode('login')
+      setError('Google sign in failed. Please try again or use email and password.')
+      window.history.replaceState(null, null, window.location.pathname + '#/login')
+    }
+  }, [])
 
   function switchMode(next) {
     setMode(next)
@@ -512,6 +526,14 @@ export default function Auth() {
                 ? 'Sign up to start managing your invoices.'
                 : 'Sign in to access your FundiBill workspace.'}
             </p>
+
+            <GoogleAuthButton mode={isRegister ? 'signup' : 'signin'} onError={setError} />
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '18px 0' }}>
+              <div style={{ flex: 1, height: 1, background: 'rgba(255,255,255,0.25)' }} />
+              <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.55)' }}>or</span>
+              <div style={{ flex: 1, height: 1, background: 'rgba(255,255,255,0.25)' }} />
+            </div>
 
             <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
 

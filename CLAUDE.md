@@ -350,8 +350,15 @@ RLS: `"Users can manage their own payments" FOR ALL USING (auth.uid() = user_id)
 │   │   ├── UpdateNotification.jsx — Electron auto-update banner (update-available / ready)
 │   │   ├── WhatsAppButton.jsx   — WhatsApp share button (icon-only or full)
 │   │   ├── PasswordInput.jsx    — Password field with show/hide toggle
-│   │   └── RecordPaymentModal.jsx — Partial-payments modal: record a payment, live payment
-│   │                                 history with delete, auto-closes on full payment
+│   │   ├── RecordPaymentModal.jsx — Partial-payments modal: record a payment, live payment
+│   │   │                             history with delete, auto-closes on full payment
+│   │   ├── GoogleAuthButton.jsx — "Continue with Google" / "Sign up with Google" button;
+│   │   │                           calls supabase.auth.signInWithOAuth({ provider: 'google' }).
+│   │   │                           Supabase Auth Google provider — separate from the Gmail
+│   │   │                           OAuth send feature (Section 7)
+│   │   └── AuthCallback.jsx     — Handles the #/auth/callback redirect after Google sign-in;
+│   │                               waits for the session, creates the profiles row for new
+│   │                               Google users, then redirects to #/dashboard
 │   │
 │   ├── pdf/
 │   │   ├── PdfDocument.jsx     — @react-pdf/renderer branded A4 document; dynamic header
@@ -456,6 +463,7 @@ RLS: `"Users can manage their own payments" FOR ALL USING (auth.uid() = user_id)
 - Sign-in / sign-out
 - Registration shows 5-second countdown success screen before returning to login
 - **Password reset flow:** When user clicks reset link, Supabase fires `PASSWORD_RECOVERY` event. `AuthContext` intercepts before auto-login, sets `recoveryMode = true` (+ ref for stale-closure safety). Auth.jsx shows "Set New Password" form. On submit, calls `supabase.auth.updateUser({ password })`, then signs out. `clearRecoveryMode()` returns to login.
+- **Google Sign In / Sign Up:** via Supabase Auth's built-in Google provider (`supabase.auth.signInWithOAuth({ provider: 'google' })`) — see Section 7A. Fully separate system from the Gmail OAuth *send* feature in Section 7 (different Google Cloud OAuth client, different scopes, different purpose).
 
 ### Dashboard
 - 6 stat cards: Total Invoiced, Invoices Issued, Collected, Overdue Count, Outstanding Amount, Pending Quotes
@@ -718,6 +726,46 @@ sendEmail({ supabase, userId, profile, to, subject, html, pdfBase64, pdfFilename
 - `Settings.jsx` `sendTestEmail` — test email, no PDF attachment; recipient is `gmail_connected_email` when the Gmail tab is active, otherwise `smtp_user`
 
 `src/lib/sendEmail.js`'s `checkGmailProviderReady()` guard is still defined and still runs inside its own `sendEmail()`, but is no longer called directly by any component — the new router passes `emailProvider: 'smtp'` explicitly on the delegated path, so the guard is a no-op safety net there.
+
+---
+
+## 7A. GOOGLE SIGN IN / SIGN UP (Supabase Auth)
+
+**Completely separate from the Gmail OAuth send feature in Section 7.** That feature uses its own Google Cloud OAuth client (`GMAIL_CLIENT_ID`/`GMAIL_CLIENT_SECRET`, scope `gmail.send`) called from `/api/gmail-*.js` and writes to the `gmail_*` columns on `profiles`. This feature authenticates the user into the app itself via Supabase's built-in Google provider — no code in this repo ever sees a Google client secret for it; that credential lives only in the Supabase dashboard (Authentication → Providers → Google).
+
+**Flow:**
+1. User clicks **Continue with Google** (sign in) or **Sign up with Google** (sign up) on `Auth.jsx` — both render `GoogleAuthButton.jsx` with `mode="signin"`/`"signup"` above a divider over the email/password form.
+2. `GoogleAuthButton` calls `supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.origin + '/#/auth/callback' } })`, which redirects the browser to Google's consent screen.
+3. Google → Supabase's own auth callback → redirects back to `{origin}/?code=...#/auth/callback`. supabase-js's `detectSessionInUrl` exchanges the code for a session asynchronously on load.
+4. `App.jsx` intercepts `window.location.hash.startsWith('#/auth/callback')` **before** the normal `authLoading`/`user` gate and renders `AuthCallback.jsx` as a standalone full-screen spinner — this has to happen outside `HashRouter`, since the router only mounts once a user is authenticated (`AuthenticatedApp`), so `/auth/callback` is not a react-router `<Route>`.
+5. `AuthCallback.jsx` subscribes to `supabase.auth.onAuthStateChange` (not an immediate `getSession()` call — that can race ahead of the async code exchange and return a stale null session, the same class of bug documented in Section 10 "Auth loading/restoration pattern"). A 5-second fallback timeout calls `getSession()` directly in case the event already fired before the listener attached.
+6. Once a session with a user arrives: checks `profiles` for an existing row by `id`. If none exists (first-time Google user), upserts `{ id, email, business_name: user_metadata.full_name || user_metadata.name || '', tutorial_completed: false }` — deliberately **not** setting `logo_url` from `user_metadata.avatar_url` (that's a personal photo, not a business logo). No DB trigger currently creates this row automatically — see below.
+7. Redirects to `#/dashboard` (`window.location.hash = '#/dashboard'`). From there the existing first-run tutorial logic in `App.jsx`'s `AuthenticatedApp` (`checkFirstRun`, keyed off `profiles.tutorial_completed`) auto-starts the tutorial for the new user exactly as it already does for email/password sign-ups — no changes were needed there.
+8. On failure (no session materializes) `AuthCallback.jsx` redirects to `#/login?error=auth_failed`; `Auth.jsx` reads that on mount, switches to login mode, shows "Google sign in failed. Please try again or use email and password." via the existing `error` state/display, and strips the query param with `history.replaceState`.
+
+**No `auth.users` trigger exists in this project** (confirmed — same finding as Section 9 Known Issue #9 for `send-welcome-email`; there is no SQL file creating one). `AuthCallback.jsx` therefore creates the `profiles` row itself on first Google login. Optionally run this in the Supabase SQL Editor so future signups (Google or otherwise) always get a row immediately rather than relying on client-side creation:
+
+```sql
+CREATE OR REPLACE FUNCTION handle_new_user()
+RETURNS trigger AS $$
+BEGIN
+  INSERT INTO public.profiles (id, email, created_at)
+  VALUES (NEW.id, NEW.email, NOW())
+  ON CONFLICT DO NOTHING;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE OR REPLACE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION handle_new_user();
+```
+
+If this trigger is added, `AuthCallback.jsx`'s own upsert becomes a harmless no-op fallback (it already checks for an existing row first) — no code changes required either way.
+
+**Required Supabase dashboard setup (not code):** enable the Google provider under Authentication → Providers, with its own Google Cloud OAuth client ID/secret (do not reuse the Gmail-send client), and register Supabase's project auth callback URL (`https://hczeuxhvnprhffsnktpf.supabase.co/auth/v1/callback`) as an authorized redirect URI in that Google Cloud project.
+
+**Known limitation:** the OAuth redirect flow needs a real `http(s)` origin, so this works for the PWA (`app.fundibill.online`) but not the Electron desktop shell (`file://`) — no Electron-specific deep-link handling was built for this pass; the Google buttons still render in Electron but a click will attempt to redirect the app's `BrowserWindow` and fail to return correctly. If desktop Google sign-in is wanted later, it needs a custom protocol handler in `electron/main.js`.
 
 ---
 

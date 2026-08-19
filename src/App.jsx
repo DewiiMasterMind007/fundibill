@@ -7,6 +7,7 @@ import { AppDataProvider, useAppData } from './context/AppDataContext'
 import { supabase } from './lib/supabase'
 import useIsMobile from './hooks/useIsMobile'
 import Auth from './pages/Auth'
+import AuthCallback from './components/AuthCallback'
 import Sidebar from './components/Sidebar'
 import BottomNav from './components/BottomNav'
 import MobileHeader from './components/MobileHeader'
@@ -159,6 +160,11 @@ function SettingsWizardPrompt({ onYes, onNo }) {
 
 export default function App() {
   const { user, loading: authLoading } = useAuth()
+
+  // Google OAuth redirects here before a HashRouter exists (it only mounts once
+  // authenticated), so this is handled as a standalone screen ahead of the
+  // normal auth gate rather than as a react-router <Route>.
+  if (window.location.hash.startsWith('#/auth/callback')) return <AuthCallback />
 
   if (authLoading) return null
   if (!user) return <Auth />
