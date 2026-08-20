@@ -61,6 +61,31 @@ const CORS = {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+// denomailer's SMTPClient has no built-in connection/send timeout — a slow,
+// wrong, or unreachable SMTP host hangs forever instead of failing, which
+// (observed in testing) can stall the whole cron run until the platform's own
+// execution limit force-kills it, with no proper response for the caller and
+// every other due template left unprocessed. Every external call in this
+// function (SMTP send, and — for the same reason, defensively — every fetch
+// too) goes through one of these two wrappers so a single stuck connection
+// can only ever fail its own template, not the whole batch.
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)),
+  ])
+}
+
+async function fetchWithTimeout(url: string, init: RequestInit, ms: number): Promise<Response> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), ms)
+  try {
+    return await fetch(url, { ...init, signal: controller.signal })
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 function esc(s: unknown): string {
   return String(s ?? '')
     .replace(/&/g, '&amp;')
@@ -223,19 +248,24 @@ async function sendViaGmail(appUrl: string, args: {
   userId: string; to: string; subject: string; html: string
   pdfBase64: string; pdfFilename: string; fromName: string
 }): Promise<{ ok: true } | { ok: false; error: string }> {
-  const resp = await fetch(`${appUrl}/api/send-gmail`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      user_id: args.userId,
-      to: args.to,
-      subject: args.subject,
-      html: args.html,
-      pdf_base64: args.pdfBase64,
-      pdf_filename: args.pdfFilename,
-      from_name: args.fromName,
-    }),
-  })
+  let resp: Response
+  try {
+    resp = await fetchWithTimeout(`${appUrl}/api/send-gmail`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        user_id: args.userId,
+        to: args.to,
+        subject: args.subject,
+        html: args.html,
+        pdf_base64: args.pdfBase64,
+        pdf_filename: args.pdfFilename,
+        from_name: args.fromName,
+      }),
+    }, 25_000)
+  } catch (err) {
+    return { ok: false, error: `send-gmail request failed: ${(err as Error).message}` }
+  }
   const result = await resp.json().catch(() => ({}))
   if (!resp.ok) return { ok: false, error: result?.error || 'send-gmail request failed' }
   return { ok: true }
@@ -258,7 +288,7 @@ async function sendViaSmtp(profile: Record<string, any>, args: {
         auth: { username: profile.smtp_user, password: profile.smtp_password },
       },
     })
-    await client.send({
+    await withTimeout(client.send({
       from: `${fromName} <${profile.smtp_user}>`,
       to: args.to,
       subject: args.subject,
@@ -270,8 +300,8 @@ async function sendViaSmtp(profile: Record<string, any>, args: {
         encoding: 'base64',
         contentType: 'application/pdf',
       }],
-    })
-    await client.close()
+    }), 25_000, 'SMTP send')
+    await withTimeout(client.close(), 5_000, 'SMTP close').catch(() => {}) // best-effort — a hung close shouldn't fail an otherwise-successful send
     return { ok: true }
   } catch (err) {
     return { ok: false, error: (err as Error).message }
@@ -292,7 +322,7 @@ async function sendCcUserEmail(args: { to: string; subject: string; html: string
     return
   }
   try {
-    const resp = await fetch('https://api.fundibill.online/send-reminder.php', {
+    const resp = await fetchWithTimeout('https://api.fundibill.online/send-reminder.php', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -305,7 +335,7 @@ async function sendCcUserEmail(args: { to: string; subject: string; html: string
         smtp_user: smtpUser,
         smtp_password: smtpPassword,
       }),
-    })
+    }, 20_000)
     const result = await resp.json().catch(() => ({}))
     if (!resp.ok || result?.success === false) {
       console.error('process-recurring-invoices: CC-user email failed', result)
@@ -461,11 +491,11 @@ Deno.serve(async (req: Request) => {
         let pdfBase64 = ''
         let pdfFilename = `Invoice-${invoiceNumber}.pdf`
         try {
-          const pdfResp = await fetch(`${appUrl}/api/generate-invoice-pdf`, {
+          const pdfResp = await fetchWithTimeout(`${appUrl}/api/generate-invoice-pdf`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ invoice_id: invoice.id, user_id: template.user_id }),
-          })
+          }, 25_000)
           const pdfResult = await pdfResp.json().catch(() => ({}))
           if (!pdfResp.ok || !pdfResult?.success) {
             throw new Error(pdfResult?.error || 'PDF generation request failed')
