@@ -10,6 +10,8 @@ import { generateTestEmail } from '../lib/emailTemplates'
 import { sendEmail } from '../utils/sendEmail'
 import useIsMobile from '../hooks/useIsMobile'
 import PlanSelectModal from '../components/PlanSelectModal'
+import BankingDetailModal from '../components/BankingDetailModal'
+import { getBankingDetails, addBankingDetail, updateBankingDetail, deleteBankingDetail, setDefaultBankingDetail } from '../utils/bankingDetails'
 import googleGLogo from '../../public/G Logo.png'
 import googleSigninButton from '../../public/Google Signin Button.png'
 
@@ -554,6 +556,61 @@ export default function Settings() {
   const [gmailLoading,   setGmailLoading]   = useState(false)
   const [gmailToast,     setGmailToast]     = useState(null) // { message, type }
   const gmailToastTimer = useRef(null)
+
+  // ── Banking details (multiple accounts) ──────────────────────────────────
+  const [bankingList,          setBankingList]          = useState([])
+  const [bankingModal,         setBankingModal]         = useState(null) // null | true (add) | row (edit)
+  const [confirmDeleteBanking, setConfirmDeleteBanking]  = useState(null) // row being deleted
+  const [bankingError,         setBankingError]          = useState('')
+
+  const reloadBankingList = useCallback(async () => {
+    if (!user) return
+    try {
+      const rows = await getBankingDetails(supabase, user.id)
+      setBankingList(rows)
+    } catch (e) {
+      setBankingError(e.message)
+    }
+  }, [user])
+
+  useEffect(() => { reloadBankingList() }, [reloadBankingList])
+
+  async function handleBankingSave(payload) {
+    try {
+      if (bankingModal && bankingModal !== true) {
+        await updateBankingDetail(supabase, bankingModal.id, user.id, payload)
+      } else {
+        await addBankingDetail(supabase, user.id, payload)
+      }
+      await reloadBankingList()
+      setBankingModal(null)
+      showToast()
+    } catch (e) {
+      setBankingError(e.message)
+    }
+  }
+
+  async function handleBankingDelete() {
+    if (!confirmDeleteBanking) return
+    try {
+      await deleteBankingDetail(supabase, confirmDeleteBanking.id, user.id)
+      await reloadBankingList()
+      setConfirmDeleteBanking(null)
+      showToast()
+    } catch (e) {
+      setBankingError(e.message)
+    }
+  }
+
+  async function handleSetDefaultBanking(row) {
+    try {
+      await setDefaultBankingDetail(supabase, row.id, user.id)
+      await reloadBankingList()
+      showToast()
+    } catch (e) {
+      setBankingError(e.message)
+    }
+  }
 
   // Mobile accordion — which section is currently open
   const [openSection, setOpenSection] = useState('business')
@@ -1434,38 +1491,86 @@ export default function Settings() {
       <Section
         id="banking" icon="💳"
         title="Banking Details"
-        description="Displayed on invoices to help clients make payment"
+        description="These details appear on your invoices and quotes"
         isOpen={openSection === 'banking'}
         onToggle={() => toggleSection('banking')}
         isMobile={isMobile}
       >
-        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: isMobile ? 14 : 16 }}>
-
-          <Field id="bank_name" label="Bank Name">
-            <input
-              style={inp} value={form.bank_name} placeholder="e.g. Capitec Bank"
-              onChange={handleChange('bank_name')}
-              onBlur={blurStyle} onFocus={focusStyle}
-            />
-          </Field>
-
-          <Field id="account_number" label="Account Number">
-            <input
-              style={inp} value={form.account_number} placeholder="e.g. 1234567890"
-              onChange={handleChange('account_number')}
-              onBlur={blurStyle} onFocus={focusStyle}
-            />
-          </Field>
-
-          <Field id="branch_code" label="Branch Code">
-            <input
-              style={inp} value={form.branch_code} placeholder="e.g. 470010"
-              onChange={handleChange('branch_code')}
-              onBlur={blurStyle} onFocus={focusStyle}
-            />
-          </Field>
-
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', marginBottom: bankingList.length ? 14 : 0 }}>
+          <button
+            onClick={() => setBankingModal(true)}
+            disabled={isReadOnly}
+            style={{
+              padding: '8px 16px', borderRadius: 8, border: 'none',
+              background: isReadOnly ? '#99f6e4' : '#14b8a6', color: '#fff',
+              fontSize: 13, fontWeight: 600, cursor: isReadOnly ? 'default' : 'pointer',
+            }}
+          >
+            + Add Banking Account
+          </button>
         </div>
+
+        {bankingError && (
+          <p style={{ fontSize: 13, color: '#ef4444', marginBottom: 12 }}>{bankingError}</p>
+        )}
+
+        {bankingList.length === 0 ? (
+          <div style={{ padding: '32px 16px', textAlign: 'center', border: '1px dashed #e2e8f0', borderRadius: 10 }}>
+            <p style={{ fontSize: 14, color: '#94a3b8', margin: 0 }}>No banking details saved yet</p>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {bankingList.map(b => (
+              <div key={b.id} style={{
+                border: '1px solid #e2e8f0', borderRadius: 10, padding: isMobile ? 14 : 16,
+                display: 'flex', flexDirection: isMobile ? 'column' : 'row',
+                alignItems: isMobile ? 'flex-start' : 'center', justifyContent: 'space-between', gap: 10,
+              }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                    <span style={{ fontSize: 15, fontWeight: 700, color: '#0f172a' }}>{b.account_name}</span>
+                    {b.is_default && (
+                      <span style={{
+                        background: '#dcfce7', color: '#15803d', fontSize: 10, fontWeight: 700,
+                        padding: '2px 8px', borderRadius: 999, textTransform: 'uppercase', letterSpacing: '0.05em',
+                        border: '1px solid #bbf7d0',
+                      }}>
+                        Default
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 13, color: '#64748b' }}>
+                    {[b.bank_name, b.account_number, b.branch_code, b.account_type].filter(Boolean).join(' | ')}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+                  {!b.is_default && !isReadOnly && (
+                    <button onClick={() => handleSetDefaultBanking(b)} style={{
+                      padding: '7px 12px', borderRadius: 7, border: '1.5px solid #e2e8f0', background: '#fff',
+                      fontSize: 12, fontWeight: 600, color: '#334155', cursor: 'pointer',
+                    }}>
+                      Set as Default
+                    </button>
+                  )}
+                  <button onClick={() => setBankingModal(b)} style={{
+                    padding: '7px 12px', borderRadius: 7, border: '1.5px solid #e2e8f0', background: '#fff',
+                    fontSize: 12, fontWeight: 600, color: '#334155', cursor: 'pointer',
+                  }}>
+                    {isReadOnly ? 'View' : 'Edit'}
+                  </button>
+                  {!isReadOnly && bankingList.length > 1 && (
+                    <button onClick={() => setConfirmDeleteBanking(b)} style={{
+                      padding: '7px 12px', borderRadius: 7, border: '1.5px solid #fca5a5', background: '#fff',
+                      fontSize: 12, fontWeight: 600, color: '#ef4444', cursor: 'pointer',
+                    }}>
+                      Delete
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </Section>
 
       {/* ── NOTIFICATIONS & MESSAGES ─────────────────────────────────────── */}
@@ -2083,6 +2188,50 @@ export default function Settings() {
           Removing a category does not affect existing expenses that used it.
         </p>
       </Section>
+
+      {/* ── Banking account add/edit modal ──────────────────────────────── */}
+      {bankingModal && (
+        <BankingDetailModal
+          bankingDetail={bankingModal === true ? null : bankingModal}
+          onSave={handleBankingSave}
+          onClose={() => setBankingModal(null)}
+        />
+      )}
+
+      {/* ── Banking account delete confirmation ─────────────────────────── */}
+      {confirmDeleteBanking && (
+        <div
+          onClick={e => { if (e.target === e.currentTarget) setConfirmDeleteBanking(null) }}
+          style={{
+            position: 'fixed', inset: 0, zIndex: 500,
+            background: 'rgba(15,23,42,0.5)', backdropFilter: 'blur(3px)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24,
+          }}
+        >
+          <div style={{ background: '#fff', borderRadius: 14, width: '100%', maxWidth: 400, boxShadow: '0 20px 60px rgba(0,0,0,0.18)', padding: '28px 26px' }}>
+            <h3 style={{ fontSize: 17, fontWeight: 700, color: '#0f172a', margin: '0 0 8px' }}>
+              Delete this banking account?
+            </h3>
+            <p style={{ fontSize: 14, color: '#64748b', lineHeight: 1.6, margin: '0 0 22px' }}>
+              Delete this banking account? Invoices already sent will not be affected.
+            </p>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={() => setConfirmDeleteBanking(null)} style={{
+                flex: 1, padding: '10px 0', borderRadius: 8, border: '1.5px solid #e2e8f0',
+                background: '#fff', fontSize: 14, fontWeight: 600, color: '#64748b', cursor: 'pointer',
+              }}>
+                Cancel
+              </button>
+              <button onClick={handleBankingDelete} style={{
+                flex: 1, padding: '10px 0', borderRadius: 8, border: 'none',
+                background: '#ef4444', fontSize: 14, fontWeight: 600, color: '#fff', cursor: 'pointer',
+              }}>
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── SUBSCRIPTION & BILLING ───────────────────────────────────────── */}
       {showSubPlans && (

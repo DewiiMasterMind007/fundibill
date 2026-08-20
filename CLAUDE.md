@@ -93,7 +93,7 @@ All tables have Row Level Security enabled. All PKs are UUIDs. Access policy: `a
 | `default_payment_terms` | text | Dropdown label (legacy) |
 | `default_payment_method` | text | Pre-selected in Mark as Paid modal |
 | `terms` | text | T&C printed on PDFs — **DB column is `terms`, form field is `terms_conditions`** |
-| `banking_details` | text | JSON `{ bank_name, account_number, branch_code }` — older accounts may have free text |
+| `banking_details` | text | JSON `{ bank_name, account_number, branch_code }` — older accounts may have free text. **Legacy single-account storage** — superseded by the `banking_details` table (Section 6 "Multiple Banking Accounts") but kept as-is and still saved from Settings; used only as the fallback source for PDFs/documents with no `banking_details_snapshot` |
 | `payment_methods` | text | JSON array of method names |
 | `expense_categories` | text | JSON array of category names |
 | `email_provider` | text | `'smtp'` or `'gmail'` — Gmail is "coming soon" in the UI |
@@ -175,6 +175,7 @@ All tables have Row Level Security enabled. All PKs are UUIDs. Access policy: `a
 | `sent_from_app` | boolean | Set true when emailed via Send by Email |
 | `reminder_opted_in` | boolean | Legacy — used by `send-payment-reminders` edge function |
 | `reminder_sent_at` | timestamptz | Legacy — updated by edge function |
+| `banking_details_snapshot` | jsonb | Copy of the selected `banking_details` row at save time — see Section 6 "Multiple Banking Accounts". `NULL` on invoices created before this feature |
 | `created_at` | timestamptz | |
 
 ### `invoice_items` — Invoice line items
@@ -211,6 +212,7 @@ All tables have Row Level Security enabled. All PKs are UUIDs. Access policy: `a
 | `discount_type` | text | `'percent'` or `'fixed'` |
 | `status` | text | `draft` \| `sent` \| `approved` \| `rejected` \| `converted` |
 | `converted_invoice_id` | uuid | FK → invoices — set when quote is converted to invoice |
+| `banking_details_snapshot` | jsonb | Copy of the selected `banking_details` row at save time — see Section 6 "Multiple Banking Accounts". `NULL` on estimates created before this feature |
 | `created_at` | timestamptz | |
 
 ### `estimate_items` — Quote line items
@@ -278,6 +280,25 @@ Introduced by the **Partial Payments** feature (`v3`, see Section 6). Migration:
 RLS: `"Users can manage their own payments" FOR ALL USING (auth.uid() = user_id)`. Indexed on `invoice_id` and `user_id`.
 
 > ⚠️ **Legacy `amount_paid` values have no `payments` rows.** Invoices migrated from Zoho (or any invoice with `amount_paid > 0` recorded before this feature shipped) have that balance reflected only in `invoices.amount_paid` — there is no corresponding row in `payments` and none was backfilled. This is intentional (explicitly requested — no backfill was performed). Practical effect: such an invoice's PDF/detail-view Payment History section will be empty (guarded by `payments.length > 0`) even though `amount_paid` is nonzero, and its status may show `'partial'` with a correct balance-due figure but no itemized history to back it. Recording a new payment on that invoice going forward works normally — it's summed on top of whatever `amount_paid` already held before being recalculated from `payments` alone, so **the first new payment recorded on such an invoice will overwrite `amount_paid` to just that new payment's amount**, effectively dropping the un-backfilled legacy portion. If this matters for a specific invoice, manually insert a `payments` row matching the legacy `amount_paid` first.
+
+### `banking_details` — A user's saved banking accounts
+
+Introduced by the **Multiple Banking Accounts** feature (`v4`, see Section 6). Migration: `supabase/migrations/add_banking_details_table.sql`. Independent of (and does not replace) `profiles.banking_details` — see that column's note in the `profiles` table above; the old single-account JSON column is kept as the fallback source for documents saved before this feature existed.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | uuid | PK, `gen_random_uuid()` |
+| `user_id` | uuid | FK → `auth.users(id)`, `ON DELETE CASCADE` |
+| `account_name` | text | Label shown in the selector, e.g. "FNB Business Account" |
+| `bank_name` | text | |
+| `account_number` | text | |
+| `branch_code` | text | Optional |
+| `account_type` | text | `'Cheque'` \| `'Savings'` \| `'Transmission'` \| `'Credit'` — free text, not DB-constrained |
+| `is_default` | boolean | Exactly one row per user should be `true` at a time — enforced in application code (`src/utils/bankingDetails.js`), not a DB constraint |
+| `sort_order` | integer | Manual ordering; unused by the UI so far beyond the default `0` — reserved for a future drag-to-reorder |
+| `created_at` | timestamptz | |
+
+RLS: `"Users can manage their own banking details" FOR ALL USING (auth.uid() = user_id)`. Indexed on `user_id`.
 
 ---
 
@@ -356,9 +377,14 @@ RLS: `"Users can manage their own payments" FOR ALL USING (auth.uid() = user_id)
 │   │   │                           calls supabase.auth.signInWithOAuth({ provider: 'google' }).
 │   │   │                           Supabase Auth Google provider — separate from the Gmail
 │   │   │                           OAuth send feature (Section 7)
-│   │   └── AuthCallback.jsx     — Handles the #/auth/callback redirect after Google sign-in;
-│   │                               waits for the session, creates the profiles row for new
-│   │                               Google users, then redirects to #/dashboard
+│   │   ├── AuthCallback.jsx     — Handles the #/auth/callback redirect after Google sign-in;
+│   │   │                           waits for the session, creates the profiles row for new
+│   │   │                           Google users, then redirects to #/dashboard
+│   │   ├── BankingDetailsSelector.jsx — Used in the invoice/estimate creation forms; a
+│   │   │                                 read-only line with 0-1 saved accounts, a real
+│   │   │                                 <select> once there are 2+. See Section 6.
+│   │   └── BankingDetailModal.jsx     — Add/Edit modal for a single banking account, used
+│   │                                     by Settings.jsx's Banking Details section.
 │   │
 │   ├── pdf/
 │   │   ├── PdfDocument.jsx     — @react-pdf/renderer branded A4 document; dynamic header
@@ -402,9 +428,13 @@ RLS: `"Users can manage their own payments" FOR ALL USING (auth.uid() = user_id)
 │       │                          /api/send-gmail when email_provider === 'gmail', otherwise
 │       │                          delegates to src/lib/sendEmail.js unchanged. See Section 7.
 │       ├── pdf.js              — Legacy jsPDF builder (unused in active flow, kept for reference)
-│       └── payments.js         — recordPayment, deletePayment, getPayments, getBalanceDue —
-│                                   partial-payments data layer, keeps invoices.amount_paid/
-│                                   status in sync with the payments table. See Section 6.
+│       ├── payments.js         — recordPayment, deletePayment, getPayments, getBalanceDue —
+│       │                          partial-payments data layer, keeps invoices.amount_paid/
+│       │                          status in sync with the payments table. See Section 6.
+│       └── bankingDetails.js   — getBankingDetails, addBankingDetail, updateBankingDetail,
+│                                   deleteBankingDetail, setDefaultBankingDetail,
+│                                   createBankingSnapshot — multiple-banking-accounts data
+│                                   layer. See Section 6 "Multiple Banking Accounts".
 │
 ├── api/                        — Vercel Serverless Functions (Gmail OAuth — see Section 7)
 │   ├── gmail-auth.js            — Starts the OAuth flow, redirects to Google's consent screen
@@ -516,6 +546,27 @@ Lets a user record one or more partial payments against an invoice instead of on
 **Detail view:** a "Payment History" card (Date / Method / Note / Amount rows + Total Paid / Balance Due summary) renders between the line-items/totals card and the Notes card, but only `{invoicePayments.length > 0 && (...)}` — empty for invoices with no recorded payments.
 
 **PDF (`src/pdf/PdfDocument.jsx`):** a "Payment History" section (same Date/Method/Note/Amount table + Total Paid/Balance Due summary) is inserted after the main totals block and before the fixed footer, guarded by `Array.isArray(data.payments) && data.payments.length > 0` — renders nothing when there are no payments. Shows green **"PAID IN FULL"** in place of the Balance Due row when the recalculated balance is 0. Every PDF-building call site in `Invoices.jsx` (5 total: mark-as-paid thank-you email, WhatsApp share, the shared preview/send-email IIFE, `ReminderModal`, and the list-view mark-as-paid thank-you email) was updated to include a `payments` key in its `pdfData` object — no changes were needed to `pdfBuffer.js`/`PdfPreviewModal.jsx` themselves, since they pass `data` straight through.
+
+### Multiple Banking Accounts (`v4`)
+
+Lets a user save more than one banking account in Settings and choose which one is used on a given invoice or quote, instead of the single bank/account/branch fields previously stored on `profiles`. Built on a new `banking_details` table (Section 4) — migration in `supabase/migrations/add_banking_details_table.sql`, which must be run manually in the Supabase SQL Editor (creates the table, adds `banking_details_snapshot` JSONB to `invoices` and `estimates`, and one-time-migrates any existing `profiles.banking_details` into the new table as each user's default account).
+
+**Data layer — `src/utils/bankingDetails.js`:**
+- `getBankingDetails(supabase, userId)` — all accounts for a user, ordered `is_default DESC, sort_order ASC, created_at ASC`.
+- `addBankingDetail(supabase, userId, { account_name, bank_name, account_number, branch_code, account_type })` — inserts a row; `is_default` is set `true` automatically only when it's the user's first saved account (checked via a `count`-only query before insert), `false` otherwise.
+- `updateBankingDetail(supabase, id, userId, updates)` / `deleteBankingDetail(supabase, id, userId)` — straightforward update/delete, both scoped by `id` **and** `user_id`. Deleting the current default automatically promotes the next-oldest remaining account (by `created_at`) to `is_default = true`, so a user is never left with zero default accounts as long as at least one remains.
+- `setDefaultBankingDetail(supabase, id, userId)` — clears `is_default` on every row for the user, then sets it on the one specified (two separate `UPDATE`s, not a DB constraint — see the `banking_details` table note in Section 4).
+- `createBankingSnapshot(bankingDetail)` — pure function, pulls `{ account_name, bank_name, account_number, branch_code, account_type }` off a `banking_details` row into a plain object for storing as JSONB.
+
+**Settings — `src/pages/Settings.jsx` Banking Details section:** replaced the old single bank/account/branch input trio with a list of cards (one per saved account: name, `bank | account | branch | type` line, green "Default" badge, Set as Default / Edit / Delete buttons) plus an "+ Add Banking Account" button opening `src/components/BankingDetailModal.jsx`. **Delete is hidden whenever only one account remains** (`bankingList.length > 1` guard) so a user can never delete their last banking account from the UI; the delete confirmation itself is a small inline overlay in `Settings.jsx` (not a separate component) reading "Delete this banking account? Invoices already sent will not be affected." The old `profiles.banking_details` JSON column, its load/save code, and `parseBankingDetails()` in `Settings.jsx` were **left untouched** — they keep working exactly as before, just with no UI to edit them any more, because that column is still the fallback source for documents with no `banking_details_snapshot` (see PDF note below).
+
+**Invoice/estimate forms (`src/pages/Invoices.jsx` `InvoiceForm`, `src/pages/Estimates.jsx` `EstimateForm`):** both load the user's `banking_details` list on mount and render `src/components/BankingDetailsSelector.jsx` in a "Banking Details" card (placed just before the Notes card). That component collapses to a read-only `Bank: … | Acc: …` line with a "Manage banking details" link to Settings when there are 0 or 1 saved accounts, and becomes a real `<select>` (options as `"{account_name} — {bank_name}"`) once there are 2+. On edit, the initially-selected account is matched from the invoice/estimate's existing `banking_details_snapshot` by `account_number` + `bank_name` where possible (falls back to the user's current default). **Every save** (new or edit, regardless of how many accounts exist) computes `createBankingSnapshot()` of whichever account is currently selected and writes it into the `banking_details_snapshot` payload field — so even single-account users get a snapshot going forward, insulating already-issued documents from later edits to that banking account.
+
+**PDF (`src/pdf/PdfDocument.jsx`):** `formatBankingDetails()` now takes the invoice/estimate's `banking_details_snapshot` first; if present (an already-parsed JSONB object), it's used directly. If absent (`NULL` — documents created before this feature), it falls back to parsing `settings.banking_details` (the profile's legacy JSON string) exactly as before. Output format changed slightly to match the new field set: `Bank: … / Account: … / Branch: … / Type: …` (only if `account_type` is set) `/ Account Name: …` (only if different from the business name) — previously read "Account Number:"/"Branch Code:" instead of "Account:"/"Branch:". Every `pdfData` object built in `Invoices.jsx`/`Estimates.jsx` already spreads the full invoice/estimate row (`...invoice`/`...inv`), so `banking_details_snapshot` flows through to the PDF automatically with no per-call-site changes needed.
+
+**No detail-view display existed to update.** The original spec assumed an invoice/estimate detail-view banking section analogous to the PDF's, but no such UI exists anywhere in `Invoices.jsx`/`Estimates.jsx` today — banking details have only ever been shown on the PDF and edited in Settings. Nothing was added here to avoid inventing an unrequested UI surface; the PDF preview remains the only place a user sees the rendered banking details before sending.
+
+> ⚠️ **Pre-feature invoices/estimates have `banking_details_snapshot = NULL`.** These fall back to the user's *current* profile banking details (`profiles.banking_details`) for PDF display, per the fallback above — not a backfill. If a user has since changed their profile banking details, an old invoice's PDF will show the *new* details, same as it always has (this is the pre-existing, unchanged behavior for any invoice issued before this feature; the feature only stops that from happening going forward).
 
 ### Quotes (Estimates)
 - Same CRUD and numbering as Invoices (prefix: QT- by default)
@@ -830,6 +881,8 @@ If this trigger is added, `AuthCallback.jsx`'s own upsert becomes a harmless no-
 
 10. **Partial payments — `payments` table migration required, and legacy `amount_paid` was not backfilled:** `supabase/migrations/add_payments_table.sql` must be run manually in the Supabase SQL Editor before the Partial Payments feature (Section 6) works — it creates the `payments` table + RLS policy and conditionally widens any existing `invoices.status` CHECK constraint to allow `'partial'` (the migration is self-inspecting; if no CHECK constraint exists on `status` it safely no-ops, since the column is already unconstrained text). By explicit decision, **no backfill was performed** for invoices with a pre-existing nonzero `amount_paid` (e.g. Zoho-migrated data) — those invoices have no corresponding `payments` rows. Their Payment History section (both detail view and PDF) will be empty despite `amount_paid > 0`, and recording a new payment against one of them will recalculate `amount_paid` from `payments` alone, overwriting the un-backfilled legacy figure. See the `payments` table note in Section 4 for the full explanation and the manual-backfill workaround if a specific invoice needs it.
 
+11. **Multiple banking accounts — `banking_details` table migration required; pre-feature invoices/estimates have `banking_details_snapshot = NULL`:** `supabase/migrations/add_banking_details_table.sql` must be run manually in the Supabase SQL Editor before the Multiple Banking Accounts feature (Section 6) works — it creates the `banking_details` table + RLS policy, adds `banking_details_snapshot` JSONB to `invoices`/`estimates`, and migrates each user's existing `profiles.banking_details` into a single default `banking_details` row (skipped for users whose `profiles.banking_details` is free text rather than JSON, or already empty). Invoices and estimates created before this feature has no `banking_details_snapshot` — `src/pdf/PdfDocument.jsx` and every `pdfData` call site fall back to the user's *current* `profiles.banking_details` for those, exactly as PDF generation already worked before this feature existed. No backfill was performed or needed here (unlike the `payments`/`amount_paid` case above) — the fallback is the intended, permanent behavior for old documents, not a stopgap.
+
 ---
 
 ## 10. CODING RULES & PATTERNS
@@ -846,6 +899,7 @@ If this trigger is added, `AuthCallback.jsx`'s own upsert becomes a harmless no-
 - `profiles.terms` is the DB column name for Terms & Conditions (form field is `terms_conditions`)
 - `banking_details` is stored as a JSON string `{ bank_name, account_number, branch_code }` — parse/stringify correctly
 - `payments` also does **NOT** have RLS scoped through a parent table — it has its own `user_id` column and RLS policy (unlike `invoice_items`/`estimate_items`); always insert `user_id` when writing to it
+- `banking_details` follows the same pattern as `payments` — its own `user_id` column and RLS policy; always insert `user_id` when writing to it. Never write `invoices.banking_details_snapshot`/`estimates.banking_details_snapshot` directly except via `createBankingSnapshot()` in `src/utils/bankingDetails.js`, so the stored shape always matches what `PdfDocument.jsx` expects
 - Never write directly to `invoices.amount_paid`/`status` for a payment change — always go through `src/utils/payments.js`'s `recordPayment()`/`deletePayment()` so the two stay in sync with the `payments` table
 
 ### Currency & Formatting

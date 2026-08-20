@@ -1,24 +1,35 @@
 import React from 'react'
 import { Document, Page, Text, View, Image, StyleSheet } from '@react-pdf/renderer'
 
-// Banking details: profiles.banking_details stores a JSON object
-// { bank_name, account_number, branch_code }. Older accounts may still have
-// a free-text string saved -- fall back to showing it as-is in that case.
-function formatBankingDetails(raw) {
-  if (!raw) return ''
-  try {
-    const parsed = JSON.parse(raw)
-    if (parsed && typeof parsed === 'object') {
-      const lines = []
-      if (parsed.bank_name)      lines.push(`Bank: ${parsed.bank_name}`)
-      if (parsed.account_number) lines.push(`Account Number: ${parsed.account_number}`)
-      if (parsed.branch_code)    lines.push(`Branch Code: ${parsed.branch_code}`)
-      return lines.join('\n')
+// Banking details on the PDF come from one of two sources:
+// 1. invoice/estimate.banking_details_snapshot (JSONB) -- a plain object,
+//    already parsed by supabase-js, saved at the time the document was
+//    created/edited (see the multiple-banking-accounts feature).
+// 2. Fallback for documents saved before that feature existed (snapshot is
+//    NULL): profiles.banking_details, a JSON *string* of
+//    { bank_name, account_number, branch_code }. Older accounts may still
+//    have a free-text string saved there -- fall back to showing it as-is.
+function formatBankingDetails(snapshot, profileBankingRaw, businessName) {
+  let parsed = null
+  if (snapshot && typeof snapshot === 'object') {
+    parsed = snapshot
+  } else if (profileBankingRaw) {
+    try {
+      const p = JSON.parse(profileBankingRaw)
+      if (p && typeof p === 'object') parsed = p
+    } catch (_) {
+      return typeof profileBankingRaw === 'string' ? profileBankingRaw : ''
     }
-  } catch (_) {
-    // Not JSON -- legacy free-text banking details
   }
-  return typeof raw === 'string' ? raw : ''
+  if (!parsed) return ''
+
+  const lines = []
+  if (parsed.bank_name)      lines.push(`Bank: ${parsed.bank_name}`)
+  if (parsed.account_number) lines.push(`Account: ${parsed.account_number}`)
+  if (parsed.branch_code)    lines.push(`Branch: ${parsed.branch_code}`)
+  if (parsed.account_type)   lines.push(`Type: ${parsed.account_type}`)
+  if (parsed.account_name && parsed.account_name !== businessName) lines.push(`Account Name: ${parsed.account_name}`)
+  return lines.join('\n')
 }
 
 // ── ZAR currency ──────────────────────────────────────────────────────────────
@@ -190,7 +201,7 @@ export function PdfDocument({ data, settings, docType }) {
     ? (data.discount_type === 'percent' ? grossTotal * (discountValue / 100) : discountValue)
     : 0
   const logoSrc      = settings?._logoSrc || null
-  const bankingText  = formatBankingDetails(settings?.banking_details)
+  const bankingText  = formatBankingDetails(data.banking_details_snapshot, settings?.banking_details, settings?.business_name)
 
   // Dynamic colour overrides driven by the user's primary_color setting
   const primary = settings?.primary_color || C.teal

@@ -16,6 +16,8 @@ import useIsMobile from '../hooks/useIsMobile'
 import whatsappIcon from '../../public/whatsapp icon.png'
 import RecordPaymentModal from '../components/RecordPaymentModal'
 import { getPayments, getBalanceDue } from '../utils/payments'
+import { getBankingDetails, createBankingSnapshot } from '../utils/bankingDetails'
+import BankingDetailsSelector from '../components/BankingDetailsSelector'
 
 const READONLY_MSG = 'Your trial has ended. Upgrade to continue.'
 
@@ -806,6 +808,23 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
 
   useEffect(() => { reloadInvoicePayments() }, [reloadInvoicePayments])
 
+  // Banking details selector (multiple-accounts feature)
+  const [bankingList, setBankingList] = useState([])
+  const [bankingDetailId, setBankingDetailId] = useState(null)
+  useEffect(() => {
+    if (!user?.id) return
+    let cancelled = false
+    getBankingDetails(supabase, user.id).then(list => {
+      if (cancelled) return
+      setBankingList(list)
+      const snap = invoice?.banking_details_snapshot
+      const matched = snap && list.find(b => b.account_number === snap.account_number && b.bank_name === snap.bank_name)
+      const fallback = list.find(b => b.is_default) || list[0]
+      setBankingDetailId((matched || fallback)?.id || null)
+    }).catch(() => {})
+    return () => { cancelled = true }
+  }, [user?.id])
+
   // VAT-inclusive: unit_price is the price the client pays (VAT already inside)
   const grossTotal    = lineItems.reduce((s, li) => s + (Number(li.quantity) || 0) * (Number(li.unit_price) || 0), 0)
   const discountsOn   = !!settings?.discounts_enabled
@@ -905,6 +924,7 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
       status:         nextStatus,
       discount_value: discountsOn ? (Number(form.discount_value) || 0) : 0,
       discount_type:  discountsOn ? (form.discount_type || 'percent') : null,
+      banking_details_snapshot: createBankingSnapshot(bankingList.find(b => b.id === bankingDetailId)),
     }
 
     if (overrideStatus && overrideStatus !== form.status) {
@@ -1821,6 +1841,12 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
               </div>
             </div>
           )}
+
+          {/* ── Banking Details ── */}
+          <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0', padding: isMobile ? 16 : 24 }}>
+            <h3 style={{ margin: `0 0 ${isMobile ? 10 : 12}px`, fontSize: 14, fontWeight: 700, color: '#0f172a' }}>Banking Details</h3>
+            <BankingDetailsSelector bankingDetails={bankingList} value={bankingDetailId} onChange={setBankingDetailId} />
+          </div>
 
           {/* ── Notes ── */}
           <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0', padding: isMobile ? 16 : 24 }}>
