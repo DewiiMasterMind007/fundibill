@@ -9,16 +9,27 @@
 
 import { createClient } from '@supabase/supabase-js';
 import React from 'react';
-import { PdfDocument } from '../src/pdf/PdfDocument.jsx';
-// @react-pdf/renderer (only) is ESM-only. This function is compiled to
-// CommonJS by Vercel (no "type": "module" in package.json), and a static
-// `import` of an ESM-only *npm package* gets transpiled into a `require()`
-// that throws ERR_REQUIRE_ESM at runtime — a dynamic import() avoids that,
-// same fix src/lib/pdfBuffer.js already uses client-side. PdfDocument.jsx is
-// local source, not an npm package, so it must stay a STATIC import: Vercel's
-// build step transpiles/bundles statically-imported local .jsx files into the
-// function bundle; a dynamic import() instead leaves it as a raw file for
-// Node to load directly at runtime, which doesn't know how to parse ".jsx".
+// Both of these are dynamic imports, not static — and both load from
+// api/_lib/PdfDocument.mjs, NOT src/pdf/PdfDocument.jsx directly. Two
+// separate problems, two related fixes:
+//  - @react-pdf/renderer is ESM-only; Vercel compiles this function's own
+//    static imports to CommonJS require() calls, and requiring an ESM-only
+//    package throws ERR_REQUIRE_ESM. Dynamic import() avoids that (same fix
+//    src/lib/pdfBuffer.js already uses client-side).
+//  - Vercel's Node function builder only transpiles the entry file
+//    (api/*.js) itself — it does NOT run a JSX transform on files that entry
+//    file merely imports. A raw .jsx file reaching the deployed function
+//    fails at runtime either way (static import: "Cannot use import
+//    statement outside a module"; dynamic import: "Unknown file extension
+//    .jsx" — Node doesn't recognize .jsx as loadable at all). So
+//    scripts/build-api-pdf.mjs pre-compiles PdfDocument.jsx into plain ESM
+//    JavaScript (JSX already lowered to React.createElement calls) at
+//    api/_lib/PdfDocument.mjs — unambiguously ESM to Node via its .mjs
+//    extension regardless of package.json's "type" field — which THIS file
+//    then dynamically imports, same as @react-pdf/renderer above. That
+//    compile step runs via `npm run build:api-pdf`, wired into the
+//    "vercel-build" script (see package.json) so it always runs before
+//    Vercel packages this function.
 
 function streamToBuffer(stream) {
   return new Promise((resolve, reject) => {
@@ -85,7 +96,10 @@ export default async function handler(req, res) {
     const logoSrc = profile?.logo_url || '';
     const settings = logoSrc ? { ...profile, _logoSrc: logoSrc } : (profile || {});
 
-    const { pdf } = await import('@react-pdf/renderer');
+    const [{ pdf }, { PdfDocument }] = await Promise.all([
+      import('@react-pdf/renderer'),
+      import('./_lib/PdfDocument.mjs'),
+    ]);
 
     const element = React.createElement(PdfDocument, { data, settings, docType: 'INVOICE' });
     const instance = pdf(element);
