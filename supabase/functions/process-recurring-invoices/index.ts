@@ -237,6 +237,55 @@ function buildInvoiceEmailHtml(d: {
 </html>`
 }
 
+// FundiBill-branded wrapper (logo header, not the user's own business
+// header) for system notifications sent to the FundiBill user themselves —
+// currently just the auto_send_cc_user "your invoice was sent" confirmation.
+// Same outer shell/footer as buildInvoiceEmailHtml() above, different header.
+const FUNDIBILL_LOGO_URL = 'https://www.fundibill.online/wp-content/uploads/2026/06/FundiBill-Logo.png'
+
+function buildFundiBillNotificationEmailHtml(title: string, bodyHtml: string): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+  <title>${esc(title)}</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f1f5f9;font-family:Arial,Helvetica,sans-serif;">
+  <!--[if mso]><table role="presentation" width="100%"><tr><td><![endif]-->
+  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f1f5f9;min-width:100%;">
+    <tr>
+      <td align="center" style="padding:32px 16px;">
+        <table width="600" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;width:100%;">
+          <tr>
+            <td style="padding:0;border-radius:10px 10px 0 0;overflow:hidden;">
+              <img src="${FUNDIBILL_LOGO_URL}" alt="FundiBill" width="600" style="display:block;width:100%;max-width:600px;height:auto;border-radius:10px 10px 0 0;" />
+            </td>
+          </tr>
+          <tr>
+            <td style="background-color:#ffffff;padding:32px 32px 28px;border-left:1px solid #e2e8f0;border-right:1px solid #e2e8f0;">
+              ${bodyHtml}
+            </td>
+          </tr>
+          <tr>
+            <td style="background-color:#f8fafc;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 10px 10px;padding:18px 32px;text-align:center;">
+              <p style="margin:0 0 4px;font-size:13px;font-weight:700;color:#64748b;font-family:Arial,Helvetica,sans-serif;">
+                Sent by <strong style="color:#475569;">FundiBill</strong> &mdash; SA Built Invoicing Software
+              </p>
+              <p style="margin:0;font-size:12px;color:#94a3b8;font-family:Arial,Helvetica,sans-serif;">
+                <a href="https://fundibill.online" style="color:#14b8a6;text-decoration:none;">fundibill.online</a>
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+  <!--[if mso]></td></tr></table><![endif]-->
+</body>
+</html>`
+}
+
 // ─── Send helpers ─────────────────────────────────────────────────────────────
 
 async function sendViaGmail(appUrl: string, args: {
@@ -592,12 +641,33 @@ Deno.serve(async (req: Request) => {
           results.sent++
 
           if (template.auto_send_cc_user && profile.email) {
+            const ccTitle = `Recurring Invoice ${invoiceNumber} sent successfully`
+            const ccBody = `
+              <p style="font-size:15px;color:#0f172a;font-family:Arial,Helvetica,sans-serif;margin:0 0 16px;font-weight:600;">
+                Recurring invoice sent successfully
+              </p>
+              <p style="font-size:14px;color:#334155;font-family:Arial,Helvetica,sans-serif;margin:0 0 20px;line-height:1.7;">
+                Your recurring invoice <strong>${esc(invoiceNumber)}</strong> for <strong>${esc(clientName)}</strong>
+                was automatically sent to ${esc(clientEmail)} on ${esc(fmtDate(today))}.
+              </p>
+              <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;">
+                <tr>
+                  <td style="padding:12px 20px;border-bottom:1px solid #e2e8f0;">
+                    <span style="font-size:11px;color:#94a3b8;font-family:Arial,Helvetica,sans-serif;text-transform:uppercase;letter-spacing:0.06em;display:block;margin-bottom:3px;">Invoice Number</span>
+                    <span style="font-size:16px;font-weight:700;color:#0f172a;font-family:Arial,Helvetica,sans-serif;">${esc(invoiceNumber)}</span>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:12px 20px;">
+                    <span style="font-size:11px;color:#94a3b8;font-family:Arial,Helvetica,sans-serif;text-transform:uppercase;letter-spacing:0.06em;display:block;margin-bottom:3px;">Amount</span>
+                    <span style="font-size:16px;font-weight:700;color:#14b8a6;font-family:Arial,Helvetica,sans-serif;">${esc(fmtZAR(lineTotal))}</span>
+                  </td>
+                </tr>
+              </table>`
             await sendCcUserEmail({
               to: profile.email,
-              subject: `Invoice ${invoiceNumber} automatically sent`,
-              html: `<p style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#0f172a;">` +
-                `Your recurring invoice <strong>${esc(invoiceNumber)}</strong> for <strong>${esc(clientName)}</strong> ` +
-                `(${esc(fmtZAR(lineTotal))}) was automatically sent to ${esc(clientEmail)} on ${esc(fmtDate(today))}.</p>`,
+              subject: `FundiBill - Recurring Invoice ${invoiceNumber} sent successfully to ${clientName}`,
+              html: buildFundiBillNotificationEmailHtml(ccTitle, ccBody),
             })
           }
         } else {

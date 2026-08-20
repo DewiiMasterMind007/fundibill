@@ -995,10 +995,7 @@ export default function Settings() {
     setTestEmailStatus('sending')
     setTestEmailMsg('')
 
-    const html = generateTestEmail({
-      businessName: form.business_name || '',
-      primaryColor: form.primary_color || '#14b8a6',
-    })
+    const html = generateTestEmail()
 
     const to = isGmailProvider ? gmailEmail : smtp.user
 
@@ -1006,9 +1003,13 @@ export default function Settings() {
       await sendEmail({
         supabase,
         userId:  user?.id,
-        profile: { ...profile, ...form },
+        // business_name/smtp_from_name overridden to 'FundiBill' — this is a
+        // FundiBill system message, not something sent on the user's behalf,
+        // so it should be branded/from FundiBill regardless of what the
+        // user's own business is called.
+        profile: { ...profile, ...form, business_name: 'FundiBill', smtp_from_name: 'FundiBill' },
         to,
-        subject: 'FundiBill — Test Email',
+        subject: 'FundiBill - Your email is set up correctly',
         html,
         pdfBase64:   null,
         pdfFilename: null,

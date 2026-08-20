@@ -404,24 +404,27 @@ export function generatePaymentConfirmationEmail({
 /**
  * Generate a branded HTML test email for the Settings → Send Test Email button.
  *
- * @param {object} opts
- *   businessName   string  (shown in the header and footer)
- *   primaryColor   string  (hex colour, default #14b8a6)
+ * Branded as FundiBill itself (logo, name), not the user's own business —
+ * this is a FundiBill system message confirming the user's email settings
+ * work, not something sent to their client.
+ *
  * @returns {string}  Full HTML document
  */
-export function generateTestEmail({
-  businessName = '',
-  primaryColor = '#14b8a6',
-} = {}) {
+export function generateTestEmail() {
+  const FUNDIBILL_LOGO_URL = 'https://www.fundibill.online/wp-content/uploads/2026/06/FundiBill-Logo.png'
+
   const bodyHtml = `
     <p style="font-size:15px;color:#0f172a;font-family:Arial,Helvetica,sans-serif;margin:0 0 16px;font-weight:600;">
-      Email Configuration Test
+      Email configuration test
+    </p>
+    <p style="font-size:14px;color:#334155;font-family:Arial,Helvetica,sans-serif;margin:0 0 16px;line-height:1.7;">
+      This is a test email from FundiBill. Your email settings are configured correctly.
     </p>
     <p style="font-size:14px;color:#334155;font-family:Arial,Helvetica,sans-serif;margin:0;line-height:1.7;">
-      This is a test email from FundiBill. Your email settings are configured correctly.
+      You can now send your invoices and quotes directly to your clients from the app.
     </p>`
 
-  return baseTemplate({ primaryColor, logoUrl: '', businessName, bodyHtml })
+  return baseTemplate({ primaryColor: '#14b8a6', logoUrl: FUNDIBILL_LOGO_URL, businessName: 'FundiBill', bodyHtml })
 }
 
 /**
