@@ -9,11 +9,16 @@
 
 import { createClient } from '@supabase/supabase-js';
 import React from 'react';
-// @react-pdf/renderer is ESM-only. This function is compiled to CommonJS by
-// Vercel (no "type": "module" in package.json), and a static `import` of an
-// ESM-only package gets transpiled into a `require()` that throws
-// ERR_REQUIRE_ESM at runtime. A dynamic import() avoids that — same fix
-// src/lib/pdfBuffer.js already uses for the client-side build.
+import { PdfDocument } from '../src/pdf/PdfDocument.jsx';
+// @react-pdf/renderer (only) is ESM-only. This function is compiled to
+// CommonJS by Vercel (no "type": "module" in package.json), and a static
+// `import` of an ESM-only *npm package* gets transpiled into a `require()`
+// that throws ERR_REQUIRE_ESM at runtime — a dynamic import() avoids that,
+// same fix src/lib/pdfBuffer.js already uses client-side. PdfDocument.jsx is
+// local source, not an npm package, so it must stay a STATIC import: Vercel's
+// build step transpiles/bundles statically-imported local .jsx files into the
+// function bundle; a dynamic import() instead leaves it as a raw file for
+// Node to load directly at runtime, which doesn't know how to parse ".jsx".
 
 function streamToBuffer(stream) {
   return new Promise((resolve, reject) => {
@@ -80,10 +85,7 @@ export default async function handler(req, res) {
     const logoSrc = profile?.logo_url || '';
     const settings = logoSrc ? { ...profile, _logoSrc: logoSrc } : (profile || {});
 
-    const [{ pdf }, { PdfDocument }] = await Promise.all([
-      import('@react-pdf/renderer'),
-      import('../src/pdf/PdfDocument.jsx'),
-    ]);
+    const { pdf } = await import('@react-pdf/renderer');
 
     const element = React.createElement(PdfDocument, { data, settings, docType: 'INVOICE' });
     const instance = pdf(element);
