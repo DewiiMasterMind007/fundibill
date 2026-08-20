@@ -9,8 +9,11 @@
 
 import { createClient } from '@supabase/supabase-js';
 import React from 'react';
-import { pdf } from '@react-pdf/renderer';
-import { PdfDocument } from '../src/pdf/PdfDocument.jsx';
+// @react-pdf/renderer is ESM-only. This function is compiled to CommonJS by
+// Vercel (no "type": "module" in package.json), and a static `import` of an
+// ESM-only package gets transpiled into a `require()` that throws
+// ERR_REQUIRE_ESM at runtime. A dynamic import() avoids that — same fix
+// src/lib/pdfBuffer.js already uses for the client-side build.
 
 function streamToBuffer(stream) {
   return new Promise((resolve, reject) => {
@@ -76,6 +79,11 @@ export default async function handler(req, res) {
     // server-rendered PDF matches what a manually-downloaded one looks like.
     const logoSrc = profile?.logo_url || '';
     const settings = logoSrc ? { ...profile, _logoSrc: logoSrc } : (profile || {});
+
+    const [{ pdf }, { PdfDocument }] = await Promise.all([
+      import('@react-pdf/renderer'),
+      import('../src/pdf/PdfDocument.jsx'),
+    ]);
 
     const element = React.createElement(PdfDocument, { data, settings, docType: 'INVOICE' });
     const instance = pdf(element);
