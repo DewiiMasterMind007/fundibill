@@ -146,6 +146,22 @@ function StatusBadge({ status }) {
   )
 }
 
+// Shown next to the status badge for invoices auto-created and auto-sent by
+// a recurring invoice template — distinguishes them from manually-sent ones.
+function AutoBadge() {
+  return (
+    <span
+      title="Automatically sent by recurring invoice"
+      style={{
+        display: 'inline-block', padding: '3px 10px', borderRadius: 20,
+        fontSize: 12, fontWeight: 600, background: '#e0f2fe', color: '#0369a1',
+      }}
+    >
+      Auto
+    </span>
+  )
+}
+
 // Small pill shown on list rows to cross-link a converted invoice back to its source quote.
 function LinkPill({ label, onClick, title }) {
   return (
@@ -327,6 +343,7 @@ function MobileInvoiceCard({ inv, onSelect, onOpenReminder, onRecordPayment, onD
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <StatusBadge status={inv.status} />
+          {inv.auto_sent && <AutoBadge />}
           {inv.from_estimate && (
             <LinkPill
               label={`from ${inv.from_estimate.estimate_number}`}
@@ -2136,7 +2153,12 @@ function RecurringForm({ recurringInvoice, clients, catalog, settings, onBack, o
     notes:          recurringInvoice?.notes          || '',
     email_subject:  recurringInvoice?.email_subject  || defaultSubject,
     email_message:  recurringInvoice?.email_message  || defaultMessage,
+    auto_send:          recurringInvoice?.auto_send          ?? false,
+    auto_send_cc_user:  recurringInvoice?.auto_send_cc_user  ?? true,
   }))
+
+  const [toast, setToast] = useState(null)
+  const selectedClient = [...clients, ...extraClients].find(c => c.id === form.client_id)
 
   const [lineItems, setLineItems] = useState(() =>
     recurringInvoice?.items?.length
@@ -2180,6 +2202,13 @@ function RecurringForm({ recurringInvoice, clients, catalog, settings, onBack, o
   async function handleSave() {
     const errs = validate()
     if (Object.keys(errs).length) { setErrors(errs); return }
+
+    // Warn but don't block saving — matches the spec: still allow saving,
+    // just tell the user auto-send won't do anything without a client email.
+    if (form.auto_send && !selectedClient?.email?.trim()) {
+      setToast({ message: 'Auto-send requires the client to have an email address. Please add an email to this client first.', type: 'error' })
+    }
+
     setSaving(true)
     setErrors({})
 
@@ -2201,6 +2230,8 @@ function RecurringForm({ recurringInvoice, clients, catalog, settings, onBack, o
       notes:          form.notes || null,
       email_subject:  form.email_subject || null,
       email_message:  form.email_message || null,
+      auto_send:          form.auto_send,
+      auto_send_cc_user:  form.auto_send_cc_user,
       items,
     }
 
@@ -2384,6 +2415,39 @@ function RecurringForm({ recurringInvoice, clients, catalog, settings, onBack, o
                   {errors.next_send_date && <p style={{ color: '#ef4444', fontSize: 12, marginTop: 4 }}>{errors.next_send_date}</p>}
                 </div>
               </div>
+
+              {/* Auto-send toggle */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', userSelect: 'none' }}>
+                  <input
+                    type="checkbox"
+                    checked={!!form.auto_send}
+                    onChange={e => setField('auto_send', e.target.checked)}
+                    style={{ width: 16, height: 16, accentColor: '#14b8a6', cursor: 'pointer' }}
+                  />
+                  <span style={{ fontSize: 14, fontWeight: 500, color: '#374151' }}>Automatically send invoice by email</span>
+                </label>
+                <p style={{ fontSize: 12, color: '#94a3b8', margin: '-4px 0 0 26px' }}>
+                  When enabled, the invoice will be automatically emailed to the client when it is created each cycle.
+                </p>
+
+                {form.auto_send && (
+                  <>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', userSelect: 'none', marginLeft: 26 }}>
+                      <input
+                        type="checkbox"
+                        checked={!!form.auto_send_cc_user}
+                        onChange={e => setField('auto_send_cc_user', e.target.checked)}
+                        style={{ width: 16, height: 16, accentColor: '#14b8a6', cursor: 'pointer' }}
+                      />
+                      <span style={{ fontSize: 14, fontWeight: 500, color: '#374151' }}>Send me a confirmation email when sent</span>
+                    </label>
+                    <p style={{ fontSize: 12, color: '#94a3b8', margin: '-4px 0 0 52px' }}>
+                      Receive an email confirmation each time a recurring invoice is automatically sent.
+                    </p>
+                  </>
+                )}
+              </div>
             </div>
           </div>
 
@@ -2538,11 +2602,28 @@ function RecurringForm({ recurringInvoice, clients, catalog, settings, onBack, o
         <AddClientModal onClose={() => setShowAddClient(false)}
           onCreated={client => { setShowAddClient(false); setExtraClients(prev => [...prev, client]); setField('client_id', client.id); refreshClients() }} />
       )}
+
+      {toast && <Toast message={toast.message} type={toast.type} onDone={() => setToast(null)} />}
     </div>
   )
 }
 
 // ─── Recurring List ───────────────────────────────────────────────────────────
+
+// Small badge shown on a recurring invoice row when auto-send is enabled.
+function AutoSendBadge() {
+  return (
+    <span
+      title="This recurring invoice will be automatically emailed to the client"
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 20,
+        fontSize: 11, fontWeight: 600, background: '#dcfce7', color: '#15803d', flexShrink: 0,
+      }}
+    >
+      ✉ Auto-send on
+    </span>
+  )
+}
 
 function RecurringList({ recurring, clients, onNew, onEdit, onPauseResume, onDelete, onBack, isReadOnly }) {
   const [confirmDeleteId, setConfirmDeleteId] = useState(null)
@@ -2600,9 +2681,12 @@ function RecurringList({ recurring, clients, onNew, onEdit, onPauseResume, onDel
                       <div style={{ fontSize: 12, color: '#94a3b8' }}>{client.name}</div>
                     )}
                   </div>
-                  <span style={{ display: 'inline-block', padding: '3px 10px', borderRadius: 20, fontSize: 12, fontWeight: 600, background: isActive ? '#dcfce7' : '#f1f5f9', color: isActive ? '#15803d' : '#475569', flexShrink: 0 }}>
-                    {isActive ? 'Active' : 'Paused'}
-                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                    {rec.auto_send && <AutoSendBadge />}
+                    <span style={{ display: 'inline-block', padding: '3px 10px', borderRadius: 20, fontSize: 12, fontWeight: 600, background: isActive ? '#dcfce7' : '#f1f5f9', color: isActive ? '#15803d' : '#475569' }}>
+                      {isActive ? 'Active' : 'Paused'}
+                    </span>
+                  </div>
                 </div>
                 {/* Details row */}
                 <div style={{ display: 'flex', gap: 16, marginBottom: 12, flexWrap: 'wrap' }}>
@@ -2655,7 +2739,10 @@ function RecurringList({ recurring, clients, onNew, onEdit, onPauseResume, onDel
               return (
                 <div key={rec.id} style={{ display: 'grid', gridTemplateColumns: '1fr 90px 115px 115px 80px 170px', columnGap: 16, padding: '14px 20px', borderBottom: '1px solid #f9fafb', alignItems: 'center' }}>
                   <div>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: '#0f172a' }}>{client?.name || '—'}</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: '#0f172a' }}>{client?.name || '—'}</span>
+                      {rec.auto_send && <AutoSendBadge />}
+                    </div>
                     {client?.company_name && client.company_name !== client.name && (
                       <div style={{ fontSize: 12, color: '#94a3b8' }}>{client.company_name}</div>
                     )}
@@ -3100,6 +3187,7 @@ function ListView({ invoices, onNew, onRecurring, onSelect, onOpenReminder, onRe
                     <span style={{ fontSize: 13, fontWeight: 600, color: '#0f172a' }}>{fmt(inv.total)}</span>
                   )}
                   <StatusBadge status={inv.status} />
+                  {inv.auto_sent && <AutoBadge />}
                   <span style={{ fontSize: 12, fontWeight: 600, color: '#15803d' }}>
                     {inv.status === 'paid' && inv.payment_date ? `Paid: ${inv.payment_date}` : ''}
                   </span>

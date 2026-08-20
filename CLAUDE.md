@@ -176,6 +176,9 @@ All tables have Row Level Security enabled. All PKs are UUIDs. Access policy: `a
 | `reminder_opted_in` | boolean | Legacy — used by `send-payment-reminders` edge function |
 | `reminder_sent_at` | timestamptz | Legacy — updated by edge function |
 | `banking_details_snapshot` | jsonb | Copy of the selected `banking_details` row at save time — see Section 6 "Multiple Banking Accounts". `NULL` on invoices created before this feature |
+| `auto_sent` | boolean | `true` once the auto-send flow (Section 6 "Auto-Send Recurring Invoices") has successfully emailed this invoice to the client. Default `false` |
+| `auto_sent_at` | timestamptz | When `auto_sent` was set `true` |
+| `auto_send_error` | text | Set when auto-send was attempted but failed (or was skipped, e.g. no client email) — surfaced nowhere in the UI yet beyond this column; check it directly in Supabase to diagnose a failed auto-send |
 | `created_at` | timestamptz | |
 
 ### `invoice_items` — Invoice line items
@@ -250,6 +253,8 @@ Identical columns to `invoice_items` but with `estimate_id` instead of `invoice_
 | `notes` | text | |
 | `email_subject` | text | |
 | `email_message` | text | |
+| `auto_send` | boolean | When `true`, `process-recurring-invoices` emails each newly-created invoice to the client automatically — see Section 6 "Auto-Send Recurring Invoices". Default `false` |
+| `auto_send_cc_user` | boolean | When `true` (and `auto_send` is `true`), the FundiBill user also gets a confirmation email each time an invoice is auto-sent. Default `true` |
 | `created_at` | timestamptz | |
 
 ### `licenses` — Legacy one-time licence key records
@@ -439,8 +444,12 @@ RLS: `"Users can manage their own banking details" FOR ALL USING (auth.uid() = u
 ├── api/                        — Vercel Serverless Functions (Gmail OAuth — see Section 7)
 │   ├── gmail-auth.js            — Starts the OAuth flow, redirects to Google's consent screen
 │   ├── gmail-callback.js        — Exchanges the auth code for tokens, stores them on profiles
-│   └── send-gmail.js            — Sends an email via the Gmail API using stored OAuth tokens,
-│                                    refreshing the access token first if it's expired/near-expiry
+│   ├── send-gmail.js            — Sends an email via the Gmail API using stored OAuth tokens,
+│   │                                refreshing the access token first if it's expired/near-expiry
+│   └── generate-invoice-pdf.js  — Server-side invoice PDF generation (no browser needed);
+│                                    reuses src/pdf/PdfDocument.jsx via @react-pdf/renderer's
+│                                    Node toBuffer() API. Called by process-recurring-invoices'
+│                                    auto-send flow — see Section 6 "Auto-Send Recurring Invoices"
 │
 ├── supabase/
 │   ├── functions/
@@ -452,19 +461,33 @@ RLS: `"Users can manage their own banking details" FOR ALL USING (auth.uid() = u
 │   │   │                                    reminder emails for opted-in overdue invoices.
 │   │   │                                    Currently superseded by manual bell flow but
 │   │   │                                    still deployed.
-│   │   └── send-welcome-email/index.ts   — Deno edge function; triggered by a Database
-│   │                                        Webhook on auth.users (UPDATE, email_confirmed_at
-│   │                                        null → timestamp); sends the one-time welcome
-│   │                                        email via send-reminder.php, dedup-guarded by
-│   │                                        profiles.welcome_email_sent
+│   │   ├── send-welcome-email/index.ts   — Deno edge function; triggered by a Database
+│   │   │                                    Webhook on auth.users (UPDATE, email_confirmed_at
+│   │   │                                    null → timestamp); sends the one-time welcome
+│   │   │                                    email via send-reminder.php, dedup-guarded by
+│   │   │                                    profiles.welcome_email_sent
+│   │   └── process-recurring-invoices/index.ts — Deno edge function (cron); creates the next
+│   │                                    invoice for every due recurring_invoices template and,
+│   │                                    when auto_send is on, emails it to the client. See
+│   │                                    Section 6 "Auto-Send Recurring Invoices" and Section 8.
 │   └── migrations/
 │       ├── add_gmail_oauth_columns.sql   — gmail_access_token/refresh_token/token_expiry/
 │       │                                    connected_email columns on profiles
 │       ├── add_welcome_email_column.sql  — welcome_email_sent column on profiles
-│       └── add_payments_table.sql        — payments table + RLS policy; conditionally widens
-│                                            any existing invoices.status CHECK constraint to
-│                                            allow 'partial'. Must be run manually — see
-│                                            Section 6 "Partial Payments" and Known Issue #10.
+│       ├── add_payments_table.sql        — payments table + RLS policy; conditionally widens
+│       │                                    any existing invoices.status CHECK constraint to
+│       │                                    allow 'partial'. Must be run manually — see
+│       │                                    Section 6 "Partial Payments" and Known Issue #10.
+│       ├── add_banking_details_table.sql — banking_details table + RLS policy; adds
+│       │                                    banking_details_snapshot to invoices/estimates;
+│       │                                    migrates existing profiles.banking_details. Must be
+│       │                                    run manually — see Section 6 "Multiple Banking
+│       │                                    Accounts" and Known Issue #11.
+│       └── add_recurring_auto_send.sql   — auto_send/auto_send_cc_user columns on
+│                                            recurring_invoices; auto_sent/auto_sent_at/
+│                                            auto_send_error columns on invoices. Must be run
+│                                            manually — see Section 6 "Auto-Send Recurring
+│                                            Invoices" and Known Issue #12.
 │
 ├── assets/icon.ico             — App icon for Electron installer / taskbar
 ├── public/
@@ -519,7 +542,7 @@ RLS: `"Users can manage their own banking details" FOR ALL USING (auth.uid() = u
 - WhatsApp share: Web Share API (mobile) or `wa.me` deep-link (desktop)
 - Add new client inline (without leaving the form)
 - Item autocomplete from catalog
-- Recurring invoices: schedule (daily/weekly/monthly/yearly), immediate first invoice creation, `next_send_date` advancement, pause/resume, edit, amber notification banner on auto-creation
+- Recurring invoices: schedule (daily/weekly/monthly/yearly), immediate first invoice creation, `next_send_date` advancement, pause/resume, edit, amber notification banner on auto-creation. Subsequent invoices (beyond the first) are created by the `process-recurring-invoices` cron edge function — see "Auto-Send Recurring Invoices" below. Optional auto-send-by-email per template — same section.
 - **Quick-create:** Navigating with `location.state.quickCreate = true` auto-opens new invoice form
 
 ### Partial Payments (`v3`)
@@ -546,6 +569,33 @@ Lets a user record one or more partial payments against an invoice instead of on
 **Detail view:** a "Payment History" card (Date / Method / Note / Amount rows + Total Paid / Balance Due summary) renders between the line-items/totals card and the Notes card, but only `{invoicePayments.length > 0 && (...)}` — empty for invoices with no recorded payments.
 
 **PDF (`src/pdf/PdfDocument.jsx`):** a "Payment History" section (same Date/Method/Note/Amount table + Total Paid/Balance Due summary) is inserted after the main totals block and before the fixed footer, guarded by `Array.isArray(data.payments) && data.payments.length > 0` — renders nothing when there are no payments. Shows green **"PAID IN FULL"** in place of the Balance Due row when the recalculated balance is 0. Every PDF-building call site in `Invoices.jsx` (5 total: mark-as-paid thank-you email, WhatsApp share, the shared preview/send-email IIFE, `ReminderModal`, and the list-view mark-as-paid thank-you email) was updated to include a `payments` key in its `pdfData` object — no changes were needed to `pdfBuffer.js`/`PdfPreviewModal.jsx` themselves, since they pass `data` straight through.
+
+### Auto-Send Recurring Invoices (`v5`)
+
+Two things shipped together here, because the second depended on building the first:
+
+**1. The missing recurring-invoice cron job.** Before this, `process-recurring-invoices` did not exist at all — Known Issue #2 documented that only the *first* invoice for a recurring schedule was ever created (by `RecurringForm`'s save flow in `src/pages/Invoices.jsx`). `supabase/functions/process-recurring-invoices/index.ts` is that missing cron job: on each run it finds every `recurring_invoices` row with `is_active = true` and `next_send_date <= today`, and for each one creates the next invoice (same fields/numbering logic as `RecurringForm`'s first-invoice code — draft status, `from_recurring = true`, `notification_dismissed = false`, `due_date = issue_date + 30 days` fixed, matching the existing first-invoice behavior exactly), then advances `next_send_date`/`last_sent_date` on the template. Must be scheduled via `pg_cron` + `pg_net` — see the SQL in the function's own header comment (same pattern as `send-payment-reminders`).
+
+**2. Auto-send.** If `recurring_invoices.auto_send = true` on the template, the cron job also emails the newly-created invoice to the client immediately after creating it:
+1. Skip (leave the invoice as a draft, in-app notification only) if `auto_send` is `false` — this is the pre-existing behavior, unchanged.
+2. If the linked client has no email, set `invoices.auto_send_error = 'Client has no email address'` and skip the send (invoice itself is still created either way).
+3. Generate the PDF via `POST /api/generate-invoice-pdf` (see below). On failure, set `auto_sent = false` and `auto_send_error`, skip the send.
+4. Build the email from the user's `profiles.email_invoice_message` template (placeholders `{clientName}`/`{invoiceNumber}`/`{businessName}`/`{amount}`/`{dueDate}`, same syntax as `fillMessageTemplate()` in `src/lib/emailTemplates.js`) or a hardcoded default if that's empty, wrapped in a hand-mirrored copy of `generateInvoiceEmail()`'s branded HTML (Deno can't import the Vite source tree — same reason `send-payment-reminders`/`send-welcome-email` hand-mirror their templates; keep in sync by hand if the email design changes).
+5. Send via the user's configured provider:
+   - **Gmail** (`email_provider === 'gmail'`) → calls the existing `POST /api/send-gmail` Vercel function rather than reimplementing Gmail OAuth token refresh + RFC 2822/MIME attachment building a second time in Deno — that logic already exists, is already tested, and stays in one place. `/api/send-gmail.js` was not modified.
+   - **SMTP** (anything else) → sends directly via `denomailer`'s `SMTPClient`, same library `send-payment-reminders/index.ts` already uses, with the PDF attached as a base64 `attachments` entry. Not routed through the `send-reminder.php` PHP relay (unlike the client-side PWA send path) — no browser involved here, so there's no reason to hop through PHP.
+6. On success: `invoices.auto_sent = true`, `auto_sent_at = now()`, `sent_from_app = true`, `status = 'sent'`. If `auto_send_cc_user` is also on, sends a second, short confirmation email to the *FundiBill user's own* `profiles.email` — this one always goes out from FundiBill's own system mailbox (`noreply@fundibill.online`, via `send-reminder.php` using the `WELCOME_EMAIL_SMTP_*` secrets already set up for `send-welcome-email`), not the user's own Gmail/SMTP, since it's a FundiBill notification rather than something the client should ever see.
+7. On failure: `auto_sent = false`, `auto_send_error` set to the failure reason, full error logged server-side. The in-app notification banner is unaffected either way — see below.
+
+**In-app notification banner (`src/context/RecurringNotifContext.jsx`):** previously queried `status = 'draft'` only, since a recurring-created invoice only ever left `'draft'` once a human sent it (at which point the banner had done its job). Auto-send changes that — a successfully auto-sent invoice jumps straight to `'sent'` the moment it's created, so the query now matches `status IN ('draft', 'sent')` instead, and the banner still appears (click-through still opens the invoice) regardless of whether `auto_send` was on. This is a small, deliberate behavior change: a manually-created-then-manually-sent recurring invoice will now also keep showing its banner a little longer than before (until dismissed), not just auto-sent ones — there was no clean way to special-case "only when auto-sent" without adding another column to check, and the banner is purely informational once dismissible either way.
+
+**`/api/generate-invoice-pdf.js`** — the auto-send flow's only way to get a PDF, since the Edge Function has no browser to run the normal client-side `buildPdfBuffer()`/`@react-pdf/renderer` flow in. Rather than standing up a second, hand-written HTML/CSS invoice template rendered by headless Chromium (`puppeteer-core` + `@sparticuz/chromium`) — a large new dependency and a second template to keep visually in sync with `src/pdf/PdfDocument.jsx` by hand forever — this endpoint reuses the *exact same* `PdfDocument.jsx` component server-side, via `@react-pdf/renderer`'s Node-side `pdf(element).toBuffer()` API (a readable stream, collected into a `Buffer`). Output is pixel-identical to any other invoice PDF in the app, and there's still only one invoice template in the codebase. Fetches the invoice (`select('*')`), its `invoice_items`, the owning `profiles` row, and the linked `clients` row using `SUPABASE_SERVICE_ROLE_KEY`; verifies `user_id` matches `invoice.user_id` before generating (403 if not); returns `{ success, pdf_base64, filename }`. No new npm packages were needed — `@react-pdf/renderer` was already a dependency. `vercel.json` sets `maxDuration: 30` for this one function (PDF render + a possible remote logo fetch can take a few seconds; note this is capped by whatever the Vercel plan actually allows — e.g. 10s on Hobby regardless of this config).
+
+**UI — `src/pages/Invoices.jsx` `RecurringForm`:** two checkboxes under the interval/next-send-date fields — "Automatically send invoice by email" (`auto_send`, default off) and, shown only when that's on, "Send me a confirmation email when sent" (`auto_send_cc_user`, default on). Saving with `auto_send` on and no client email doesn't block the save — it shows a warning toast ("Auto-send requires the client to have an email address...") and saves anyway, exactly as specified; the *real* enforcement happens server-side in the cron job (step 2 above), which is what actually matters since the client's email can change or be added later.
+
+**Indicators:**
+- `RecurringList` (both the desktop table and mobile card view): a small green "✉ Auto-send on" badge next to the client name/status when `recurring_invoices.auto_send` is `true`. Nothing shown when it's `false` (unchanged from before).
+- The invoices list (`ListView` and `MobileInvoiceCard` in `src/pages/Invoices.jsx`): a small "Auto" badge next to the status badge when `invoices.auto_sent` is `true`, tooltip "Automatically sent by recurring invoice". Not added to the invoice detail view (`InvoiceForm`) — only the list views, per spec.
 
 ### Multiple Banking Accounts (`v4`)
 
@@ -849,13 +899,19 @@ If this trigger is added, `AuthCallback.jsx`'s own upsert becomes a harmless no-
   5. On success, sets `profiles.welcome_email_sent = true`
 - **Env vars:** `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (same as `send-payment-reminders`), plus `WELCOME_EMAIL_SMTP_HOST`/`WELCOME_EMAIL_SMTP_PORT`/`WELCOME_EMAIL_SMTP_USER`/`WELCOME_EMAIL_SMTP_PASSWORD` — set via `supabase secrets set` (never committed). `send-reminder.php` rejects requests with `"Missing required fields"` unless SMTP credentials are included, same as every other caller in this codebase; since this is a system email with no per-user profile to pull SMTP settings from, it uses its own `info@fundibill.online` mailbox (`mail.fundibill.online:465`) instead.
 
+### `process-recurring-invoices`
+- **Location:** `supabase/functions/process-recurring-invoices/index.ts`
+- **Triggered by:** cron (`pg_cron` + `pg_net`) — not deployed with a schedule by default; see the SQL in the function's own header comment (same `cron.schedule(...)` / `net.http_post(...)` pattern as `send-payment-reminders`). Recommended: once daily.
+- **What it does:** creates the next invoice for every due `recurring_invoices` template, then — if `auto_send` is on for that template — emails it to the client with a PDF attached. Full behavior described in Section 6 "Auto-Send Recurring Invoices"; this was previously a missing piece (see Known Issue #2, now resolved by this function).
+- **Env vars:** `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (same as every other function here); `VITE_APP_URL` (new — used to call `/api/generate-invoice-pdf` and `/api/send-gmail` on Vercel); `WELCOME_EMAIL_SMTP_HOST`/`_PORT`/`_USER`/`_PASSWORD` (reused from `send-welcome-email`, for the CC-user confirmation email only). Does **not** need `GMAIL_CLIENT_ID`/`GMAIL_CLIENT_SECRET` — Gmail sending is delegated to the existing `/api/send-gmail` Vercel function, which already has those.
+
 ---
 
 ## 9. KNOWN ISSUES
 
 1. **PayFast subscription cancellation API:** The `cancel-subscription` edge function updates the DB correctly but PayFast's own dashboard may still show the subscription as Active. Workaround: manual cancellation in PayFast merchant account.
 
-2. **Recurring invoice future scheduling:** Only the FIRST invoice is created by the frontend save flow. Subsequent invoices for ongoing schedules (monthly/weekly/etc.) require a Supabase cron job or edge function. The `send-payment-reminders` function is a template for this pattern — not yet implemented.
+2. **Recurring invoice future scheduling — resolved (`v5`):** Only the FIRST invoice used to be created, by the frontend save flow — subsequent invoices for ongoing schedules had no mechanism creating them. `supabase/functions/process-recurring-invoices/index.ts` (Section 6 "Auto-Send Recurring Invoices", Section 8) is now that mechanism, but **it must be deployed and scheduled via `pg_cron` before recurring invoices resume beyond their first send** — see the function's own header comment for the exact schedule SQL. Until that's done, this reverts to the old behavior (first invoice only).
 
 3. **Gmail OAuth:** app is in Testing mode (100 user cap). Google verification submission required before public rollout. Needs: demo video, privacy policy review, domain verification.
 
@@ -882,6 +938,8 @@ If this trigger is added, `AuthCallback.jsx`'s own upsert becomes a harmless no-
 10. **Partial payments — `payments` table migration required, and legacy `amount_paid` was not backfilled:** `supabase/migrations/add_payments_table.sql` must be run manually in the Supabase SQL Editor before the Partial Payments feature (Section 6) works — it creates the `payments` table + RLS policy and conditionally widens any existing `invoices.status` CHECK constraint to allow `'partial'` (the migration is self-inspecting; if no CHECK constraint exists on `status` it safely no-ops, since the column is already unconstrained text). By explicit decision, **no backfill was performed** for invoices with a pre-existing nonzero `amount_paid` (e.g. Zoho-migrated data) — those invoices have no corresponding `payments` rows. Their Payment History section (both detail view and PDF) will be empty despite `amount_paid > 0`, and recording a new payment against one of them will recalculate `amount_paid` from `payments` alone, overwriting the un-backfilled legacy figure. See the `payments` table note in Section 4 for the full explanation and the manual-backfill workaround if a specific invoice needs it.
 
 11. **Multiple banking accounts — `banking_details` table migration required; pre-feature invoices/estimates have `banking_details_snapshot = NULL`:** `supabase/migrations/add_banking_details_table.sql` must be run manually in the Supabase SQL Editor before the Multiple Banking Accounts feature (Section 6) works — it creates the `banking_details` table + RLS policy, adds `banking_details_snapshot` JSONB to `invoices`/`estimates`, and migrates each user's existing `profiles.banking_details` into a single default `banking_details` row (skipped for users whose `profiles.banking_details` is free text rather than JSON, or already empty). Invoices and estimates created before this feature has no `banking_details_snapshot` — `src/pdf/PdfDocument.jsx` and every `pdfData` call site fall back to the user's *current* `profiles.banking_details` for those, exactly as PDF generation already worked before this feature existed. No backfill was performed or needed here (unlike the `payments`/`amount_paid` case above) — the fallback is the intended, permanent behavior for old documents, not a stopgap.
+
+12. **Auto-send recurring invoices — migration, deploy, and cron schedule all required:** three separate manual steps before this feature (Section 6 "Auto-Send Recurring Invoices") does anything: (a) run `supabase/migrations/add_recurring_auto_send.sql` in the SQL Editor; (b) deploy `process-recurring-invoices` (`supabase functions deploy process-recurring-invoices --no-verify-jwt`); (c) schedule it via `pg_cron`/`pg_net` using the SQL in that function's own header comment. None of these happen automatically. Also note this same function is what makes recurring invoices continue *at all* past their first send (see Known Issue #2) — deploying it is not optional if recurring invoices are meant to keep recurring, independent of whether auto-send is used.
 
 ---
 
@@ -979,6 +1037,8 @@ If this trigger is added, `AuthCallback.jsx`'s own upsert becomes a harmless no-
 | `PAYFAST_MERCHANT_ID` | `cancel-subscription` |
 | `PAYFAST_PASSPHRASE` | `cancel-subscription` (HMAC signature) |
 | `PAYFAST_SANDBOX` | `cancel-subscription` (`'true'` to use sandbox mode) |
+| `WELCOME_EMAIL_SMTP_HOST` / `_PORT` / `_USER` / `_PASSWORD` | `send-welcome-email`, `process-recurring-invoices` (CC-user email only) |
+| `VITE_APP_URL` | `process-recurring-invoices` — base URL for `/api/generate-invoice-pdf` and `/api/send-gmail` on Vercel. **Check whether this secret already exists in Supabase** (it's a *Vercel* env var already — see the table above — but Supabase Edge Function secrets are a separate store; it likely needs adding there too) |
 
 ---
 
