@@ -288,7 +288,17 @@ async function sendViaSmtp(profile: Record<string, any>, args: {
         auth: { username: profile.smtp_user, password: profile.smtp_password },
       },
     })
-    await withTimeout(client.send({
+    // NOT wrapped in withTimeout()/Promise.race() — denomailer's SMTPClient
+    // has no cancellation support, so racing it doesn't actually stop the
+    // in-flight send; it just stops *waiting* for it while the real
+    // operation keeps running against the same socket in the background.
+    // That caused two compounding bugs in testing: closing a connection
+    // that was still mid-send threw "Bad resource ID", and the abandoned
+    // original send then failed on its own moments later with an unhandled
+    // "invalid cmd" event-loop error. Just await it directly — a real SMTP
+    // protocol/config error (wrong host, bad TLS/port match, auth failure)
+    // surfaces in seconds and is caught below same as any other error.
+    await client.send({
       from: `${fromName} <${profile.smtp_user}>`,
       to: args.to,
       subject: args.subject,
@@ -300,8 +310,8 @@ async function sendViaSmtp(profile: Record<string, any>, args: {
         encoding: 'base64',
         contentType: 'application/pdf',
       }],
-    }), 25_000, 'SMTP send')
-    await withTimeout(client.close(), 5_000, 'SMTP close').catch(() => {}) // best-effort — a hung close shouldn't fail an otherwise-successful send
+    })
+    try { await client.close() } catch (_) { /* best-effort — a failed close shouldn't undo an otherwise-successful send */ }
     return { ok: true }
   } catch (err) {
     return { ok: false, error: (err as Error).message }
