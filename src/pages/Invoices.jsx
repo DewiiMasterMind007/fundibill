@@ -881,8 +881,17 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
   }
 
   async function handleSave(overrideStatus) {
+    if (saving) return // already mid-save — ignore a repeat click/call instead of racing it
     const errs = validate()
     if (Object.keys(errs).length) { setErrors(errs); return }
+
+    // setSaving(true) before the duplicate-number check (not after) so the Save
+    // button is disabled for the whole save, not just the DB write — otherwise a
+    // fast double-click can fire two handleSave() calls that both pass the check
+    // before either has actually claimed the number, inserting two invoices with
+    // the same invoice_number.
+    setSaving(true)
+    setErrors({})
 
     // Duplicate-number guard: reject if this number already exists on a DIFFERENT invoice
     const { data: clash } = await supabase
@@ -893,12 +902,10 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
       .limit(1)
     const clashId = clash?.[0]?.id
     if (clashId && clashId !== invoice?.id) {
+      setSaving(false)
       setErrors({ _global: `Invoice number ${form.invoice_number} is already in use. Please choose a different number.` })
       return
     }
-
-    setSaving(true)
-    setErrors({})
 
     // If the invoice was marked overdue but the due date has since been
     // edited to today or later, revert the status back to 'sent' — otherwise
