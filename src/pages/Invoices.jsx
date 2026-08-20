@@ -2158,7 +2158,6 @@ function RecurringForm({ recurringInvoice, clients, catalog, settings, onBack, o
   }))
 
   const [toast, setToast] = useState(null)
-  const selectedClient = [...clients, ...extraClients].find(c => c.id === form.client_id)
 
   const [lineItems, setLineItems] = useState(() =>
     recurringInvoice?.items?.length
@@ -2170,6 +2169,8 @@ function RecurringForm({ recurringInvoice, clients, catalog, settings, onBack, o
   const [errors, setErrors]           = useState({})
   const [showAddClient, setShowAddClient] = useState(false)
   const [extraClients, setExtraClients]   = useState([])
+
+  const selectedClient = [...clients, ...extraClients].find(c => c.id === form.client_id)
 
   const grossTotal = lineItems.reduce((s, li) => s + (Number(li.quantity) || 0) * (Number(li.unit_price) || 0), 0)
   const subtotal   = form.vat_enabled ? grossTotal / 1.15 : grossTotal
