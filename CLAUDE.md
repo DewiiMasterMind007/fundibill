@@ -44,8 +44,8 @@ Both targets share the same React/Vite codebase. The `ELECTRON=true` env variabl
 | Version control | GitHub — `DewiiMasterMind007/fundibill` |
 
 **Active branches:**
-- `main` — production code, deployed to `app.fundibill.online` via Vercel
-- `v2` — active development branch; Vercel preview URL. **Merge v2 → main to go live.**
+- `main` — production code, deployed to `app.fundibill.online` via Vercel. Currently at `1.8.7`.
+- No active development branch right now. `v2`/`v3`/`v4` were previous rounds of pre-`main` feature branches — `v4` (Google Sign-In, multiple banking accounts) merged into `main` and is now closed. **The next big feature that needs testing outside of `main` gets a new `v5` branch** (not a reused/reopened `v4`) — same pattern: branch off `main`, build and test there, merge back to `main` (and bump the version) when it's ready to go live.
 
 ---
 
