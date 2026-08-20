@@ -146,20 +146,46 @@ function StatusBadge({ status }) {
   )
 }
 
-// Shown next to the status badge for invoices auto-created and auto-sent by
-// a recurring invoice template — distinguishes them from manually-sent ones.
-function AutoBadge() {
+// Two-line pill — a status/label word on top, a date underneath. Used for
+// "Sent"/"Auto-Sent" (folds the old separate "Auto" badge into one pill,
+// since two side-by-side pills overflowed the Status column) and for the
+// Paid Date column, replacing what used to be plain wrapping text there.
+function TwoLinePill({ line1, line2, bg, color }) {
   return (
-    <span
-      title="Automatically sent by recurring invoice"
-      style={{
-        display: 'inline-block', padding: '3px 10px', borderRadius: 20,
-        fontSize: 12, fontWeight: 600, background: '#e0f2fe', color: '#0369a1',
-      }}
-    >
-      Auto
+    <span style={{
+      display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-start',
+      padding: '3px 10px', borderRadius: 10, lineHeight: 1.35,
+      background: bg, color, whiteSpace: 'nowrap',
+    }}>
+      <span style={{ fontSize: 12, fontWeight: 600 }}>{line1}</span>
+      <span style={{ fontSize: 10, fontWeight: 500, opacity: 0.85 }}>{line2}</span>
     </span>
   )
+}
+
+const isoDateOnly = (v) => v ? String(v).slice(0, 10) : null
+
+// Status-column cell for an invoice row (list + mobile card). 'sent' status
+// becomes a two-line "Sent"/date or "Auto-Sent"/date pill (auto_sent_at for
+// auto-sent, the new sent_at column for a manual/app send); every other
+// status is the plain single-line StatusBadge, unchanged.
+function InvoiceStatusPill({ inv }) {
+  if (inv.status === 'sent') {
+    const isAuto = !!inv.auto_sent
+    const dateStr = isoDateOnly(isAuto ? inv.auto_sent_at : inv.sent_at)
+    if (dateStr) {
+      return isAuto
+        ? <TwoLinePill line1="Auto-Sent" line2={dateStr} bg="#e0f2fe" color="#0369a1" />
+        : <TwoLinePill line1="Sent" line2={dateStr} bg={STATUS_META.sent.bg} color={STATUS_META.sent.color} />
+    }
+  }
+  return <StatusBadge status={inv.status} />
+}
+
+// Paid Date column cell — was plain wrapping text, now a matching two-line pill.
+function InvoicePaidDatePill({ inv }) {
+  if (inv.status !== 'paid' || !inv.payment_date) return null
+  return <TwoLinePill line1="Paid" line2={inv.payment_date} bg="#dcfce7" color="#15803d" />
 }
 
 // Small pill shown on list rows to cross-link a converted invoice back to its source quote.
@@ -342,8 +368,7 @@ function MobileInvoiceCard({ inv, onSelect, onOpenReminder, onRecordPayment, onD
       {/* ── Status badge + linked quote pill ── */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <StatusBadge status={inv.status} />
-          {inv.auto_sent && <AutoBadge />}
+          <InvoiceStatusPill inv={inv} />
           {inv.from_estimate && (
             <LinkPill
               label={`from ${inv.from_estimate.estimate_number}`}
@@ -352,9 +377,7 @@ function MobileInvoiceCard({ inv, onSelect, onOpenReminder, onRecordPayment, onD
             />
           )}
         </div>
-        {inv.status === 'paid' && inv.payment_date && (
-          <span style={{ fontSize: 12, fontWeight: 600, color: '#15803d' }}>Paid: {inv.payment_date}</span>
-        )}
+        <InvoicePaidDatePill inv={inv} />
       </div>
     </div>
   )
@@ -2029,14 +2052,23 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
               })}
               onClose={() => setShowEmailModal(false)}
               onSent={async () => {
-                // Mark sent_from_app on successful email send (status NOT auto-promoted)
+                // Mark sent_from_app, advance draft -> sent (so Record Payment
+                // becomes available immediately, without a reload), and record
+                // when this invoice was first sent from the app (sent_at —
+                // parallels auto_sent_at for auto-sent recurring invoices,
+                // shown as "Sent [date]" on the invoice list).
                 const invId = currentInvoiceIdRef.current
                 if (invId) {
+                  const patch = { sent_from_app: true }
+                  if (form.status === 'draft') patch.status = 'sent'
+                  if (!invoice?.sent_at) patch.sent_at = new Date().toISOString()
                   await supabase
                     .from('invoices')
-                    .update({ sent_from_app: true })
+                    .update(patch)
                     .eq('id', invId)
                     .eq('user_id', user.id)
+                  if (patch.status) setField('status', patch.status)
+                  onSaved({ id: invId, ...patch })
                 }
                 // Dismiss the recurring notification banner if applicable
                 if (invoice?.from_recurring) {
@@ -3178,7 +3210,7 @@ function ListView({ invoices, onNew, onRecurring, onSelect, onOpenReminder, onRe
       ) : (
         /* Desktop: table (unchanged) */
         <div className="invoices-table" style={{ background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.04)', overflow: 'hidden', flex: 1, display: 'flex', flexDirection: 'column' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr 110px 110px 120px 110px 100px 32px', padding: '12px 20px', borderBottom: '1px solid #f1f5f9', background: '#f8fafc', flexShrink: 0 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr 110px 110px 120px 130px 110px 32px', padding: '12px 20px', borderBottom: '1px solid #f1f5f9', background: '#f8fafc', flexShrink: 0 }}>
             {['Invoice #', 'Client', 'Issue Date', 'Due Date', 'Total', 'Status', 'Paid Date', ''].map(h => (
               <span key={h} style={{ fontSize: 12, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</span>
             ))}
@@ -3187,7 +3219,7 @@ function ListView({ invoices, onNew, onRecurring, onSelect, onOpenReminder, onRe
             {filtered.length === 0 ? emptyState : (
               filtered.map(inv => (
                 <div key={inv.id} onClick={() => onSelect(inv)}
-                  style={{ display: 'grid', gridTemplateColumns: '140px 1fr 110px 110px 120px 110px 100px 32px', padding: '14px 20px', borderBottom: '1px solid #f9fafb', cursor: 'pointer', alignItems: 'center' }}
+                  style={{ display: 'grid', gridTemplateColumns: '140px 1fr 110px 110px 120px 130px 110px 32px', padding: '14px 20px', borderBottom: '1px solid #f9fafb', cursor: 'pointer', alignItems: 'center' }}
                   onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
                   onMouseLeave={e => e.currentTarget.style.background = '#fff'}>
                   <div>
@@ -3214,11 +3246,8 @@ function ListView({ invoices, onNew, onRecurring, onSelect, onOpenReminder, onRe
                   ) : (
                     <span style={{ fontSize: 13, fontWeight: 600, color: '#0f172a' }}>{fmt(inv.total)}</span>
                   )}
-                  <StatusBadge status={inv.status} />
-                  {inv.auto_sent && <AutoBadge />}
-                  <span style={{ fontSize: 12, fontWeight: 600, color: '#15803d' }}>
-                    {inv.status === 'paid' && inv.payment_date ? `Paid: ${inv.payment_date}` : ''}
-                  </span>
+                  <InvoiceStatusPill inv={inv} />
+                  <InvoicePaidDatePill inv={inv} />
                   {inv.status !== 'paid' && inv.status !== 'draft' && inv.due_date && inv.due_date < todayStr() ? (
                     <span
                       onClick={e => { e.stopPropagation(); onOpenReminder(inv) }}

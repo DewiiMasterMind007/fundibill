@@ -174,6 +174,7 @@ All tables have Row Level Security enabled. All PKs are UUIDs. Access policy: `a
 | `from_recurring` | boolean | Set when auto-created by recurring invoice system |
 | `notification_dismissed` | boolean | Controls amber recurring-invoice banner visibility |
 | `sent_from_app` | boolean | Set true when emailed via Send by Email |
+| `sent_at` | timestamptz | First-send timestamp for a manual/app send — set once, the first time `sent_from_app` becomes true. Parallels `auto_sent_at` for auto-sent recurring invoices; the invoice list uses whichever applies to render "Sent [date]" / "Auto-Sent [date]" |
 | `reminder_opted_in` | boolean | Legacy — used by `send-payment-reminders` edge function |
 | `reminder_sent_at` | timestamptz | Legacy — updated by edge function |
 | `banking_details_snapshot` | jsonb | Copy of the selected `banking_details` row at save time — see Section 6 "Multiple Banking Accounts". `NULL` on invoices created before this feature |
@@ -520,11 +521,14 @@ RLS: `"Users can manage their own banking details" FOR ALL USING (auth.uid() = u
 │       │                                    banking_details) on recurring_invoices. Must be
 │       │                                    run manually — see Section 6 "Auto-Send Recurring
 │       │                                    Invoices" and Known Issue #12.
-│       └── add_auto_payment_reminders.sql — auto_reminders_enabled column on profiles;
-│                                            auto_reminder_count/auto_reminder_last_sent_at
-│                                            columns on invoices. Must be run manually — see
-│                                            Section 6 "Automatic Payment Reminders" and Known
-│                                            Issue #13.
+│       ├── add_auto_payment_reminders.sql — auto_reminders_enabled column on profiles;
+│       │                                    auto_reminder_count/auto_reminder_last_sent_at
+│       │                                    columns on invoices. Must be run manually — see
+│       │                                    Section 6 "Automatic Payment Reminders" and Known
+│       │                                    Issue #13.
+│       └── add_invoice_sent_at.sql       — sent_at column on invoices (manual-send
+│                                            timestamp, parallels auto_sent_at). Must be run
+│                                            manually — see Known Issue #14.
 │
 ├── assets/icon.ico             — App icon for Electron installer / taskbar
 ├── public/
@@ -1013,6 +1017,8 @@ If this trigger is added, `AuthCallback.jsx`'s own upsert becomes a harmless no-
     - **Testing note #2:** both `RecurringForm`'s first-invoice creation (`src/pages/Invoices.jsx`) and this cron job originally hardcoded `due_date = issue_date + 30 days`, ignoring the user's actual `profiles.payment_terms_days` setting (default 7) that every other invoice-creation path already respects. Found via a real auto-sent test invoice showing a ~30-day due date against a 7-day payment-terms setting. Both now use `payment_terms_days` (falling back to 7 if unset) — if adding a third invoice-creation path anywhere, don't hardcode this again.
 
 13. **Automatic payment reminders — migration, deploy, and cron schedule all required:** run `supabase/migrations/add_auto_payment_reminders.sql` in the SQL Editor; deploy `send-auto-payment-reminders` (`supabase functions deploy send-auto-payment-reminders --no-verify-jwt`) — and redeploy after every code change, same as `process-recurring-invoices`, nothing auto-deploys Edge Functions from a git push; schedule it via `pg_cron`/`pg_net` using the SQL in that function's own header comment. This is a separate deploy/schedule from `process-recurring-invoices` and the legacy `send-payment-reminders` — all three are independent cron jobs that must each be deployed and scheduled on their own.
+
+14. **Invoice status didn't advance on Send by Email — resolved:** despite Section 6's Invoices feature list saying "Send by Email: advances status from draft → sent", the actual code only ever set `sent_from_app = true` and explicitly left `status` alone (a comment on the `onSent` handler in both `Invoices.jsx` and `Estimates.jsx` said as much) — a real bug, not stale docs; found because it meant Record Payment never appeared after sending until the user separately clicked Mark as Sent. Both `onSent` handlers now promote `draft → sent` immediately on a successful send, update local form state right away (not just the DB — otherwise Record Payment still wouldn't appear without a reload/refetch), and for invoices also stamp `sent_at` the first time. `supabase/migrations/add_invoice_sent_at.sql` must be run manually for the new `sent_at` column before this works at all — the `onSent` handler sends `sent_from_app`/`status`/`sent_at` as one combined `.update()` call, so a missing `sent_at` column fails the *entire* update (Postgrest rejects unknown columns), not just that one field. Run the migration before relying on this fix.
 
 ---
 
