@@ -15,7 +15,7 @@
  * send-payment-reminders was (service-role client, same scheduling
  * pattern) — see that file for the general shape this follows.
  *
- * Two deliberate reuse decisions (avoid duplicating logic that already
+ * Three deliberate reuse decisions (avoid duplicating logic that already
  * exists and is already tested elsewhere in this codebase):
  *  - PDF generation calls the new /api/generate-invoice-pdf Vercel function,
  *    which reuses the app's real @react-pdf/renderer PdfDocument — instead
@@ -23,8 +23,14 @@
  *  - Gmail sending calls the existing /api/send-gmail Vercel function
  *    (token refresh + RFC 2822 MIME building already live there) instead of
  *    reimplementing Gmail OAuth refresh + MIME construction a second time
- *    in Deno. The SMTP path sends directly via denomailer, same as
- *    send-payment-reminders/index.ts already does.
+ *    in Deno.
+ *  - SMTP sending POSTs to the api.fundibill.online/send-reminder.php relay
+ *    — the same one the PWA client already uses for custom-SMTP sends — NOT
+ *    Deno's denomailer SMTPClient directly (unlike send-payment-reminders,
+ *    which does use denomailer). Testing this function surfaced denomailer
+ *    failing with a confusing "Bad resource ID" / unhandled "invalid cmd"
+ *    error pair against at least one real SMTP host (a TLS/STARTTLS
+ *    negotiation mismatch). See the comment on sendViaSmtp() below.
  *
  * Deploy:
  *   supabase functions deploy process-recurring-invoices --no-verify-jwt
@@ -52,7 +58,6 @@
  */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import { SMTPClient } from 'https://deno.land/x/denomailer@1.6.0/mod.ts'
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -61,21 +66,11 @@ const CORS = {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-// denomailer's SMTPClient has no built-in connection/send timeout — a slow,
-// wrong, or unreachable SMTP host hangs forever instead of failing, which
-// (observed in testing) can stall the whole cron run until the platform's own
-// execution limit force-kills it, with no proper response for the caller and
-// every other due template left unprocessed. Every external call in this
-// function (SMTP send, and — for the same reason, defensively — every fetch
-// too) goes through one of these two wrappers so a single stuck connection
-// can only ever fail its own template, not the whole batch.
-function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
-  return Promise.race([
-    promise,
-    new Promise<T>((_, reject) => setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)),
-  ])
-}
-
+// Every outbound fetch in this function goes through this wrapper (real
+// AbortController cancellation, not a Promise.race that just stops waiting
+// while the request keeps running) so a slow/unreachable endpoint can only
+// ever fail its own template, not stall the whole cron run for every other
+// due template behind it.
 async function fetchWithTimeout(url: string, init: RequestInit, ms: number): Promise<Response> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), ms)
@@ -271,6 +266,16 @@ async function sendViaGmail(appUrl: string, args: {
   return { ok: true }
 }
 
+// Sends via the same api.fundibill.online/send-reminder.php PHP relay the
+// PWA client already uses for custom-SMTP sends (src/lib/sendEmail.js) —
+// NOT denomailer's SMTPClient directly. Testing surfaced denomailer failing
+// with a confusing "Bad resource ID" / unhandled "invalid cmd" error pair
+// against at least one real SMTP host (TLS/STARTTLS negotiation mismatch —
+// denomailer's `tls` option is implicit-TLS-at-connect-only, no automatic
+// STARTTLS upgrade path was configured for non-465 ports). Rather than debug
+// Deno's SMTP client against every possible mail server, route through the
+// relay that's already proven to work for these exact user credentials via
+// the normal in-app send flow — same contract, field-for-field.
 async function sendViaSmtp(profile: Record<string, any>, args: {
   to: string; subject: string; html: string; pdfBase64: string; pdfFilename: string
 }): Promise<{ ok: true } | { ok: false; error: string }> {
@@ -278,40 +283,28 @@ async function sendViaSmtp(profile: Record<string, any>, args: {
     return { ok: false, error: 'SMTP not configured for this user' }
   }
   try {
-    const smtpPort = parseInt(profile.smtp_port || '587', 10) || 587
     const fromName = profile.smtp_from_name || profile.business_name || 'FundiBill'
-    const client = new SMTPClient({
-      connection: {
-        hostname: profile.smtp_host,
-        port: smtpPort,
-        tls: smtpPort === 465,
-        auth: { username: profile.smtp_user, password: profile.smtp_password },
-      },
-    })
-    // NOT wrapped in withTimeout()/Promise.race() — denomailer's SMTPClient
-    // has no cancellation support, so racing it doesn't actually stop the
-    // in-flight send; it just stops *waiting* for it while the real
-    // operation keeps running against the same socket in the background.
-    // That caused two compounding bugs in testing: closing a connection
-    // that was still mid-send threw "Bad resource ID", and the abandoned
-    // original send then failed on its own moments later with an unhandled
-    // "invalid cmd" event-loop error. Just await it directly — a real SMTP
-    // protocol/config error (wrong host, bad TLS/port match, auth failure)
-    // surfaces in seconds and is caught below same as any other error.
-    await client.send({
-      from: `${fromName} <${profile.smtp_user}>`,
-      to: args.to,
-      subject: args.subject,
-      content: 'Please view this email in an HTML-capable client.',
-      html: args.html,
-      attachments: [{
-        filename: args.pdfFilename,
-        content: args.pdfBase64,
-        encoding: 'base64',
-        contentType: 'application/pdf',
-      }],
-    })
-    try { await client.close() } catch (_) { /* best-effort — a failed close shouldn't undo an otherwise-successful send */ }
+    const resp = await fetchWithTimeout('https://api.fundibill.online/send-reminder.php', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        smtp_host: profile.smtp_host,
+        smtp_port: profile.smtp_port,
+        smtp_user: profile.smtp_user,
+        smtp_password: profile.smtp_password,
+        from_name: fromName,
+        to_email: args.to,
+        subject: args.subject,
+        html_body: args.html,
+        text_body: 'Please view this email in an HTML-capable client.',
+        pdf_base64: args.pdfBase64,
+        pdf_filename: args.pdfFilename,
+      }),
+    }, 25_000)
+    const result = await resp.json().catch(() => ({}))
+    if (!resp.ok || result?.success === false) {
+      return { ok: false, error: result?.error || 'send-reminder.php request failed' }
+    }
     return { ok: true }
   } catch (err) {
     return { ok: false, error: (err as Error).message }
