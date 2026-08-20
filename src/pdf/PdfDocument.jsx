@@ -24,11 +24,11 @@ function formatBankingDetails(snapshot, profileBankingRaw, businessName) {
   if (!parsed) return ''
 
   const lines = []
+  if (parsed.account_name && parsed.account_name !== businessName) lines.push(`Account Name: ${parsed.account_name}`)
   if (parsed.bank_name)      lines.push(`Bank: ${parsed.bank_name}`)
   if (parsed.account_number) lines.push(`Account: ${parsed.account_number}`)
   if (parsed.branch_code)    lines.push(`Branch: ${parsed.branch_code}`)
   if (parsed.account_type)   lines.push(`Type: ${parsed.account_type}`)
-  if (parsed.account_name && parsed.account_name !== businessName) lines.push(`Account Name: ${parsed.account_name}`)
   return lines.join('\n')
 }
 
