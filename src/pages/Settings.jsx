@@ -1498,6 +1498,7 @@ export default function Settings() {
       >
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', marginBottom: bankingList.length ? 14 : 0 }}>
           <button
+            data-wizard="field-add-banking-account"
             onClick={() => setBankingModal(true)}
             disabled={isReadOnly}
             style={{

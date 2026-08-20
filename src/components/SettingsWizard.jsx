@@ -33,9 +33,8 @@ const STEPS = [
   { openSectionId: 'documents', target: 'field-discounts_enabled',        title: 'Discounts',                description: 'Enable discounts on invoices and quotes, and choose percentage or fixed amount.' },
 
   // ── Banking Details ──
-  { openSectionId: 'banking', target: 'field-bank_name',      title: 'Bank Name',      description: 'The bank your business account is held with.' },
-  { openSectionId: 'banking', target: 'field-account_number', title: 'Account Number', description: 'Your business bank account number.' },
-  { openSectionId: 'banking', target: 'field-branch_code',    title: 'Branch Code',    description: 'Your bank branch code — printed on invoices so clients know where to pay.' },
+  { openSectionId: 'banking', target: 'section-banking',           title: 'Banking Details',      description: 'Add your primary banking details here — they appear on every invoice and quote you send.' },
+  { openSectionId: 'banking', target: 'field-add-banking-account', title: 'Add Banking Account',  description: 'Add extra bank accounts here — you can then choose which one to use each time you create or edit an invoice or quote.' },
 
   // ── Notifications & Messages ──
   { openSectionId: 'whatsapp', target: 'field-email_invoice_message', title: 'Invoice Message',          description: 'The default message sent with an invoice, by email or WhatsApp.' },
