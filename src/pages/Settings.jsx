@@ -58,6 +58,7 @@ const DEFAULTS = {
   email_quote_message:       'Hi {clientName}, please find your estimate {quoteNumber} attached for the amount of {amount}. This quote/estimate is valid until {expiryDate}. Thank you for your business! Kind regards, {businessName}',
   email_overdue_message:     'Hi {clientName}, this is a friendly reminder that invoice {invoiceNumber} for {amount} was due on {dueDate} and is now overdue. Please arrange payment at your earliest convenience. Kind regards, {businessName}',
   payment_terms_days:        7,
+  auto_reminders_enabled:    false,
   discounts_enabled:         false,
   discount_type:             'percent',
 }
@@ -92,6 +93,7 @@ const SUPABASE_COL = {
   email_quote_message:       'email_quote_message',
   email_overdue_message:     'email_overdue_message',
   payment_terms_days:        'payment_terms_days',
+  auto_reminders_enabled:    'auto_reminders_enabled',
   discounts_enabled:         'discounts_enabled',
   discount_type:             'discount_type',
 }
@@ -689,6 +691,7 @@ export default function Settings() {
         email_quote_message:       profile.email_quote_message       || profile.whatsapp_estimate_message || DEFAULTS.email_quote_message,
         email_overdue_message:     profile.email_overdue_message     || DEFAULTS.email_overdue_message,
         payment_terms_days:        profile.payment_terms_days        ?? DEFAULTS.payment_terms_days,
+        auto_reminders_enabled:    profile.auto_reminders_enabled    ?? DEFAULTS.auto_reminders_enabled,
         discounts_enabled:         profile.discounts_enabled         ?? DEFAULTS.discounts_enabled,
         discount_type:             profile.discount_type             ?? DEFAULTS.discount_type,
       }
@@ -1893,6 +1896,31 @@ export default function Settings() {
           <p style={{ fontSize: 12, color: '#94a3b8', margin: '5px 0 0' }}>
             Invoices overdue by more than {form.payment_terms_days || 7} days will show a reminder bell icon.
           </p>
+        </div>
+
+        <div data-wizard="field-auto_reminders_enabled" style={{ marginTop: 24 }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', userSelect: 'none' }}>
+            <input
+              type="checkbox"
+              checked={!!form.auto_reminders_enabled}
+              onChange={e => setForm(p => ({ ...p, auto_reminders_enabled: e.target.checked }))}
+              style={{ width: 16, height: 16, accentColor: '#14b8a6', cursor: 'pointer' }}
+            />
+            <span style={{ fontSize: 14, fontWeight: 500, color: '#374151' }}>Automatically send payment reminders</span>
+          </label>
+          <div style={{
+            marginTop: 10, marginLeft: 26, padding: '10px 14px', borderRadius: 8,
+            background: '#fffbeb', border: '1px solid #fde68a',
+          }}>
+            <p style={{ fontSize: 12, color: '#92400e', margin: 0, lineHeight: 1.6, fontWeight: 600 }}>
+              Reminders are only sent for invoices that were actually sent from the app.
+            </p>
+            <p style={{ fontSize: 12, color: '#92400e', margin: '4px 0 0', lineHeight: 1.6 }}>
+              Once enabled, overdue invoices automatically get a reminder email on their due date,
+              a second one 7 days later, then every 3 days after that, until the invoice is marked as paid.
+              This continues automatically. A confirmation email is sent to you each time a reminder goes out.
+            </p>
+          </div>
         </div>
       </Section>
 

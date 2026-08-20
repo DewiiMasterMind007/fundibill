@@ -51,6 +51,7 @@ const STEPS = [
 
   // ── Payment & Reminders ──
   { openSectionId: 'payment', target: 'field-payment_terms_days', title: 'Default Payment Terms', description: 'How many days clients have to pay before an invoice is marked overdue.' },
+  { openSectionId: 'payment', target: 'field-auto_reminders_enabled', title: 'Automatic Payment Reminders', description: 'Automatically email overdue clients a reminder — on the due date, again a week later, then every 3 days until they pay. Only for invoices actually sent from the app.' },
 
   // ── Terms & Conditions ──
   { openSectionId: 'terms', target: 'field-terms_conditions', title: 'Terms & Conditions', description: 'Printed at the bottom of every invoice and quote.' },

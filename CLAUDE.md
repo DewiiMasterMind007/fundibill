@@ -119,8 +119,9 @@ All tables have Row Level Security enabled. All PKs are UUIDs. Access policy: `a
 | `subscription_end_date` | timestamptz | When access lapses — written by PayFast webhook from `billing_date` |
 | `subscription_cancelled_at` | timestamptz | Written by `cancel-subscription` edge function |
 | `payfast_token` | text | PayFast subscription token — used by `cancel-subscription` edge function to call PayFast API |
-| `reminders_enabled` | boolean | Used by `send-payment-reminders` edge function (legacy auto-reminder system) |
+| `reminders_enabled` | boolean | Used by `send-payment-reminders` edge function (legacy, per-invoice-opt-in auto-reminder system) |
 | `reminder_interval_days` | integer | Used by `send-payment-reminders` edge function (legacy) |
+| `auto_reminders_enabled` | boolean | Global on/off switch for the newer **Automatic Payment Reminders** system (Section 6) — separate from the legacy `reminders_enabled` above; used by `send-auto-payment-reminders` edge function. Default `false` |
 | `gmail_access_token` | text | Gmail OAuth access token — v2 Gmail OAuth feature |
 | `gmail_refresh_token` | text | Gmail OAuth refresh token — v2 Gmail OAuth feature |
 | `gmail_token_expiry` | timestamptz | Expiry of `gmail_access_token` — v2 Gmail OAuth feature |
@@ -177,6 +178,8 @@ All tables have Row Level Security enabled. All PKs are UUIDs. Access policy: `a
 | `reminder_sent_at` | timestamptz | Legacy — updated by edge function |
 | `banking_details_snapshot` | jsonb | Copy of the selected `banking_details` row at save time — see Section 6 "Multiple Banking Accounts". `NULL` on invoices created before this feature |
 | `auto_sent` | boolean | `true` once the auto-send flow (Section 6 "Auto-Send Recurring Invoices") has successfully emailed this invoice to the client. Default `false` |
+| `auto_reminder_count` | integer | How many automatic payment reminders (Section 6 "Automatic Payment Reminders") have been sent for this invoice — drives which stage of the fixed schedule it's on. Default `0`. Separate from the legacy `reminder_sent_at`/`reminder_opted_in` above |
+| `auto_reminder_last_sent_at` | timestamptz | When the most recent automatic reminder was sent — used to compute the next one (every 3 days once past the first two) |
 | `auto_sent_at` | timestamptz | When `auto_sent` was set `true` |
 | `auto_send_error` | text | Set when auto-send was attempted but failed (or was skipped, e.g. no client email) — surfaced nowhere in the UI yet beyond this column; check it directly in Supabase to diagnose a failed auto-send |
 | `created_at` | timestamptz | |
@@ -483,10 +486,18 @@ RLS: `"Users can manage their own banking details" FOR ALL USING (auth.uid() = u
 │   │   │                                    null → timestamp); sends the one-time welcome
 │   │   │                                    email via send-reminder.php, dedup-guarded by
 │   │   │                                    profiles.welcome_email_sent
-│   │   └── process-recurring-invoices/index.ts — Deno edge function (cron); creates the next
-│   │                                    invoice for every due recurring_invoices template and,
-│   │                                    when auto_send is on, emails it to the client. See
-│   │                                    Section 6 "Auto-Send Recurring Invoices" and Section 8.
+│   │   ├── process-recurring-invoices/index.ts — Deno edge function (cron); creates the next
+│   │   │                                invoice for every due recurring_invoices template and,
+│   │   │                                when auto_send is on, emails it to the client. See
+│   │   │                                Section 6 "Auto-Send Recurring Invoices" and Section 8.
+│   │   └── send-auto-payment-reminders/index.ts — Deno edge function (cron); emails overdue
+│   │                                    invoices (sent_from_app = true only) on a fixed
+│   │                                    schedule until paid, for any user with
+│   │                                    profiles.auto_reminders_enabled. Separate system from
+│   │                                    the older send-payment-reminders above — different
+│   │                                    columns, different schedule model, both deployed
+│   │                                    independently. See Section 6 "Automatic Payment
+│   │                                    Reminders" and Section 8.
 │   └── migrations/
 │       ├── add_gmail_oauth_columns.sql   — gmail_access_token/refresh_token/token_expiry/
 │       │                                    connected_email columns on profiles
@@ -505,10 +516,15 @@ RLS: `"Users can manage their own banking details" FOR ALL USING (auth.uid() = u
 │       │                                    auto_send_error columns on invoices. Must be run
 │       │                                    manually — see Section 6 "Auto-Send Recurring
 │       │                                    Invoices" and Known Issue #12.
-│       └── add_recurring_banking_detail.sql — banking_detail_id column (FK →
-│                                            banking_details) on recurring_invoices. Must be
-│                                            run manually — see Section 6 "Auto-Send Recurring
-│                                            Invoices" and Known Issue #12.
+│       ├── add_recurring_banking_detail.sql — banking_detail_id column (FK →
+│       │                                    banking_details) on recurring_invoices. Must be
+│       │                                    run manually — see Section 6 "Auto-Send Recurring
+│       │                                    Invoices" and Known Issue #12.
+│       └── add_auto_payment_reminders.sql — auto_reminders_enabled column on profiles;
+│                                            auto_reminder_count/auto_reminder_last_sent_at
+│                                            columns on invoices. Must be run manually — see
+│                                            Section 6 "Automatic Payment Reminders" and Known
+│                                            Issue #13.
 │
 ├── assets/icon.ico             — App icon for Electron installer / taskbar
 ├── public/
@@ -593,6 +609,27 @@ Lets a user record one or more partial payments against an invoice instead of on
 **Detail view:** a "Payment History" card (Date / Method / Note / Amount rows + Total Paid / Balance Due summary) renders between the line-items/totals card and the Notes card, but only `{invoicePayments.length > 0 && (...)}` — empty for invoices with no recorded payments.
 
 **PDF (`src/pdf/PdfDocument.jsx`):** a "Payment History" section (same Date/Method/Note/Amount table + Total Paid/Balance Due summary) is inserted after the main totals block and before the fixed footer, guarded by `Array.isArray(data.payments) && data.payments.length > 0` — renders nothing when there are no payments. Shows green **"PAID IN FULL"** in place of the Balance Due row when the recalculated balance is 0. Every PDF-building call site in `Invoices.jsx` (5 total: mark-as-paid thank-you email, WhatsApp share, the shared preview/send-email IIFE, `ReminderModal`, and the list-view mark-as-paid thank-you email) was updated to include a `payments` key in its `pdfData` object — no changes were needed to `pdfBuffer.js`/`PdfPreviewModal.jsx` themselves, since they pass `data` straight through.
+
+### Automatic Payment Reminders (`v5`)
+
+A global, always-on-until-paid reminder system — separate from the older per-invoice-opt-in `send-payment-reminders` function (Section 8), which is left completely untouched and keeps running on its own schedule with its own columns. The two systems can never collide: this one uses its own dedicated columns (`profiles.auto_reminders_enabled`, `invoices.auto_reminder_count`/`auto_reminder_last_sent_at`), never touching `reminder_opted_in`/`reminders_enabled`/`reminder_interval_days`/`reminder_sent_at`.
+
+**Settings — `src/pages/Settings.jsx`, Payment & Reminders section:** one checkbox, "Automatically send payment reminders" (`auto_reminders_enabled`, default off), with a strong amber warning box directly beneath it stating reminders only go out for invoices actually sent from the app, and that once started they continue automatically (on the fixed schedule below) until the invoice is marked paid — no per-invoice control once the global toggle is on. Also in the settings wizard walkthrough (`src/components/SettingsWizard.jsx`, `field-auto_reminders_enabled` step, right after Default Payment Terms).
+
+**Eligibility (`supabase/functions/send-auto-payment-reminders/index.ts`, cron):** an invoice is a candidate only if `sent_from_app = true` (never for drafts, or documents only ever downloaded/shared via WhatsApp — must have actually been emailed through FundiBill), `status != 'paid'`, `due_date <= today`, and the owning user has `auto_reminders_enabled = true`.
+
+**Fixed schedule**, driven by `invoices.auto_reminder_count`:
+- `count = 0` (none sent yet): due the moment `due_date <= today` — first reminder fires *on* the due date, not after.
+- `count = 1` (first sent): second reminder due 7 days after `due_date`.
+- `count >= 2`: every 3 days after `auto_reminder_last_sent_at`, indefinitely.
+- Stops being eligible entirely once `status = 'paid'` — no separate "stop" flag needed, the eligibility query itself just stops matching.
+- A failed send does **not** advance `auto_reminder_count`/`auto_reminder_last_sent_at` — it's retried on the next cron run rather than silently skipping ahead in the schedule.
+
+**Email content:** subject `Payment Reminder - Invoice {invoiceNumber} is Outstanding` (same format the manual reminder bell already uses — `ReminderModal` in `src/pages/Invoices.jsx`). Body uses the user's `profiles.email_overdue_message` template (same `{clientName}`/`{invoiceNumber}`/`{businessName}`/`{amount}`/`{dueDate}` placeholders as everywhere else) or a hardcoded default if empty, wrapped in a hand-mirrored copy of `generateReminderEmail()`'s branded HTML (business's own logo/name — this goes to the client, not FundiBill's branding). A PDF of the invoice is attached, generated via `/api/generate-invoice-pdf` (same reuse as the recurring-invoice auto-send feature). For a `'partial'` invoice, the amount shown is the remaining balance due, not the full total — same logic `ReminderModal` already uses.
+
+**Sending and the CC-user notification:** same provider routing as `process-recurring-invoices` (Gmail via `/api/send-gmail`, SMTP via the `send-reminder.php` relay — not Deno's `denomailer` directly, per the lesson in Known Issue #12). **Every successful reminder send also emails the FundiBill user** a short confirmation (unconditional, no separate toggle — unlike `auto_send_cc_user` on recurring invoices, which is optional) — subject `FundiBill - Payment Reminder Sent for Invoice {invoiceNumber}`, FundiBill-branded via the same `buildFundiBillNotificationEmailHtml()`-style wrapper as the recurring-invoice feature (duplicated into this function's own file, same reason every Deno Edge Function in this codebase hand-duplicates rather than sharing modules).
+
+**No em dashes** in any new subject line or body text this feature writes (deliverability) — the existing footer's `&mdash;` ("Sent by FundiBill — SA Built Invoicing Software") is left as-is, that one predates this constraint and wasn't flagged as a problem.
 
 ### Auto-Send Recurring Invoices (`v5`)
 
@@ -931,6 +968,12 @@ If this trigger is added, `AuthCallback.jsx`'s own upsert becomes a harmless no-
 - **What it does:** creates the next invoice for every due `recurring_invoices` template, then — if `auto_send` is on for that template — emails it to the client with a PDF attached. Full behavior described in Section 6 "Auto-Send Recurring Invoices"; this was previously a missing piece (see Known Issue #2, now resolved by this function).
 - **Env vars:** `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (same as every other function here); `VITE_APP_URL` (new — used to call `/api/generate-invoice-pdf` and `/api/send-gmail` on Vercel); `WELCOME_EMAIL_SMTP_HOST`/`_PORT`/`_USER`/`_PASSWORD` (reused from `send-welcome-email`, for the CC-user confirmation email only). Does **not** need `GMAIL_CLIENT_ID`/`GMAIL_CLIENT_SECRET` — Gmail sending is delegated to the existing `/api/send-gmail` Vercel function, which already has those.
 
+### `send-auto-payment-reminders`
+- **Location:** `supabase/functions/send-auto-payment-reminders/index.ts`
+- **Triggered by:** cron (`pg_cron` + `pg_net`) — not deployed with a schedule by default; see the SQL in the function's own header comment. Recommended: once daily, at a different hour than `process-recurring-invoices`/`send-payment-reminders` to avoid piling every cron job onto the same minute (this one's example schedule is 08:00 UTC).
+- **What it does:** emails an overdue-payment reminder (with PDF attached) to any invoice matching the eligibility + fixed schedule described in Section 6 "Automatic Payment Reminders", for users with `profiles.auto_reminders_enabled = true`. Completely separate from the legacy `send-payment-reminders` above — different columns, different (fixed, not user-configurable) schedule, both deployed and scheduled independently; enabling one has no effect on the other.
+- **Env vars:** same set as `process-recurring-invoices` — `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `VITE_APP_URL`, `WELCOME_EMAIL_SMTP_HOST`/`_PORT`/`_USER`/`_PASSWORD`. No `GMAIL_CLIENT_ID`/`GMAIL_CLIENT_SECRET` needed, same reason.
+
 ---
 
 ## 9. KNOWN ISSUES
@@ -968,6 +1011,8 @@ If this trigger is added, `AuthCallback.jsx`'s own upsert becomes a harmless no-
 12. **Auto-send recurring invoices — migrations, deploy, and cron schedule all required:** manual steps before this feature (Section 6 "Auto-Send Recurring Invoices") does anything: (a) run `supabase/migrations/add_recurring_auto_send.sql` **and** `add_recurring_banking_detail.sql` in the SQL Editor; (b) deploy `process-recurring-invoices` (`supabase functions deploy process-recurring-invoices --no-verify-jwt`) — **and redeploy it after every code change**, since (unlike the Vercel side) nothing auto-deploys this function from a git push; (c) schedule it via `pg_cron`/`pg_net` using the SQL in that function's own header comment. None of these happen automatically. Also note this same function is what makes recurring invoices continue *at all* past their first send (see Known Issue #2) — deploying it is not optional if recurring invoices are meant to keep recurring, independent of whether auto-send is used.
     - **Testing note (from actually building this):** `denomailer` (Deno's SMTP client) failed against a real SMTP host with a confusing "Bad resource ID" / unhandled "invalid cmd" error pair (a TLS/STARTTLS negotiation mismatch, compounded by a since-removed `Promise.race` "timeout" that abandoned the still-running send instead of cancelling it). `sendViaSmtp()` now routes through the `send-reminder.php` relay instead — the same one the PWA already uses successfully for these exact credentials — rather than talking SMTP directly from Deno. If touching that function again, don't reintroduce a direct `denomailer` send without solid evidence it's needed.
     - **Testing note #2:** both `RecurringForm`'s first-invoice creation (`src/pages/Invoices.jsx`) and this cron job originally hardcoded `due_date = issue_date + 30 days`, ignoring the user's actual `profiles.payment_terms_days` setting (default 7) that every other invoice-creation path already respects. Found via a real auto-sent test invoice showing a ~30-day due date against a 7-day payment-terms setting. Both now use `payment_terms_days` (falling back to 7 if unset) — if adding a third invoice-creation path anywhere, don't hardcode this again.
+
+13. **Automatic payment reminders — migration, deploy, and cron schedule all required:** run `supabase/migrations/add_auto_payment_reminders.sql` in the SQL Editor; deploy `send-auto-payment-reminders` (`supabase functions deploy send-auto-payment-reminders --no-verify-jwt`) — and redeploy after every code change, same as `process-recurring-invoices`, nothing auto-deploys Edge Functions from a git push; schedule it via `pg_cron`/`pg_net` using the SQL in that function's own header comment. This is a separate deploy/schedule from `process-recurring-invoices` and the legacy `send-payment-reminders` — all three are independent cron jobs that must each be deployed and scheduled on their own.
 
 ---
 
