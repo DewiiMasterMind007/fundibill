@@ -2279,7 +2279,7 @@ function RecurringForm({ recurringInvoice, clients, catalog, settings, onBack, o
 
         // ── 3. Calculate totals ───────────────────────────────────────────
         const issueDate   = form.next_send_date
-        const dueDate     = addDays(issueDate, 30)
+        const dueDate     = addDays(issueDate, settings?.payment_terms_days ?? 7)
         const lineTotal   = items.reduce((s, li) => s + li.line_total, 0)
         const subtotalAmt = form.vat_enabled ? lineTotal / 1.15 : lineTotal
         const vatAmt      = form.vat_enabled ? lineTotal - subtotalAmt : 0

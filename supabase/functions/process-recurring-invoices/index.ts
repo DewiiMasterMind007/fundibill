@@ -422,7 +422,7 @@ Deno.serve(async (req: Request) => {
         const vatAmt = template.vat_enabled ? lineTotal - subtotal : 0
 
         const issueDate = template.next_send_date
-        const dueDate = addDaysIso(issueDate, 30)
+        const dueDate = addDaysIso(issueDate, Number(profile.payment_terms_days) || 7)
 
         // Banking snapshot — mirrors createBankingSnapshot() in
         // src/utils/bankingDetails.js (Deno can't import that file, same
