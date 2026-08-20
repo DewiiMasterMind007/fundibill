@@ -2159,6 +2159,25 @@ function RecurringForm({ recurringInvoice, clients, catalog, settings, onBack, o
 
   const [toast, setToast] = useState(null)
 
+  // Banking details selector — which account this recurring template's
+  // invoices (both the first one, created here, and every subsequent one
+  // created by the process-recurring-invoices cron job) should snapshot.
+  const [bankingList, setBankingList] = useState([])
+  const [bankingDetailId, setBankingDetailId] = useState(recurringInvoice?.banking_detail_id || null)
+  useEffect(() => {
+    if (!user?.id) return
+    let cancelled = false
+    getBankingDetails(supabase, user.id).then(list => {
+      if (cancelled) return
+      setBankingList(list)
+      if (!recurringInvoice?.banking_detail_id) {
+        const def = list.find(b => b.is_default) || list[0]
+        setBankingDetailId(def?.id || null)
+      }
+    }).catch(() => {})
+    return () => { cancelled = true }
+  }, [user?.id])
+
   const [lineItems, setLineItems] = useState(() =>
     recurringInvoice?.items?.length
       ? recurringInvoice.items.map(i => ({ _key: Math.random().toString(36).slice(2), ...i }))
@@ -2233,6 +2252,7 @@ function RecurringForm({ recurringInvoice, clients, catalog, settings, onBack, o
       email_message:  form.email_message || null,
       auto_send:          form.auto_send,
       auto_send_cc_user:  form.auto_send_cc_user,
+      banking_detail_id:  bankingDetailId,
       items,
     }
 
@@ -2282,6 +2302,7 @@ function RecurringForm({ recurringInvoice, clients, catalog, settings, onBack, o
             status:               'draft',
             from_recurring:       true,
             notification_dismissed: false,
+            banking_details_snapshot: createBankingSnapshot(bankingList.find(b => b.id === bankingDetailId)),
             user_id:              user.id,
           })
           .select()
@@ -2415,6 +2436,12 @@ function RecurringForm({ recurringInvoice, clients, catalog, settings, onBack, o
                   <input type="date" value={form.next_send_date} onChange={e => setField('next_send_date', e.target.value)} style={{ ...inputStyle(!!errors.next_send_date), maxWidth: '100%' }} />
                   {errors.next_send_date && <p style={{ color: '#ef4444', fontSize: 12, marginTop: 4 }}>{errors.next_send_date}</p>}
                 </div>
+              </div>
+
+              {/* Banking details for this recurring invoice's snapshots */}
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 6 }}>Banking Details</label>
+                <BankingDetailsSelector bankingDetails={bankingList} value={bankingDetailId} onChange={setBankingDetailId} />
               </div>
 
               {/* Auto-send toggle */}

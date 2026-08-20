@@ -424,6 +424,37 @@ Deno.serve(async (req: Request) => {
         const issueDate = template.next_send_date
         const dueDate = addDaysIso(issueDate, 30)
 
+        // Banking snapshot — mirrors createBankingSnapshot() in
+        // src/utils/bankingDetails.js (Deno can't import that file, same
+        // reason the email HTML is hand-mirrored elsewhere in this
+        // function). Uses the account picked on the recurring template
+        // (RecurringForm's Banking Details selector); falls back to
+        // whichever account is currently the user's default if the
+        // template has none set (new template created before this field
+        // existed, or the picked account was since deleted — the
+        // banking_detail_id FK is ON DELETE SET NULL for that reason).
+        let bankingSnapshot: Record<string, unknown> | null = null
+        {
+          const { data: bankingRows } = await supabase
+            .from('banking_details')
+            .select('*')
+            .eq('user_id', template.user_id)
+          const chosen = template.banking_detail_id
+            ? (bankingRows ?? []).find((b: any) => b.id === template.banking_detail_id)
+            : null
+          const fallback = (bankingRows ?? []).find((b: any) => b.is_default) || (bankingRows ?? [])[0]
+          const banking = chosen || fallback
+          if (banking) {
+            bankingSnapshot = {
+              account_name: banking.account_name ?? null,
+              bank_name: banking.bank_name ?? null,
+              account_number: banking.account_number ?? null,
+              branch_code: banking.branch_code ?? null,
+              account_type: banking.account_type ?? null,
+            }
+          }
+        }
+
         // ── 4. Insert the invoice ────────────────────────────────────────────
         const { data: invoice, error: invErr } = await supabase
           .from('invoices')
@@ -442,6 +473,7 @@ Deno.serve(async (req: Request) => {
             status: 'draft',
             from_recurring: true,
             notification_dismissed: false,
+            banking_details_snapshot: bankingSnapshot,
             user_id: template.user_id,
           })
           .select()
