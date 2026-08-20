@@ -975,6 +975,7 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
         client_phone:    selectedClient?.phone || '',
         client_address:  selectedClient?.address || '',
         items:           lineItems.filter(li => li.item_name.trim()),
+        banking_details_snapshot: createBankingSnapshot(bankingList.find(b => b.id === bankingDetailId)),
       }
 
       let arrayBuffer
@@ -1577,6 +1578,7 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
           client_phone: selectedClient?.phone || '',
           client_address: selectedClient?.address || '',
           items: lineItems.filter(li => li.item_name.trim()),
+          banking_details_snapshot: createBankingSnapshot(bankingList.find(b => b.id === bankingDetailId)),
         }
         return (
           <>

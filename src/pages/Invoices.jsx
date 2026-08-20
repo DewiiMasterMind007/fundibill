@@ -1098,6 +1098,7 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
         client_address: selectedClient?.address || '',
         items:          lineItems.filter(li => li.item_name.trim()),
         payments:       invoicePayments,
+        banking_details_snapshot: createBankingSnapshot(bankingList.find(b => b.id === bankingDetailId)),
       }
       let pdfBuffer
       try {
@@ -1205,6 +1206,7 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
           client_address: selectedClient?.address || '',
           items:          lineItems.filter(li => li.item_name.trim()),
           payments:       invoicePayments,
+          banking_details_snapshot: createBankingSnapshot(bankingList.find(b => b.id === bankingDetailId)),
         }
         pdfBuffer = await buildPdfBuffer(pdfData, settings, 'INVOICE')
       } catch (_) {
@@ -1329,6 +1331,7 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
         client_address: selectedClient?.address || '',
         items:          lineItems.filter(li => li.item_name.trim()),
         payments:       invoicePayments,
+        banking_details_snapshot: createBankingSnapshot(bankingList.find(b => b.id === bankingDetailId)),
       }
 
       let arrayBuffer
@@ -1976,6 +1979,7 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
           client_address: selectedClient?.address || '',
           items:          lineItems.filter(li => li.item_name.trim()),
           payments:       invoicePayments,
+          banking_details_snapshot: createBankingSnapshot(bankingList.find(b => b.id === bankingDetailId)),
         }
         return (
           <>
