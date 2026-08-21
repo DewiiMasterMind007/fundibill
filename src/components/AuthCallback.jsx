@@ -43,18 +43,34 @@ export default function AuthCallback() {
     })
 
     // Fallback in case the auth event already fired before this listener attached,
-    // or the exchange never completes.
-    const timeout = setTimeout(async () => {
+    // or the exchange is just slow. A single 5s timeout was too aggressive —
+    // confirmed in production against real accounts where the session was
+    // created successfully (auth.users.last_sign_in_at set) but only after the
+    // 5s window had already given up and redirected to the error screen,
+    // discarding a login that was about to succeed. Poll every 2s for up to
+    // 20s instead, so a slow (but working) exchange has real time to land.
+    let pollCount = 0
+    const MAX_POLLS = 10 // 10 * 2s = 20s total
+    let pollTimer = null
+
+    async function poll() {
       if (settled) return
+      pollCount++
       const { data: { session } } = await supabase.auth.getSession()
+      if (settled) return
       if (session?.user) {
         handleSession(session)
-      } else {
-        goToLogin()
+        return
       }
-    }, 5000)
+      if (pollCount >= MAX_POLLS) {
+        goToLogin()
+        return
+      }
+      pollTimer = setTimeout(poll, 2000)
+    }
+    pollTimer = setTimeout(poll, 2000)
 
-    return () => { clearTimeout(timeout); subscription.unsubscribe() }
+    return () => { clearTimeout(pollTimer); subscription.unsubscribe() }
   }, [])
 
   return (
