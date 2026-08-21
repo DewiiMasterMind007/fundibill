@@ -1,10 +1,19 @@
 import { useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 
-// Reached at #/auth/callback after a Supabase Google OAuth redirect. supabase-js
-// exchanges the ?code= param for a session asynchronously on load, so we wait for
-// onAuthStateChange to report it rather than calling getSession() immediately
-// (which can race ahead of the exchange and return a stale null session).
+// Reached at the plain path /auth/callback after a Supabase Google OAuth
+// redirect (see GoogleAuthButton.jsx for why it's a plain path, not
+// "/#/auth/callback" — Supabase appends "#access_token=..." here for the
+// implicit flow it uses for Google sign-in, and that collides with a "#"
+// already in the redirect target). supabase-js parses the token(s) out of
+// the hash asynchronously on load, so we wait for onAuthStateChange to
+// report the resulting session rather than calling getSession() immediately
+// (which can race ahead and return a stale null session).
+//
+// Because we land here on a real path (not "/"), every exit below resets
+// the full URL back to origin + a "/#/..." hash route — just setting
+// location.hash would leave the browser on ".../auth/callback#/dashboard"
+// instead of ".../#/dashboard".
 export default function AuthCallback() {
   useEffect(() => {
     let settled = false
@@ -12,7 +21,7 @@ export default function AuthCallback() {
     function goToLogin() {
       if (settled) return
       settled = true
-      window.location.href = window.location.pathname + '#/login?error=auth_failed'
+      window.location.href = window.location.origin + '/#/login?error=auth_failed'
     }
 
     async function ensureProfile(user) {
@@ -35,7 +44,7 @@ export default function AuthCallback() {
       if (settled || !session?.user) return
       settled = true
       await ensureProfile(session.user)
-      window.location.hash = '#/dashboard'
+      window.location.href = window.location.origin + '/#/dashboard'
     }
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {

@@ -163,8 +163,12 @@ export default function App() {
 
   // Google OAuth redirects here before a HashRouter exists (it only mounts once
   // authenticated), so this is handled as a standalone screen ahead of the
-  // normal auth gate rather than as a react-router <Route>.
-  if (window.location.hash.startsWith('#/auth/callback')) return <AuthCallback />
+  // normal auth gate rather than as a react-router <Route>. Checked by
+  // pathname, not hash — the redirect target is a plain "/auth/callback" path
+  // (see GoogleAuthButton.jsx for why: Supabase appends "#access_token=..."
+  // here for the implicit flow, and a redirect target that already had its
+  // own "#" produced an unparseable double-hash URL).
+  if (window.location.pathname.replace(/\/$/, '') === '/auth/callback') return <AuthCallback />
 
   if (authLoading) return null
   if (!user) return <Auth />
