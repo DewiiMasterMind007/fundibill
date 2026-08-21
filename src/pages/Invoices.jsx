@@ -2298,77 +2298,88 @@ function RecurringForm({ recurringInvoice, clients, catalog, settings, onBack, o
           .single()
         if (recurringErr) throw new Error(recurringErr.message)
 
-        // ── 2. Fetch existing invoice numbers (prefix comes from cached settings) ──
-        const { data: existingInvs } = await supabase
-          .from('invoices').select('invoice_number').eq('user_id', user.id)
-        const prefix = settings?.invoice_prefix || 'INV-'
-        const start  = settings?.starting_invoice_number || 1
-        const maxNum  = (existingInvs ?? []).reduce((max, inv) => {
-          const match = (inv.invoice_number || '').match(/(\d+)$/)
-          return match ? Math.max(max, parseInt(match[1], 10)) : max
-        }, 0)
-        const invoiceNumber = `${prefix}${String(maxNum > 0 ? maxNum + 1 : start).padStart(4, '0')}`
+        // Only create an invoice immediately when the chosen first-send date
+        // is today or earlier. A future date means the template is due later
+        // — process-recurring-invoices (the cron job) picks it up itself once
+        // next_send_date <= today, same as it does for every later cycle.
+        // Previously this always fired immediately regardless of the date,
+        // creating an invoice on save even when the user picked a future date.
+        if (form.next_send_date <= todayStr()) {
+          // ── 2. Fetch existing invoice numbers (prefix comes from cached settings) ──
+          const { data: existingInvs } = await supabase
+            .from('invoices').select('invoice_number').eq('user_id', user.id)
+          const prefix = settings?.invoice_prefix || 'INV-'
+          const start  = settings?.starting_invoice_number || 1
+          const maxNum  = (existingInvs ?? []).reduce((max, inv) => {
+            const match = (inv.invoice_number || '').match(/(\d+)$/)
+            return match ? Math.max(max, parseInt(match[1], 10)) : max
+          }, 0)
+          const invoiceNumber = `${prefix}${String(maxNum > 0 ? maxNum + 1 : start).padStart(4, '0')}`
 
-        // ── 3. Calculate totals ───────────────────────────────────────────
-        const issueDate   = form.next_send_date
-        const dueDate     = addDays(issueDate, settings?.payment_terms_days ?? 7)
-        const lineTotal   = items.reduce((s, li) => s + li.line_total, 0)
-        const subtotalAmt = form.vat_enabled ? lineTotal / 1.15 : lineTotal
-        const vatAmt      = form.vat_enabled ? lineTotal - subtotalAmt : 0
+          // ── 3. Calculate totals ───────────────────────────────────────────
+          const issueDate   = form.next_send_date
+          const dueDate     = addDays(issueDate, settings?.payment_terms_days ?? 7)
+          const lineTotal   = items.reduce((s, li) => s + li.line_total, 0)
+          const subtotalAmt = form.vat_enabled ? lineTotal / 1.15 : lineTotal
+          const vatAmt      = form.vat_enabled ? lineTotal - subtotalAmt : 0
 
-        // ── 4. Insert the first invoice ───────────────────────────────────
-        const { data: inv, error: invErr } = await supabase
-          .from('invoices')
-          .insert({
-            invoice_number:       invoiceNumber,
-            client_id:            form.client_id || null,
-            issue_date:           issueDate,
-            due_date:             dueDate,
-            notes:                form.notes || null,
-            vat_enabled:          form.vat_enabled,
-            vat_rate:             form.vat_enabled ? 15 : 0,
-            subtotal:             subtotalAmt,
-            vat_amount:           vatAmt,
-            total:                lineTotal,
-            amount_paid:          0,
-            status:               'draft',
-            from_recurring:       true,
-            notification_dismissed: false,
-            banking_details_snapshot: createBankingSnapshot(bankingList.find(b => b.id === bankingDetailId)),
-            user_id:              user.id,
-          })
-          .select()
-          .single()
-        if (invErr) throw new Error(invErr.message)
+          // ── 4. Insert the first invoice ───────────────────────────────────
+          const { data: inv, error: invErr } = await supabase
+            .from('invoices')
+            .insert({
+              invoice_number:       invoiceNumber,
+              client_id:            form.client_id || null,
+              issue_date:           issueDate,
+              due_date:             dueDate,
+              notes:                form.notes || null,
+              vat_enabled:          form.vat_enabled,
+              vat_rate:             form.vat_enabled ? 15 : 0,
+              subtotal:             subtotalAmt,
+              vat_amount:           vatAmt,
+              total:                lineTotal,
+              amount_paid:          0,
+              status:               'draft',
+              from_recurring:       true,
+              notification_dismissed: false,
+              banking_details_snapshot: createBankingSnapshot(bankingList.find(b => b.id === bankingDetailId)),
+              user_id:              user.id,
+            })
+            .select()
+            .single()
+          if (invErr) throw new Error(invErr.message)
 
-        // ── 5. Insert invoice_items ───────────────────────────────────────
-        if (items.length > 0) {
-          const { error: itemsErr } = await supabase
-            .from('invoice_items')
-            .insert(items.map(li => ({
-              invoice_id:  inv.id,
-              item_name:   li.item_name,
-              description: li.description,
-              quantity:    li.quantity,
-              unit_price:  li.unit_price,
-              line_total:  li.line_total,
-            })))
-          if (itemsErr) throw new Error(itemsErr.message)
+          // ── 5. Insert invoice_items ───────────────────────────────────────
+          if (items.length > 0) {
+            const { error: itemsErr } = await supabase
+              .from('invoice_items')
+              .insert(items.map(li => ({
+                invoice_id:  inv.id,
+                item_name:   li.item_name,
+                description: li.description,
+                quantity:    li.quantity,
+                unit_price:  li.unit_price,
+                line_total:  li.line_total,
+              })))
+            if (itemsErr) throw new Error(itemsErr.message)
+          }
+
+          // ── 6. Advance next_send_date and set last_sent_date ──────────────
+          const nextSendDate = calcNextSendDate(issueDate, form.interval)
+          await supabase
+            .from('recurring_invoices')
+            .update({ next_send_date: nextSendDate, last_sent_date: issueDate })
+            .eq('id', recurring.id)
+            .eq('user_id', user.id)
+
+          // ── 7. Refresh notification banners immediately ───────────────────
+          refreshNotifications()
+
+          setSaving(false)
+          onSaved({ ...recurring, next_send_date: nextSendDate, last_sent_date: issueDate, _firstInvoiceCreated: true })
+        } else {
+          setSaving(false)
+          onSaved({ ...recurring, _firstInvoiceCreated: false })
         }
-
-        // ── 6. Advance next_send_date and set last_sent_date ──────────────
-        const nextSendDate = calcNextSendDate(issueDate, form.interval)
-        await supabase
-          .from('recurring_invoices')
-          .update({ next_send_date: nextSendDate, last_sent_date: issueDate })
-          .eq('id', recurring.id)
-          .eq('user_id', user.id)
-
-        // ── 7. Refresh notification banners immediately ───────────────────
-        refreshNotifications()
-
-        setSaving(false)
-        onSaved({ ...recurring, next_send_date: nextSendDate, last_sent_date: issueDate, _firstInvoiceCreated: true })
 
       } else {
         const { error } = await supabase
