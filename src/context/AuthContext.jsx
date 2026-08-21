@@ -132,7 +132,14 @@ export function AuthProvider({ children }) {
     clearRecoveryMode: () => { recoveryModeRef.current = false; setRecoveryMode(false) },
     signIn:  (email, password) => signIn(email, password),
     signUp:  (email, password) => signUp(email, password),
-    signOut: ()                => signOut(),
+    // Resets the URL back to #/login on sign-out — otherwise the address bar
+    // is left showing whatever hash route (e.g. #/dashboard) was active when
+    // the user signed out, even though <Auth/> is what's actually rendered.
+    signOut: async () => {
+      const result = await signOut()
+      window.location.hash = '#/login'
+      return result
+    },
   }
 
   return (
