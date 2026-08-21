@@ -17,10 +17,20 @@ export default function GoogleAuthButton({ mode, onError }) {
 
   async function handleClick() {
     setLoading(true)
+    // No "#" here (not '/#/auth/callback') — Supabase's Google OAuth uses the
+    // implicit flow and appends "#access_token=..." to this redirectTo. If
+    // this value already contained its own "#", the result is two "#"
+    // characters in one URL (".../#/auth/callback#access_token=..."), which
+    // browsers treat as ONE mangled fragment starting at the first "#" —
+    // supabase-js can't parse access_token out of that, so it never detects
+    // the session even though Supabase already created one server-side. A
+    // plain path keeps Supabase's appended "#access_token=..." as the URL's
+    // only fragment. See App.jsx's matching check on window.location.pathname
+    // and AuthCallback.jsx.
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: window.location.origin + '/#/auth/callback',
+        redirectTo: window.location.origin + '/auth/callback',
       },
     })
     if (error) {
