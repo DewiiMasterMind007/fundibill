@@ -53,9 +53,9 @@ const DEFAULTS = {
   smtp_password:            '',
   smtp_from_name:           '',
   whatsapp_default_message:  'Hi {clientName}, please find invoice {invoiceNumber} for {amount} attached. Due date: {dueDate}. Thank you, {businessName}.',
-  whatsapp_estimate_message: 'Hi {clientName}, please find your estimate {quoteNumber} attached for the amount of {amount}. This quote/estimate is valid until {expiryDate}. Thank you for your business! Kind regards, {businessName}',
+  whatsapp_estimate_message: 'Hi {clientName}, please find your quote {quoteNumber} attached for the amount of {amount}. This quote is valid until {expiryDate}. Thank you for your business! Kind regards, {businessName}',
   email_invoice_message:     'Hi {clientName}, please find invoice {invoiceNumber} for {amount} attached. Due date: {dueDate}. Thank you, {businessName}.',
-  email_quote_message:       'Hi {clientName}, please find your estimate {quoteNumber} attached for the amount of {amount}. This quote/estimate is valid until {expiryDate}. Thank you for your business! Kind regards, {businessName}',
+  email_quote_message:       'Hi {clientName}, please find your quote {quoteNumber} attached for the amount of {amount}. This quote is valid until {expiryDate}. Thank you for your business! Kind regards, {businessName}',
   email_overdue_message:     'Hi {clientName}, this is a friendly reminder that invoice {invoiceNumber} for {amount} was due on {dueDate} and is now overdue. Please arrange payment at your earliest convenience. Kind regards, {businessName}',
   payment_terms_days:        7,
   auto_reminders_enabled:    false,
@@ -668,8 +668,12 @@ export default function Settings() {
         primary_color:            profile.primary_color            ?? DEFAULTS.primary_color,
         accent_color:             profile.accent_color             ?? DEFAULTS.accent_color,
         text_color:               profile.text_color               ?? DEFAULTS.text_color,
-        invoice_prefix:           profile.invoice_prefix           ?? DEFAULTS.invoice_prefix,
-        estimate_prefix:          profile.estimate_prefix          ?? DEFAULTS.estimate_prefix,
+        // Left empty (not defaulted to 'INV-'/'QT-') when the profile has no
+        // value saved — the input just shows its placeholder hint instead of
+        // an already-filled-in value; the actual 'INV-'/'QT-' fallback still
+        // applies wherever a number is generated with an empty prefix.
+        invoice_prefix:           profile.invoice_prefix           ?? '',
+        estimate_prefix:          profile.estimate_prefix          ?? '',
         starting_invoice_number:  profile.starting_invoice_number  ?? DEFAULTS.starting_invoice_number,
         starting_estimate_number: profile.starting_estimate_number ?? DEFAULTS.starting_estimate_number,
         default_payment_terms:    profile.default_payment_terms    ?? DEFAULTS.default_payment_terms,
@@ -1418,7 +1422,6 @@ export default function Settings() {
                 placeholder="QT-"
                 onChange={handleChange('estimate_prefix')}
                 onBlur={(e) => {
-                  if (!form.estimate_prefix?.trim()) setForm(p => ({ ...p, estimate_prefix: 'QT-' }))
                   blurStyle(e)
                 }}
                 onFocus={focusStyle}
@@ -1618,7 +1621,7 @@ export default function Settings() {
             <PlaceholderTextarea
               value={form.email_quote_message}
               onChange={v => setForm(p => ({ ...p, email_quote_message: v, whatsapp_estimate_message: v }))}
-              placeholder={`Hi {clientName}, please find your estimate {quoteNumber} attached for the amount of {amount}. This quote/estimate is valid until {expiryDate}. Thank you for your business! Kind regards, {businessName}`}
+              placeholder={`Hi {clientName}, please find your quote {quoteNumber} attached for the amount of {amount}. This quote is valid until {expiryDate}. Thank you for your business! Kind regards, {businessName}`}
               inpStyle={inp}
               onFocus={focusStyle}
               onBlur={blurStyle}

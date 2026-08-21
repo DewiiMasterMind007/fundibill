@@ -21,7 +21,7 @@ export function PdfPreviewModal({ isOpen, data, settings, docType, onClose }) {
 
   const filename = docType === 'INVOICE'
     ? `Invoice-${data?.invoice_number || 'draft'}.pdf`
-    : `Estimate-${data?.estimate_number || 'draft'}.pdf`
+    : `Quote-${data?.estimate_number || 'draft'}.pdf`
 
   // ── Generate PDF whenever the modal opens ──────────────────────────────────
   useEffect(() => {

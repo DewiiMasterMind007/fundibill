@@ -295,7 +295,7 @@ export function generateEstimateEmail({
       ${nl2br(customMessage)}
     </p>
     ${summaryBox([
-      ['Estimate Number', documentNumber || '—'],
+      ['Quote Number',    documentNumber || '—'],
       ['Expiry Date',     expiryDate     || '—'],
       ['Amount',         fmtAmount(amount)    ],
     ], color)}

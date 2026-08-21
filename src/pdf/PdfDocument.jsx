@@ -292,8 +292,8 @@ export function PdfDocument({ data, settings, docType }) {
             </View>
 
             <View style={S.headerRight}>
-              <Text style={[S.docLabel, D.docLabel]}>{docType}</Text>
-              <MetaRow label={isInvoice ? 'Invoice #' : 'Estimate #'} value={docNumber} />
+              <Text style={[S.docLabel, D.docLabel]}>{isInvoice ? 'INVOICE' : 'QUOTE'}</Text>
+              <MetaRow label={isInvoice ? 'Invoice #' : 'Quote #'} value={docNumber} />
               <MetaRow label="Issue Date"    value={data.issue_date} />
               <MetaRow label={secDateLabel}  value={secDate} />
               {showPaymentDate && (

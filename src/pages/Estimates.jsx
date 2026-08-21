@@ -583,7 +583,7 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
     async function genNumber() {
       const { data: existing } = await supabase
         .from('estimates').select('estimate_number').eq('user_id', user.id)
-      const prefix = settings?.estimate_prefix || 'EST-'
+      const prefix = settings?.estimate_prefix || 'QT-'
       const start  = settings?.starting_estimate_number || 1
       const rows   = existing ?? []
 
@@ -697,7 +697,7 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
     const clashId = clash?.[0]?.id
     if (clashId && clashId !== estimate?.id) {
       setSaving(false)
-      setErrors({ _global: `Estimate number ${form.estimate_number} is already in use. Please choose a different number.` })
+      setErrors({ _global: `Quote number ${form.estimate_number} is already in use. Please choose a different number.` })
       return
     }
 
@@ -995,7 +995,7 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
       }
 
       const blob         = new Blob([arrayBuffer], { type: 'application/pdf' })
-      const filename     = `Estimate-${form.estimate_number || 'draft'}.pdf`
+      const filename     = `Quote-${form.estimate_number || 'draft'}.pdf`
       const businessName = settings?.business_name || ''
       const clientName   = selectedClient?.company_name || selectedClient?.name || 'there'
       const message = buildEstimateWhatsAppMessage({
@@ -1010,7 +1010,7 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
       const result = await sendPdfViaWhatsApp({
         blob, filename, message,
         phone: selectedClient?.phone,
-        title: `Estimate ${form.estimate_number} from ${businessName}`,
+        title: `Quote ${form.estimate_number} from ${businessName}`,
       })
 
       if (result.status === 'fallback') {

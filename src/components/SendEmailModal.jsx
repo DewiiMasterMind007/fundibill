@@ -36,13 +36,13 @@ function smtpFromSettings(settings) {
 export function SendEmailModal({ isOpen, data, settings, docType, clientEmail, configuredMessage, onClose, onSent }) {
   const isInvoice   = docType === 'INVOICE'
   const docNumber   = isInvoice ? data?.invoice_number : data?.estimate_number
-  const docLabel    = isInvoice ? 'Invoice' : 'Estimate'
+  const docLabel    = isInvoice ? 'Invoice' : 'Quote'
   const businessName = settings?.business_name || settings?.smtp_from_name || 'us'
 
   const defaultSubject = `${docLabel} ${docNumber || ''} from ${businessName}`.trim()
   const hardcodedBody   = isInvoice
     ? `Hi,\n\nPlease find your invoice ${docNumber || ''} attached.\n\nIf you have any questions, feel free to reach out.\n\nThank you for your business!`
-    : `Hi,\n\nPlease find your estimate ${docNumber || ''} attached.\n\nLet us know if you'd like to discuss any of the details.\n\nThank you!`
+    : `Hi,\n\nPlease find your quote ${docNumber || ''} attached.\n\nLet us know if you'd like to discuss any of the details.\n\nThank you!`
   const defaultBody    = configuredMessage && configuredMessage.trim() ? configuredMessage : hardcodedBody
 
   const [to,      setTo]      = useState(clientEmail || '')
@@ -96,7 +96,7 @@ export function SendEmailModal({ isOpen, data, settings, docType, clientEmail, c
     try {
       const fileName = isInvoice
         ? `Invoice-${docNumber || 'draft'}.pdf`
-        : `Estimate-${docNumber || 'draft'}.pdf`
+        : `Quote-${docNumber || 'draft'}.pdf`
 
       // Profile fields fed into the template
       const templateData = {

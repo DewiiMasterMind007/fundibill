@@ -40,7 +40,7 @@ export function buildEstimateWhatsAppMessage({ clientName, estimateNumber, amoun
       .replace(/{expiryDate}/g,     expiryDate)
       .replace(/{businessName}/g,   businessName)
   }
-  return `Hi ${clientName}, please find estimate ${estimateNumber} for ${amount} attached. Valid until: ${expiryDate}. Please don't hesitate to contact us. Kind regards, ${businessName}.`
+  return `Hi ${clientName}, please find quote ${estimateNumber} for ${amount} attached. Valid until: ${expiryDate}. Please don't hesitate to contact us. Kind regards, ${businessName}.`
 }
 
 /**

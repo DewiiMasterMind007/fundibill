@@ -487,6 +487,14 @@ RLS: `"Users can manage their own banking details" FOR ALL USING (auth.uid() = u
 │   │   │                                    null → timestamp); sends the one-time welcome
 │   │   │                                    email via send-reminder.php, dedup-guarded by
 │   │   │                                    profiles.welcome_email_sent
+│   │   ├── notify-new-signup/index.ts    — Deno edge function; triggered by a Database Webhook
+│   │   │                                    on auth.users (INSERT); emails a new-signup alert
+│   │   │                                    to the FundiBill team (NOTIFY_TO_EMAIL) via
+│   │   │                                    send-reminder.php using its own NOTIFY_SMTP_*
+│   │   │                                    mailbox. Pre-existed this CLAUDE.md — not written
+│   │   │                                    in this repo's history, only discovered/pulled into
+│   │   │                                    the repo (`supabase functions download --use-api`)
+│   │   │                                    while fixing an em dash in its subject line.
 │   │   ├── process-recurring-invoices/index.ts — Deno edge function (cron); creates the next
 │   │   │                                invoice for every due recurring_invoices template and,
 │   │   │                                when auto_send is on, emails it to the client. See
@@ -526,9 +534,12 @@ RLS: `"Users can manage their own banking details" FOR ALL USING (auth.uid() = u
 │       │                                    columns on invoices. Must be run manually — see
 │       │                                    Section 6 "Automatic Payment Reminders" and Known
 │       │                                    Issue #13.
-│       └── add_invoice_sent_at.sql       — sent_at column on invoices (manual-send
-│                                            timestamp, parallels auto_sent_at). Must be run
-│                                            manually — see Known Issue #14.
+│       ├── add_invoice_sent_at.sql       — sent_at column on invoices (manual-send
+│       │                                    timestamp, parallels auto_sent_at). Must be run
+│       │                                    manually — see Known Issue #14.
+│       └── drop_prefix_column_defaults.sql — drops stale Postgres-level DEFAULT 'EST'/'INV'
+│                                            on profiles.estimate_prefix/invoice_prefix. Must be
+│                                            run manually — see Known Issue #15.
 │
 ├── assets/icon.ico             — App icon for Electron installer / taskbar
 ├── public/
@@ -686,7 +697,7 @@ Lets a user save more than one banking account in Settings and choose which one 
 > ⚠️ **Pre-feature invoices/estimates have `banking_details_snapshot = NULL`.** These fall back to the user's *current* profile banking details (`profiles.banking_details`) for PDF display, per the fallback above — not a backfill. If a user has since changed their profile banking details, an old invoice's PDF will show the *new* details, same as it always has (this is the pre-existing, unchanged behavior for any invoice issued before this feature; the feature only stops that from happening going forward).
 
 ### Quotes (Estimates)
-- Same CRUD and numbering as Invoices (prefix: QT- by default)
+- Same CRUD and numbering as Invoices (prefix: QT- by default). All *user-facing* text (email subjects/bodies, PDF header/labels, WhatsApp messages, attachment filenames, validation errors) says "Quote", never "Estimate" — internal naming (the `estimates`/`estimate_items` tables, `estimate_number` column, `docType="ESTIMATE"`, `generateEstimateEmail()`, etc.) intentionally still says "Estimate"; only what a user or their client actually reads was renamed. If adding new quote-related UI text, follow that same split.
 - Convert to Invoice: creates invoice, sets `estimates.converted_invoice_id`
 - View converted invoice number (fetched via `converted_invoice_id`) as a clickable link
 - Send by Email, WhatsApp share
@@ -957,7 +968,7 @@ If this trigger is added, `AuthCallback.jsx`'s own upsert becomes a harmless no-
 
 ### `send-welcome-email`
 - **Location:** `supabase/functions/send-welcome-email/index.ts`
-- **Triggered by:** a Postgres trigger on `auth.users` (`UPDATE`), created via SQL Editor — **not** a dashboard Database Webhook. Confirmed in this project that neither the Database → Webhooks screen nor the Triggers UI's table picker (which only lists `public.*` tables) can target `auth.users`, so the trigger + `pg_net.http_post()` call must be created directly via SQL (see Known Issues). The trigger fires on every `auth.users` UPDATE; the function itself filters so it only proceeds on the transition `email_confirmed_at: null → timestamp` (i.e. the user has just confirmed their email for the first time). There is no existing `notify-new-signup` function or webhook-secret-verification convention in this repo to follow; this function uses the same service-role-`Supabase` client pattern as `send-payment-reminders`, and relies on the Edge Functions gateway's default JWT verification (the SQL trigger sends the service role key as a Bearer token in its `pg_net.http_post()` headers — do **not** deploy with `--no-verify-jwt`).
+- **Triggered by:** a Postgres trigger on `auth.users` (`UPDATE`), created via SQL Editor — **not** a dashboard Database Webhook. Confirmed in this project that neither the Database → Webhooks screen nor the Triggers UI's table picker (which only lists `public.*` tables) can target `auth.users`, so the trigger + `pg_net.http_post()` call must be created directly via SQL (see Known Issues). The trigger fires on every `auth.users` UPDATE; the function itself filters so it only proceeds on the transition `email_confirmed_at: null → timestamp` (i.e. the user has just confirmed their email for the first time). There is no webhook-secret-verification convention in this repo to follow; this function uses the same service-role-`Supabase` client pattern as `send-payment-reminders`, and relies on the Edge Functions gateway's default JWT verification (the SQL trigger sends the service role key as a Bearer token in its `pg_net.http_post()` headers — do **not** deploy with `--no-verify-jwt`).
 - **What it does:**
   1. Reads `record`/`old_record` from the webhook payload; no-ops (returns `200 { skipped: true }`) unless `record.email_confirmed_at` is set and `old_record.email_confirmed_at` was null
   2. Dedup guard: looks up `profiles.welcome_email_sent` for the user — no-ops if already `true`
@@ -965,6 +976,13 @@ If this trigger is added, `AuthCallback.jsx`'s own upsert becomes a harmless no-
   4. `POST`s to `https://api.fundibill.online/send-reminder.php` with `to_email`/`subject`/`html_body`/`from_name` (field names matched to the existing contract used by `src/lib/sendEmail.js` — see Known Issues about the unverified `from_email` field and the relay's usual SMTP-credential requirement)
   5. On success, sets `profiles.welcome_email_sent = true`
 - **Env vars:** `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (same as `send-payment-reminders`), plus `WELCOME_EMAIL_SMTP_HOST`/`WELCOME_EMAIL_SMTP_PORT`/`WELCOME_EMAIL_SMTP_USER`/`WELCOME_EMAIL_SMTP_PASSWORD` — set via `supabase secrets set` (never committed). `send-reminder.php` rejects requests with `"Missing required fields"` unless SMTP credentials are included, same as every other caller in this codebase; since this is a system email with no per-user profile to pull SMTP settings from, it uses its own `info@fundibill.online` mailbox (`mail.fundibill.online:465`) instead.
+
+### `notify-new-signup`
+- **Location:** `supabase/functions/notify-new-signup/index.ts`
+- **Triggered by:** a Database Webhook on `auth.users` (`INSERT`) — internal team alert, unrelated to `send-welcome-email` (which emails the *new user*) or `send-auto-payment-reminders`/`process-recurring-invoices`. This one emails the FundiBill team whenever someone signs up.
+- **What it does:** reads the new `auth.users` row from the webhook payload (email, id, created_at, and `business_name` off `record` if present — usually not yet set at signup time, shows "Not set yet"), computes the 7-day trial end date, and `POST`s a notification email (with an Authentication → Users deep link) to `NOTIFY_TO_EMAIL` via `https://api.fundiai.co.za/send-reminder.php` — note the **different domain** (`fundiai.co.za`, not `fundibill.online`) from every other function's relay calls in this codebase; not a typo to "fix" if touching this function again, it's a separate relay endpoint.
+- **Env vars:** `NOTIFY_SMTP_HOST`, `NOTIFY_SMTP_USER`, `NOTIFY_SMTP_PASSWORD`, `NOTIFY_TO_EMAIL` (port is hardcoded `587` in the function itself, not an env var).
+- **History note:** this function predates its presence in this repo — it existed and was already deployed/working in Supabase before ever being written to `supabase/functions/` here. Pulled into the repo via `supabase functions download notify-new-signup --use-api` (the plain `download` command needs an interactive `supabase login`, which isn't available in this environment; `--use-api` unbundles server-side and works with the same project-scoped auth `db query --linked` already uses) while fixing an em dash in its subject line — if the deployed version and this repo's copy ever look like they've diverged, re-download rather than assume the repo copy is current.
 
 ### `process-recurring-invoices`
 - **Location:** `supabase/functions/process-recurring-invoices/index.ts`
@@ -1019,6 +1037,8 @@ If this trigger is added, `AuthCallback.jsx`'s own upsert becomes a harmless no-
 13. **Automatic payment reminders — migration, deploy, and cron schedule all required:** run `supabase/migrations/add_auto_payment_reminders.sql` in the SQL Editor; deploy `send-auto-payment-reminders` (`supabase functions deploy send-auto-payment-reminders --no-verify-jwt`) — and redeploy after every code change, same as `process-recurring-invoices`, nothing auto-deploys Edge Functions from a git push; schedule it via `pg_cron`/`pg_net` using the SQL in that function's own header comment. This is a separate deploy/schedule from `process-recurring-invoices` and the legacy `send-payment-reminders` — all three are independent cron jobs that must each be deployed and scheduled on their own.
 
 14. **Invoice status didn't advance on Send by Email — resolved:** despite Section 6's Invoices feature list saying "Send by Email: advances status from draft → sent", the actual code only ever set `sent_from_app = true` and explicitly left `status` alone (a comment on the `onSent` handler in both `Invoices.jsx` and `Estimates.jsx` said as much) — a real bug, not stale docs; found because it meant Record Payment never appeared after sending until the user separately clicked Mark as Sent. Both `onSent` handlers now promote `draft → sent` immediately on a successful send, update local form state right away (not just the DB — otherwise Record Payment still wouldn't appear without a reload/refetch), and for invoices also stamp `sent_at` the first time. `supabase/migrations/add_invoice_sent_at.sql` must be run manually for the new `sent_at` column before this works at all — the `onSent` handler sends `sent_from_app`/`status`/`sent_at` as one combined `.update()` call, so a missing `sent_at` column fails the *entire* update (Postgrest rejects unknown columns), not just that one field. Run the migration before relying on this fix.
+
+15. **`profiles.invoice_prefix`/`estimate_prefix` had stale Postgres-level defaults — resolved:** every new signup got `estimate_prefix` silently pre-filled to `'EST'` (and `invoice_prefix` to `'INV'`) by a column-level `DEFAULT` in Postgres, left over from before quotes were renamed from "Estimates" to "Quotes" in the UI — so Settings showed an already-filled-in "EST" prefix field instead of an empty one with a placeholder hint, even on a brand-new account. `supabase/migrations/drop_prefix_column_defaults.sql` must be run manually to drop those defaults for future signups; existing profiles' already-stored prefix values (including any inherited 'EST'/'INV') are untouched — this only changes what a *new* row gets when the app doesn't explicitly set these columns. Settings' own form-merge logic (`src/pages/Settings.jsx`) was also independently pre-filling the input value from `DEFAULTS.invoice_prefix`/`DEFAULTS.estimate_prefix` whenever the profile field was empty — fixed to leave it genuinely empty (the field's existing `placeholder="INV-"`/`"QT-"` already handled the visual hint; the live number-preview text below the field, and every actual number-generation call site, still fall back to `'INV-'`/`'QT-'` when the field is empty — only the editable input's pre-filled *value* changed). Also fixed in the same pass: `src/pages/Estimates.jsx`'s own number-generation fallback was `'EST-'`, inconsistent with Settings' `'QT-'` default (a real bug, not just terminology) — now `'QT-'`.
 
 ---
 
@@ -1116,8 +1136,9 @@ If this trigger is added, `AuthCallback.jsx`'s own upsert becomes a harmless no-
 | `PAYFAST_MERCHANT_ID` | `cancel-subscription` |
 | `PAYFAST_PASSPHRASE` | `cancel-subscription` (HMAC signature) |
 | `PAYFAST_SANDBOX` | `cancel-subscription` (`'true'` to use sandbox mode) |
-| `WELCOME_EMAIL_SMTP_HOST` / `_PORT` / `_USER` / `_PASSWORD` | `send-welcome-email`, `process-recurring-invoices` (CC-user email only) |
-| `VITE_APP_URL` | `process-recurring-invoices` — base URL for `/api/generate-invoice-pdf` and `/api/send-gmail` on Vercel. **Check whether this secret already exists in Supabase** (it's a *Vercel* env var already — see the table above — but Supabase Edge Function secrets are a separate store; it likely needs adding there too) |
+| `WELCOME_EMAIL_SMTP_HOST` / `_PORT` / `_USER` / `_PASSWORD` | `send-welcome-email`, `process-recurring-invoices`/`send-auto-payment-reminders` (CC-user email only) |
+| `VITE_APP_URL` | `process-recurring-invoices`, `send-auto-payment-reminders` — base URL for `/api/generate-invoice-pdf` and `/api/send-gmail` on Vercel. Set to `https://app.fundibill.online` in production; gets temporarily repointed at Vercel preview URLs during branch testing — check it's back on production before relying on either cron job |
+| `NOTIFY_SMTP_HOST` / `NOTIFY_SMTP_USER` / `NOTIFY_SMTP_PASSWORD` / `NOTIFY_TO_EMAIL` | `notify-new-signup` |
 
 ---
 
