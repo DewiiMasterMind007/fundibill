@@ -31,6 +31,11 @@ export default function GoogleAuthButton({ mode, onError }) {
       provider: 'google',
       options: {
         redirectTo: window.location.origin + '/auth/callback',
+        // Without this, Google silently re-authenticates using the browser's
+        // existing Google session + prior consent and skips its own UI
+        // entirely — which looks like "nothing happened, straight into the
+        // app" and makes it impossible to pick a different Google account.
+        queryParams: { prompt: 'select_account' },
       },
     })
     if (error) {
