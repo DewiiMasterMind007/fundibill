@@ -32,13 +32,16 @@ export function RecurringNotifProvider({ children }) {
     if (!user) { setNotifications([]); return }
 
     // 1. Invoices that need a notification banner
+    // status is 'draft' OR 'sent' (not just 'draft') so an auto-sent recurring
+    // invoice (auto_send on the template — see Section 6) still gets a banner,
+    // even though its status skips past 'draft' the moment it's auto-sent.
     const { data: invData } = await supabase
       .from('invoices')
       .select('id, invoice_number, client_id')
       .eq('user_id',              user.id)
       .eq('from_recurring',       true)
       .eq('notification_dismissed', false)
-      .eq('status',               'draft')
+      .in('status',               ['draft', 'sent'])
       .order('created_at', { ascending: false })
 
     if (!invData?.length) { setNotifications([]); return }

@@ -6,6 +6,11 @@
     }
   ],
   "outputDirectory": "dist/renderer",
+  "functions": {
+    "api/generate-invoice-pdf.js": {
+      "maxDuration": 30
+    }
+  },
   "headers": [
     {
       "source": "/:path*",

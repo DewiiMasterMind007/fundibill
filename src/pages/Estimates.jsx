@@ -1611,7 +1611,19 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
               })}
               onClose={() => setShowEmailModal(false)}
               onSent={async () => {
-                // Status NOT auto-promoted on email send — user clicks "Mark as Sent" manually
+                // Advance draft -> sent on a successful send, same fix as the
+                // invoice side — previously this did nothing and the user had
+                // to separately click "Mark as Sent" for status to update.
+                const estId = currentEstimateIdRef.current
+                if (estId && form.status === 'draft') {
+                  await supabase
+                    .from('estimates')
+                    .update({ status: 'sent' })
+                    .eq('id', estId)
+                    .eq('user_id', user.id)
+                  setField('status', 'sent')
+                  onSaved({ id: estId, status: 'sent' })
+                }
               }}
             />
           </>

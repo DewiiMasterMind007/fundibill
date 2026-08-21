@@ -146,6 +146,48 @@ function StatusBadge({ status }) {
   )
 }
 
+// Two-line pill — a status/label word on top, a date underneath. Used for
+// "Sent"/"Auto-Sent" (folds the old separate "Auto" badge into one pill,
+// since two side-by-side pills overflowed the Status column) and for the
+// Paid Date column, replacing what used to be plain wrapping text there.
+function TwoLinePill({ line1, line2, bg, color }) {
+  return (
+    <span style={{
+      display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-start',
+      padding: '3px 10px', borderRadius: 10, lineHeight: 1.35,
+      background: bg, color, whiteSpace: 'nowrap',
+    }}>
+      <span style={{ fontSize: 12, fontWeight: 600 }}>{line1}</span>
+      <span style={{ fontSize: 10, fontWeight: 500, opacity: 0.85 }}>{line2}</span>
+    </span>
+  )
+}
+
+const isoDateOnly = (v) => v ? String(v).slice(0, 10) : null
+
+// Status-column cell for an invoice row (list + mobile card). 'sent' status
+// becomes a two-line "Sent"/date or "Auto-Sent"/date pill (auto_sent_at for
+// auto-sent, the new sent_at column for a manual/app send); every other
+// status is the plain single-line StatusBadge, unchanged.
+function InvoiceStatusPill({ inv }) {
+  if (inv.status === 'sent') {
+    const isAuto = !!inv.auto_sent
+    const dateStr = isoDateOnly(isAuto ? inv.auto_sent_at : inv.sent_at)
+    if (dateStr) {
+      return isAuto
+        ? <TwoLinePill line1="Auto-Sent" line2={dateStr} bg="#e0f2fe" color="#0369a1" />
+        : <TwoLinePill line1="Sent" line2={dateStr} bg={STATUS_META.sent.bg} color={STATUS_META.sent.color} />
+    }
+  }
+  return <StatusBadge status={inv.status} />
+}
+
+// Paid Date column cell — was plain wrapping text, now a matching two-line pill.
+function InvoicePaidDatePill({ inv }) {
+  if (inv.status !== 'paid' || !inv.payment_date) return null
+  return <TwoLinePill line1="Paid" line2={inv.payment_date} bg="#dcfce7" color="#15803d" />
+}
+
 // Small pill shown on list rows to cross-link a converted invoice back to its source quote.
 function LinkPill({ label, onClick, title }) {
   return (
@@ -326,7 +368,7 @@ function MobileInvoiceCard({ inv, onSelect, onOpenReminder, onRecordPayment, onD
       {/* ── Status badge + linked quote pill ── */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <StatusBadge status={inv.status} />
+          <InvoiceStatusPill inv={inv} />
           {inv.from_estimate && (
             <LinkPill
               label={`from ${inv.from_estimate.estimate_number}`}
@@ -335,9 +377,7 @@ function MobileInvoiceCard({ inv, onSelect, onOpenReminder, onRecordPayment, onD
             />
           )}
         </div>
-        {inv.status === 'paid' && inv.payment_date && (
-          <span style={{ fontSize: 12, fontWeight: 600, color: '#15803d' }}>Paid: {inv.payment_date}</span>
-        )}
+        <InvoicePaidDatePill inv={inv} />
       </div>
     </div>
   )
@@ -2012,14 +2052,23 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
               })}
               onClose={() => setShowEmailModal(false)}
               onSent={async () => {
-                // Mark sent_from_app on successful email send (status NOT auto-promoted)
+                // Mark sent_from_app, advance draft -> sent (so Record Payment
+                // becomes available immediately, without a reload), and record
+                // when this invoice was first sent from the app (sent_at —
+                // parallels auto_sent_at for auto-sent recurring invoices,
+                // shown as "Sent [date]" on the invoice list).
                 const invId = currentInvoiceIdRef.current
                 if (invId) {
+                  const patch = { sent_from_app: true }
+                  if (form.status === 'draft') patch.status = 'sent'
+                  if (!invoice?.sent_at) patch.sent_at = new Date().toISOString()
                   await supabase
                     .from('invoices')
-                    .update({ sent_from_app: true })
+                    .update(patch)
                     .eq('id', invId)
                     .eq('user_id', user.id)
+                  if (patch.status) setField('status', patch.status)
+                  onSaved({ id: invId, ...patch })
                 }
                 // Dismiss the recurring notification banner if applicable
                 if (invoice?.from_recurring) {
@@ -2136,7 +2185,30 @@ function RecurringForm({ recurringInvoice, clients, catalog, settings, onBack, o
     notes:          recurringInvoice?.notes          || '',
     email_subject:  recurringInvoice?.email_subject  || defaultSubject,
     email_message:  recurringInvoice?.email_message  || defaultMessage,
+    auto_send:          recurringInvoice?.auto_send          ?? false,
+    auto_send_cc_user:  recurringInvoice?.auto_send_cc_user  ?? true,
   }))
+
+  const [toast, setToast] = useState(null)
+
+  // Banking details selector — which account this recurring template's
+  // invoices (both the first one, created here, and every subsequent one
+  // created by the process-recurring-invoices cron job) should snapshot.
+  const [bankingList, setBankingList] = useState([])
+  const [bankingDetailId, setBankingDetailId] = useState(recurringInvoice?.banking_detail_id || null)
+  useEffect(() => {
+    if (!user?.id) return
+    let cancelled = false
+    getBankingDetails(supabase, user.id).then(list => {
+      if (cancelled) return
+      setBankingList(list)
+      if (!recurringInvoice?.banking_detail_id) {
+        const def = list.find(b => b.is_default) || list[0]
+        setBankingDetailId(def?.id || null)
+      }
+    }).catch(() => {})
+    return () => { cancelled = true }
+  }, [user?.id])
 
   const [lineItems, setLineItems] = useState(() =>
     recurringInvoice?.items?.length
@@ -2148,6 +2220,8 @@ function RecurringForm({ recurringInvoice, clients, catalog, settings, onBack, o
   const [errors, setErrors]           = useState({})
   const [showAddClient, setShowAddClient] = useState(false)
   const [extraClients, setExtraClients]   = useState([])
+
+  const selectedClient = [...clients, ...extraClients].find(c => c.id === form.client_id)
 
   const grossTotal = lineItems.reduce((s, li) => s + (Number(li.quantity) || 0) * (Number(li.unit_price) || 0), 0)
   const subtotal   = form.vat_enabled ? grossTotal / 1.15 : grossTotal
@@ -2180,6 +2254,13 @@ function RecurringForm({ recurringInvoice, clients, catalog, settings, onBack, o
   async function handleSave() {
     const errs = validate()
     if (Object.keys(errs).length) { setErrors(errs); return }
+
+    // Warn but don't block saving — matches the spec: still allow saving,
+    // just tell the user auto-send won't do anything without a client email.
+    if (form.auto_send && !selectedClient?.email?.trim()) {
+      setToast({ message: 'Auto-send requires the client to have an email address. Please add an email to this client first.', type: 'error' })
+    }
+
     setSaving(true)
     setErrors({})
 
@@ -2201,6 +2282,9 @@ function RecurringForm({ recurringInvoice, clients, catalog, settings, onBack, o
       notes:          form.notes || null,
       email_subject:  form.email_subject || null,
       email_message:  form.email_message || null,
+      auto_send:          form.auto_send,
+      auto_send_cc_user:  form.auto_send_cc_user,
+      banking_detail_id:  bankingDetailId,
       items,
     }
 
@@ -2227,7 +2311,7 @@ function RecurringForm({ recurringInvoice, clients, catalog, settings, onBack, o
 
         // ── 3. Calculate totals ───────────────────────────────────────────
         const issueDate   = form.next_send_date
-        const dueDate     = addDays(issueDate, 30)
+        const dueDate     = addDays(issueDate, settings?.payment_terms_days ?? 7)
         const lineTotal   = items.reduce((s, li) => s + li.line_total, 0)
         const subtotalAmt = form.vat_enabled ? lineTotal / 1.15 : lineTotal
         const vatAmt      = form.vat_enabled ? lineTotal - subtotalAmt : 0
@@ -2250,6 +2334,7 @@ function RecurringForm({ recurringInvoice, clients, catalog, settings, onBack, o
             status:               'draft',
             from_recurring:       true,
             notification_dismissed: false,
+            banking_details_snapshot: createBankingSnapshot(bankingList.find(b => b.id === bankingDetailId)),
             user_id:              user.id,
           })
           .select()
@@ -2383,6 +2468,45 @@ function RecurringForm({ recurringInvoice, clients, catalog, settings, onBack, o
                   <input type="date" value={form.next_send_date} onChange={e => setField('next_send_date', e.target.value)} style={{ ...inputStyle(!!errors.next_send_date), maxWidth: '100%' }} />
                   {errors.next_send_date && <p style={{ color: '#ef4444', fontSize: 12, marginTop: 4 }}>{errors.next_send_date}</p>}
                 </div>
+              </div>
+
+              {/* Banking details for this recurring invoice's snapshots */}
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 6 }}>Banking Details</label>
+                <BankingDetailsSelector bankingDetails={bankingList} value={bankingDetailId} onChange={setBankingDetailId} />
+              </div>
+
+              {/* Auto-send toggle */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', userSelect: 'none' }}>
+                  <input
+                    type="checkbox"
+                    checked={!!form.auto_send}
+                    onChange={e => setField('auto_send', e.target.checked)}
+                    style={{ width: 16, height: 16, accentColor: '#14b8a6', cursor: 'pointer' }}
+                  />
+                  <span style={{ fontSize: 14, fontWeight: 500, color: '#374151' }}>Automatically send invoice by email</span>
+                </label>
+                <p style={{ fontSize: 12, color: '#94a3b8', margin: '-4px 0 0 26px' }}>
+                  When enabled, the invoice will be automatically emailed to the client when it is created each cycle.
+                </p>
+
+                {form.auto_send && (
+                  <>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', userSelect: 'none', marginLeft: 26 }}>
+                      <input
+                        type="checkbox"
+                        checked={!!form.auto_send_cc_user}
+                        onChange={e => setField('auto_send_cc_user', e.target.checked)}
+                        style={{ width: 16, height: 16, accentColor: '#14b8a6', cursor: 'pointer' }}
+                      />
+                      <span style={{ fontSize: 14, fontWeight: 500, color: '#374151' }}>Send me a confirmation email when sent</span>
+                    </label>
+                    <p style={{ fontSize: 12, color: '#94a3b8', margin: '-4px 0 0 52px' }}>
+                      Receive an email confirmation each time a recurring invoice is automatically sent.
+                    </p>
+                  </>
+                )}
               </div>
             </div>
           </div>
@@ -2538,11 +2662,28 @@ function RecurringForm({ recurringInvoice, clients, catalog, settings, onBack, o
         <AddClientModal onClose={() => setShowAddClient(false)}
           onCreated={client => { setShowAddClient(false); setExtraClients(prev => [...prev, client]); setField('client_id', client.id); refreshClients() }} />
       )}
+
+      {toast && <Toast message={toast.message} type={toast.type} onDone={() => setToast(null)} />}
     </div>
   )
 }
 
 // ─── Recurring List ───────────────────────────────────────────────────────────
+
+// Small badge shown on a recurring invoice row when auto-send is enabled.
+function AutoSendBadge() {
+  return (
+    <span
+      title="This recurring invoice will be automatically emailed to the client"
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 20,
+        fontSize: 11, fontWeight: 600, background: '#dcfce7', color: '#15803d', flexShrink: 0,
+      }}
+    >
+      ✉ Auto-send on
+    </span>
+  )
+}
 
 function RecurringList({ recurring, clients, onNew, onEdit, onPauseResume, onDelete, onBack, isReadOnly }) {
   const [confirmDeleteId, setConfirmDeleteId] = useState(null)
@@ -2600,9 +2741,12 @@ function RecurringList({ recurring, clients, onNew, onEdit, onPauseResume, onDel
                       <div style={{ fontSize: 12, color: '#94a3b8' }}>{client.name}</div>
                     )}
                   </div>
-                  <span style={{ display: 'inline-block', padding: '3px 10px', borderRadius: 20, fontSize: 12, fontWeight: 600, background: isActive ? '#dcfce7' : '#f1f5f9', color: isActive ? '#15803d' : '#475569', flexShrink: 0 }}>
-                    {isActive ? 'Active' : 'Paused'}
-                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                    {rec.auto_send && <AutoSendBadge />}
+                    <span style={{ display: 'inline-block', padding: '3px 10px', borderRadius: 20, fontSize: 12, fontWeight: 600, background: isActive ? '#dcfce7' : '#f1f5f9', color: isActive ? '#15803d' : '#475569' }}>
+                      {isActive ? 'Active' : 'Paused'}
+                    </span>
+                  </div>
                 </div>
                 {/* Details row */}
                 <div style={{ display: 'flex', gap: 16, marginBottom: 12, flexWrap: 'wrap' }}>
@@ -2655,7 +2799,10 @@ function RecurringList({ recurring, clients, onNew, onEdit, onPauseResume, onDel
               return (
                 <div key={rec.id} style={{ display: 'grid', gridTemplateColumns: '1fr 90px 115px 115px 80px 170px', columnGap: 16, padding: '14px 20px', borderBottom: '1px solid #f9fafb', alignItems: 'center' }}>
                   <div>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: '#0f172a' }}>{client?.name || '—'}</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: '#0f172a' }}>{client?.name || '—'}</span>
+                      {rec.auto_send && <AutoSendBadge />}
+                    </div>
                     {client?.company_name && client.company_name !== client.name && (
                       <div style={{ fontSize: 12, color: '#94a3b8' }}>{client.company_name}</div>
                     )}
@@ -3063,7 +3210,7 @@ function ListView({ invoices, onNew, onRecurring, onSelect, onOpenReminder, onRe
       ) : (
         /* Desktop: table (unchanged) */
         <div className="invoices-table" style={{ background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.04)', overflow: 'hidden', flex: 1, display: 'flex', flexDirection: 'column' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr 110px 110px 120px 110px 100px 32px', padding: '12px 20px', borderBottom: '1px solid #f1f5f9', background: '#f8fafc', flexShrink: 0 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr 110px 110px 120px 130px 110px 32px', padding: '12px 20px', borderBottom: '1px solid #f1f5f9', background: '#f8fafc', flexShrink: 0 }}>
             {['Invoice #', 'Client', 'Issue Date', 'Due Date', 'Total', 'Status', 'Paid Date', ''].map(h => (
               <span key={h} style={{ fontSize: 12, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</span>
             ))}
@@ -3072,7 +3219,7 @@ function ListView({ invoices, onNew, onRecurring, onSelect, onOpenReminder, onRe
             {filtered.length === 0 ? emptyState : (
               filtered.map(inv => (
                 <div key={inv.id} onClick={() => onSelect(inv)}
-                  style={{ display: 'grid', gridTemplateColumns: '140px 1fr 110px 110px 120px 110px 100px 32px', padding: '14px 20px', borderBottom: '1px solid #f9fafb', cursor: 'pointer', alignItems: 'center' }}
+                  style={{ display: 'grid', gridTemplateColumns: '140px 1fr 110px 110px 120px 130px 110px 32px', padding: '14px 20px', borderBottom: '1px solid #f9fafb', cursor: 'pointer', alignItems: 'center' }}
                   onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
                   onMouseLeave={e => e.currentTarget.style.background = '#fff'}>
                   <div>
@@ -3099,10 +3246,8 @@ function ListView({ invoices, onNew, onRecurring, onSelect, onOpenReminder, onRe
                   ) : (
                     <span style={{ fontSize: 13, fontWeight: 600, color: '#0f172a' }}>{fmt(inv.total)}</span>
                   )}
-                  <StatusBadge status={inv.status} />
-                  <span style={{ fontSize: 12, fontWeight: 600, color: '#15803d' }}>
-                    {inv.status === 'paid' && inv.payment_date ? `Paid: ${inv.payment_date}` : ''}
-                  </span>
+                  <InvoiceStatusPill inv={inv} />
+                  <InvoicePaidDatePill inv={inv} />
                   {inv.status !== 'paid' && inv.status !== 'draft' && inv.due_date && inv.due_date < todayStr() ? (
                     <span
                       onClick={e => { e.stopPropagation(); onOpenReminder(inv) }}

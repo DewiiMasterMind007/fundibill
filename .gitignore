@@ -5,3 +5,6 @@ release/
 *.log
 .claude/
 supabase/.temp/
+api/_lib/
+.vercel
+.env*
