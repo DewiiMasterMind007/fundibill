@@ -518,13 +518,17 @@ function AutocompleteInput({ value, onChange, catalog, placeholder }) {
   const [focused, setFocused] = useState(false)
   const ref = useRef(null)
 
-  const suggestions = value.trim()
-    ? catalog.filter(i => i.name.toLowerCase().startsWith(value.trim().toLowerCase())).slice(0, 8)
+  // value can be null for a line item whose item_name was never set in the DB
+  // (e.g. imported data) — crashed the whole page on render (blank screen)
+  // before this guard, since it ran unconditionally on every render.
+  const safeValue = value || ''
+  const suggestions = safeValue.trim()
+    ? catalog.filter(i => i.name.toLowerCase().startsWith(safeValue.toLowerCase())).slice(0, 8)
     : []
 
   return (
     <div ref={ref} style={{ position: 'relative', flex: 1 }}>
-      <input value={value} onChange={e => onChange(e.target.value, null)}
+      <input value={safeValue} onChange={e => onChange(e.target.value, null)}
         onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
         placeholder={placeholder}
         style={{ width: '100%', padding: '7px 10px', borderRadius: 7, fontSize: 13, border: '1px solid #e2e8f0', background: '#f8fafc', color: '#0f172a', outline: 'none', boxSizing: 'border-box' }} />
@@ -916,7 +920,7 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
     if (!form.client_id)  errs.client_id  = 'Select a client.'
     if (!form.issue_date) errs.issue_date  = 'Required.'
     if (!form.due_date)   errs.due_date    = 'Required.'
-    if (!lineItems.some(li => li.item_name.trim())) errs.items = 'Add at least one line item.'
+    if (!lineItems.some(li => (li.item_name || '').trim())) errs.items = 'Add at least one line item.'
     return errs
   }
 
@@ -979,7 +983,7 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
     }
 
     const items = lineItems
-      .filter(li => li.item_name.trim())
+      .filter(li => (li.item_name || '').trim())
       .map(li => ({
         item_name:   li.item_name,
         description: li.description || null,
@@ -993,7 +997,7 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
     const catalogNames = new Set(catalog.map(c => c.name.toLowerCase()))
     let catalogChanged = false
     for (const li of items) {
-      if (li.item_name.trim() && !catalogNames.has(li.item_name.toLowerCase())) {
+      if ((li.item_name || '').trim() && !catalogNames.has(li.item_name.toLowerCase())) {
         const { error: itemErr } = await supabase.from('items').insert({
           name: li.item_name, description: li.description || null,
           unit_price: li.unit_price, user_id: user.id,
@@ -1143,7 +1147,7 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
         client_email:   selectedClient?.email || '',
         client_phone:   selectedClient?.phone || '',
         client_address: selectedClient?.address || '',
-        items:          lineItems.filter(li => li.item_name.trim()),
+        items:          lineItems.filter(li => (li.item_name || '').trim()),
         payments:       invoicePayments,
         banking_details_snapshot: createBankingSnapshot(bankingList.find(b => b.id === bankingDetailId)),
       }
@@ -1251,7 +1255,7 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
           client_email:   selectedClient?.email || '',
           client_phone:   selectedClient?.phone || '',
           client_address: selectedClient?.address || '',
-          items:          lineItems.filter(li => li.item_name.trim()),
+          items:          lineItems.filter(li => (li.item_name || '').trim()),
           payments:       invoicePayments,
           banking_details_snapshot: createBankingSnapshot(bankingList.find(b => b.id === bankingDetailId)),
         }
@@ -1376,7 +1380,7 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
         client_email:   selectedClient?.email || '',
         client_phone:   selectedClient?.phone || '',
         client_address: selectedClient?.address || '',
-        items:          lineItems.filter(li => li.item_name.trim()),
+        items:          lineItems.filter(li => (li.item_name || '').trim()),
         payments:       invoicePayments,
         banking_details_snapshot: createBankingSnapshot(bankingList.find(b => b.id === bankingDetailId)),
       }
@@ -2024,7 +2028,7 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
           client_email:   selectedClient?.email || '',
           client_phone:   selectedClient?.phone || '',
           client_address: selectedClient?.address || '',
-          items:          lineItems.filter(li => li.item_name.trim()),
+          items:          lineItems.filter(li => (li.item_name || '').trim()),
           payments:       invoicePayments,
           banking_details_snapshot: createBankingSnapshot(bankingList.find(b => b.id === bankingDetailId)),
         }
@@ -2247,7 +2251,7 @@ function RecurringForm({ recurringInvoice, clients, catalog, settings, onBack, o
     const errs = {}
     if (!form.client_id)      errs.client_id      = 'Select a client.'
     if (!form.next_send_date) errs.next_send_date  = 'Required.'
-    if (!lineItems.some(li => li.item_name.trim())) errs.items = 'Add at least one line item.'
+    if (!lineItems.some(li => (li.item_name || '').trim())) errs.items = 'Add at least one line item.'
     return errs
   }
 
@@ -2265,7 +2269,7 @@ function RecurringForm({ recurringInvoice, clients, catalog, settings, onBack, o
     setErrors({})
 
     const items = lineItems
-      .filter(li => li.item_name.trim())
+      .filter(li => (li.item_name || '').trim())
       .map(li => ({
         item_name:   li.item_name,
         description: li.description || null,

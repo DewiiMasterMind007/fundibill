@@ -442,8 +442,12 @@ function AutocompleteInput({ value, onChange, catalog, placeholder }) {
   const [focused, setFocused] = useState(false)
   const ref = useRef(null)
 
-  const suggestions = value.trim()
-    ? catalog.filter(i => i.name.toLowerCase().startsWith(value.trim().toLowerCase())).slice(0, 8)
+  // value can be null for a line item whose item_name was never set in the DB
+  // (e.g. imported data) — crashed the whole page on render (blank screen)
+  // before this guard, since it ran unconditionally on every render.
+  const safeValue = value || ''
+  const suggestions = safeValue.trim()
+    ? catalog.filter(i => i.name.toLowerCase().startsWith(safeValue.toLowerCase())).slice(0, 8)
     : []
 
   const showDropdown = focused && suggestions.length > 0
@@ -457,7 +461,7 @@ function AutocompleteInput({ value, onChange, catalog, placeholder }) {
   return (
     <div ref={ref} style={{ position: 'relative', flex: 1 }}>
       <input
-        value={value}
+        value={safeValue}
         onChange={e => onChange(e.target.value, null)}
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
@@ -669,7 +673,7 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
     if (!form.client_id) errs.client_id = 'Select a client.'
     if (!form.issue_date) errs.issue_date = 'Required.'
     if (!form.expiry_date) errs.expiry_date = 'Required.'
-    const validLines = lineItems.filter(li => li.item_name.trim())
+    const validLines = lineItems.filter(li => (li.item_name || '').trim())
     if (validLines.length === 0) errs.items = 'Add at least one line item.'
     return errs
   }
@@ -719,7 +723,7 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
     }
 
     const items = lineItems
-      .filter(li => li.item_name.trim())
+      .filter(li => (li.item_name || '').trim())
       .map(li => ({
         item_name: li.item_name,
         description: li.description || null,
@@ -733,7 +737,7 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
     const catalogNames = new Set(catalog.map(c => c.name.toLowerCase()))
     let catalogChanged = false
     for (const li of items) {
-      if (li.item_name.trim() && !catalogNames.has(li.item_name.toLowerCase())) {
+      if ((li.item_name || '').trim() && !catalogNames.has(li.item_name.toLowerCase())) {
         const { error: itemErr } = await supabase.from('items').insert({
           name: li.item_name, description: li.description || null,
           unit_price: li.unit_price, user_id: user.id,
@@ -799,7 +803,7 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
     setErrors({})
 
     const items = lineItems
-      .filter(li => li.item_name.trim())
+      .filter(li => (li.item_name || '').trim())
       .map(li => ({
         item_name: li.item_name,
         description: li.description || null,
@@ -981,7 +985,7 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
         client_email:    selectedClient?.email || '',
         client_phone:    selectedClient?.phone || '',
         client_address:  selectedClient?.address || '',
-        items:           lineItems.filter(li => li.item_name.trim()),
+        items:           lineItems.filter(li => (li.item_name || '').trim()),
         banking_details_snapshot: createBankingSnapshot(bankingList.find(b => b.id === bankingDetailId)),
       }
 
@@ -1584,7 +1588,7 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
           client_email: selectedClient?.email || '',
           client_phone: selectedClient?.phone || '',
           client_address: selectedClient?.address || '',
-          items: lineItems.filter(li => li.item_name.trim()),
+          items: lineItems.filter(li => (li.item_name || '').trim()),
           banking_details_snapshot: createBankingSnapshot(bankingList.find(b => b.id === bankingDetailId)),
         }
         return (
