@@ -258,7 +258,7 @@ function RevertConfirmModal({ message, onConfirm, onCancel, confirming }) {
 
 // ─── Mobile Invoice Card ──────────────────────────────────────────────────────
 
-function MobileInvoiceCard({ inv, onSelect, onOpenReminder, onRecordPayment, onDelete, isReadOnly }) {
+function MobileInvoiceCard({ inv, onSelect, onOpenReminder, onRecordPayment, onDelete, isReadOnly, selected, onToggleSelect }) {
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef(null)
   const navigate = useNavigate()
@@ -292,6 +292,13 @@ function MobileInvoiceCard({ inv, onSelect, onOpenReminder, onRecordPayment, onD
       {/* ── Top row: invoice # + bell + three-dot menu ── */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <input
+            type="checkbox"
+            checked={!!selected}
+            onClick={e => e.stopPropagation()}
+            onChange={() => onToggleSelect(inv.id)}
+            style={{ width: 16, height: 16, accentColor: '#14b8a6', cursor: 'pointer' }}
+          />
           <span style={{ fontSize: 14, fontWeight: 700, color: '#0f172a' }}>{inv.invoice_number}</span>
           {isOverdueBell && (
             <span
@@ -3083,11 +3090,38 @@ function ReminderModal({ invoice, clients, settings, onClose, onReminderSent }) 
 
 const STATUS_TABS = ['all', 'draft', 'sent', 'partial', 'paid', 'overdue']
 
-function ListView({ invoices, onNew, onRecurring, onSelect, onOpenReminder, onRecordPayment, onDelete, isReadOnly }) {
+function ListView({ invoices, onNew, onRecurring, onSelect, onOpenReminder, onRecordPayment, onDelete, onBulkDelete, isReadOnly }) {
   const [tab, setTab]   = useState('all')
   const isMobile        = useIsMobile()
   const navigate        = useNavigate()
   const filtered        = tab === 'all' ? invoices : invoices.filter(inv => inv.status === tab)
+
+  // Bulk selection (Gmail-style) — cleared whenever the visible set changes
+  // (tab switch, or the underlying list reloading) so a stale checked id
+  // can't linger once it's no longer even shown.
+  const [selectedIds, setSelectedIds] = useState(() => new Set())
+  useEffect(() => { setSelectedIds(new Set()) }, [tab])
+  useEffect(() => {
+    setSelectedIds(prev => {
+      const validIds = new Set(invoices.map(inv => inv.id))
+      const next = new Set([...prev].filter(id => validIds.has(id)))
+      return next.size === prev.size ? prev : next
+    })
+  }, [invoices])
+
+  function toggleSelected(id) {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
+  function toggleSelectAll() {
+    setSelectedIds(prev =>
+      prev.size === filtered.length ? new Set() : new Set(filtered.map(inv => inv.id))
+    )
+  }
 
   const tabStyle = (active) => ({
     padding:    isMobile ? '5px 12px' : '6px 14px',
@@ -3116,6 +3150,42 @@ function ListView({ invoices, onNew, onRecurring, onSelect, onOpenReminder, onRe
 
   return (
     <div style={{ padding: isMobile ? 16 : 32, height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column' }}>
+
+      {/* ── Bulk-selection action bar (Gmail-style) — appears once at least
+           one row is checked, sits above the normal page header ── */}
+      {selectedIds.size > 0 && (
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          gap: 10, padding: isMobile ? '10px 14px' : '10px 18px',
+          marginBottom: isMobile ? 10 : 14, borderRadius: 10,
+          background: '#0f172a', color: '#fff', flexShrink: 0,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+            <button
+              onClick={() => setSelectedIds(new Set())}
+              title="Clear selection"
+              style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', display: 'flex', padding: 4, opacity: 0.8 }}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+            <span style={{ fontSize: 14, fontWeight: 600, whiteSpace: 'nowrap' }}>{selectedIds.size} selected</span>
+          </div>
+          {!isReadOnly && (
+            <button
+              onClick={() => onBulkDelete([...selectedIds])}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 6, background: '#ef4444', color: '#fff',
+                border: 'none', borderRadius: 8, padding: '8px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer', flexShrink: 0,
+              }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" /><path d="M10 11v6M14 11v6M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2" />
+              </svg>
+              Delete
+            </button>
+          )}
+        </div>
+      )}
 
       {/* ── Page header ── */}
       <div style={{
@@ -3219,13 +3289,21 @@ function ListView({ invoices, onNew, onRecurring, onSelect, onOpenReminder, onRe
               onRecordPayment={onRecordPayment}
               onDelete={onDelete}
               isReadOnly={isReadOnly}
+              selected={selectedIds.has(inv.id)}
+              onToggleSelect={toggleSelected}
             />
           ))}
         </div>
       ) : (
         /* Desktop: table (unchanged) */
         <div className="invoices-table" style={{ background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.04)', overflow: 'hidden', flex: 1, display: 'flex', flexDirection: 'column' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr 110px 110px 120px 130px 110px 32px', padding: '12px 20px', borderBottom: '1px solid #f1f5f9', background: '#f8fafc', flexShrink: 0 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '28px 140px 1fr 110px 110px 120px 130px 110px 32px', padding: '12px 20px', borderBottom: '1px solid #f1f5f9', background: '#f8fafc', flexShrink: 0, alignItems: 'center' }}>
+            <input
+              type="checkbox"
+              checked={filtered.length > 0 && selectedIds.size === filtered.length}
+              onChange={toggleSelectAll}
+              style={{ width: 15, height: 15, accentColor: '#14b8a6', cursor: 'pointer' }}
+            />
             {['Invoice #', 'Client', 'Issue Date', 'Due Date', 'Total', 'Status', 'Paid Date', ''].map(h => (
               <span key={h} style={{ fontSize: 12, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</span>
             ))}
@@ -3234,9 +3312,16 @@ function ListView({ invoices, onNew, onRecurring, onSelect, onOpenReminder, onRe
             {filtered.length === 0 ? emptyState : (
               filtered.map(inv => (
                 <div key={inv.id} onClick={() => onSelect(inv)}
-                  style={{ display: 'grid', gridTemplateColumns: '140px 1fr 110px 110px 120px 130px 110px 32px', padding: '14px 20px', borderBottom: '1px solid #f9fafb', cursor: 'pointer', alignItems: 'center' }}
+                  style={{ display: 'grid', gridTemplateColumns: '28px 140px 1fr 110px 110px 120px 130px 110px 32px', padding: '14px 20px', borderBottom: '1px solid #f9fafb', cursor: 'pointer', alignItems: 'center' }}
                   onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
                   onMouseLeave={e => e.currentTarget.style.background = '#fff'}>
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.has(inv.id)}
+                    onClick={e => e.stopPropagation()}
+                    onChange={() => toggleSelected(inv.id)}
+                    style={{ width: 15, height: 15, accentColor: '#14b8a6', cursor: 'pointer' }}
+                  />
                   <div>
                     <span style={{ fontSize: 13, fontWeight: 600, color: '#0f172a', display: 'block' }}>{inv.invoice_number}</span>
                     {inv.from_estimate && (
@@ -3335,6 +3420,8 @@ export default function Invoices() {
   const [markPaidListInv,      setMarkPaidListInv]      = useState(null)
   const [deleteListConfirmInv, setDeleteListConfirmInv] = useState(null)
   const [deletingFromList,     setDeletingFromList]     = useState(false)
+  const [bulkDeleteIds,        setBulkDeleteIds]        = useState(null)
+  const [bulkDeleting,         setBulkDeleting]         = useState(false)
   const [pendingMarkPaidMethod, setPendingMarkPaidMethod] = useState(null)
   const [showMarkPaidEmailModalList, setShowMarkPaidEmailModalList] = useState(false)
   const [sendingPaymentEmailList, setSendingPaymentEmailList] = useState(false)
@@ -3652,6 +3739,18 @@ export default function Invoices() {
     else { await load(); setToast({ message: 'Invoice deleted.', type: 'success' }) }
   }
 
+  // ── Bulk delete from list ─────────────────────────────────────────────────
+  async function handleBulkDelete() {
+    const ids = bulkDeleteIds
+    if (!ids || ids.length === 0) return
+    setBulkDeleting(true)
+    const { error } = await supabase.from('invoices').delete().in('id', ids).eq('user_id', user.id)
+    setBulkDeleting(false)
+    setBulkDeleteIds(null)
+    if (error) { setToast({ message: error.message, type: 'error' }) }
+    else { await load(); setToast({ message: `${ids.length} invoice${ids.length === 1 ? '' : 's'} deleted.`, type: 'success' }) }
+  }
+
   // ── Recurring invoice handlers ────────────────────────────────────────────
 
   function openRecurringList() {
@@ -3725,6 +3824,7 @@ export default function Invoices() {
           onOpenReminder={openReminder}
           onRecordPayment={inv => setRecordPaymentListInv(inv)}
           onDelete={inv  => setDeleteListConfirmInv(inv)}
+          onBulkDelete={ids => setBulkDeleteIds(ids)}
           isReadOnly={isReadOnly}
         />
       )}
@@ -3850,6 +3950,27 @@ export default function Invoices() {
               <button onClick={handleDeleteFromList} disabled={deletingFromList}
                 style={{ padding: '9px 18px', borderRadius: 8, border: 'none', background: '#ef4444', color: '#fff', fontWeight: 600, fontSize: 14, cursor: deletingFromList ? 'not-allowed' : 'pointer', opacity: deletingFromList ? 0.7 : 1 }}>
                 {deletingFromList ? 'Deleting…' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {bulkDeleteIds && bulkDeleteIds.length > 0 && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }}>
+          <div style={{ background: '#fff', borderRadius: 14, padding: 28, width: 340, maxWidth: '92vw', boxShadow: '0 20px 60px rgba(0,0,0,0.18)' }}>
+            <h3 style={{ margin: '0 0 10px', fontSize: 17, fontWeight: 700, color: '#0f172a' }}>Delete Invoices?</h3>
+            <p style={{ color: '#64748b', fontSize: 14, marginBottom: 22 }}>
+              Delete <strong>{bulkDeleteIds.length}</strong> invoice{bulkDeleteIds.length === 1 ? '' : 's'}? This cannot be undone.
+            </p>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button onClick={() => setBulkDeleteIds(null)}
+                style={{ padding: '9px 18px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', color: '#64748b', fontWeight: 600, fontSize: 14, cursor: 'pointer' }}>
+                Cancel
+              </button>
+              <button onClick={handleBulkDelete} disabled={bulkDeleting}
+                style={{ padding: '9px 18px', borderRadius: 8, border: 'none', background: '#ef4444', color: '#fff', fontWeight: 600, fontSize: 14, cursor: bulkDeleting ? 'not-allowed' : 'pointer', opacity: bulkDeleting ? 0.7 : 1 }}>
+                {bulkDeleting ? 'Deleting…' : 'Delete'}
               </button>
             </div>
           </div>
