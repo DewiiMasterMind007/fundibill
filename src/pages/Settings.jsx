@@ -55,6 +55,7 @@ const DEFAULTS = {
   whatsapp_default_message:  'Hi {clientName}, please find invoice {invoiceNumber} for {amount} attached. Due date: {dueDate}. Thank you, {businessName}.',
   whatsapp_estimate_message: 'Hi {clientName}, please find your quote {quoteNumber} attached for the amount of {amount}. This quote is valid until {expiryDate}. Thank you for your business! Kind regards, {businessName}',
   email_invoice_message:     'Hi {clientName}, please find invoice {invoiceNumber} for {amount} attached. Due date: {dueDate}. Thank you, {businessName}.',
+  email_recurring_message:  'Hi {clientName}, please find invoice {invoiceNumber} for {amount} attached. Due date: {dueDate}. Thank you, {businessName}.',
   email_quote_message:       'Hi {clientName}, please find your quote {quoteNumber} attached for the amount of {amount}. This quote is valid until {expiryDate}. Thank you for your business! Kind regards, {businessName}',
   email_overdue_message:     'Hi {clientName}, this is a friendly reminder that invoice {invoiceNumber} for {amount} was due on {dueDate} and is now overdue. Please arrange payment at your earliest convenience. Kind regards, {businessName}',
   payment_terms_days:        7,
@@ -90,6 +91,7 @@ const SUPABASE_COL = {
   whatsapp_default_message:  'whatsapp_default_message',
   whatsapp_estimate_message: 'whatsapp_estimate_message',
   email_invoice_message:     'email_invoice_message',
+  email_recurring_message:  'email_recurring_message',
   email_quote_message:       'email_quote_message',
   email_overdue_message:     'email_overdue_message',
   payment_terms_days:        'payment_terms_days',
@@ -692,6 +694,7 @@ export default function Settings() {
         // who already customised the "Invoice/Quote Default Message" box
         // before this fix keeps seeing their own text, not the hardcoded default.
         email_invoice_message:     profile.email_invoice_message     || profile.whatsapp_default_message  || DEFAULTS.email_invoice_message,
+        email_recurring_message:  profile.email_recurring_message  || DEFAULTS.email_recurring_message,
         email_quote_message:       profile.email_quote_message       || profile.whatsapp_estimate_message || DEFAULTS.email_quote_message,
         email_overdue_message:     profile.email_overdue_message     || DEFAULTS.email_overdue_message,
         payment_terms_days:        profile.payment_terms_days        ?? DEFAULTS.payment_terms_days,
@@ -1601,6 +1604,26 @@ export default function Settings() {
             <PlaceholderTextarea
               value={form.email_invoice_message}
               onChange={v => setForm(p => ({ ...p, email_invoice_message: v, whatsapp_default_message: v }))}
+              placeholder={`Hi {clientName}, please find invoice {invoiceNumber} for {amount} attached. Due date: {dueDate}. Thank you, {businessName}.`}
+              inpStyle={inp}
+              onFocus={focusStyle}
+              onBlur={blurStyle}
+              placeholders={[
+                { label: 'Client Name',    tag: '{clientName}' },
+                { label: 'Invoice #',      tag: '{invoiceNumber}' },
+                { label: 'Amount',         tag: '{amount}' },
+                { label: 'Due Date',       tag: '{dueDate}' },
+                { label: 'Business Name',  tag: '{businessName}' },
+              ]}
+            />
+          </div>
+
+          {/* Recurring invoice message */}
+          <div data-wizard="field-email_recurring_message" style={{ background: '#f8fafc', borderRadius: 10, border: '1px solid #e2e8f0', padding: 16 }}>
+            <p style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', margin: '0 0 12px' }}>Recurring Invoice Default Message</p>
+            <PlaceholderTextarea
+              value={form.email_recurring_message}
+              onChange={v => setForm(p => ({ ...p, email_recurring_message: v }))}
               placeholder={`Hi {clientName}, please find invoice {invoiceNumber} for {amount} attached. Due date: {dueDate}. Thank you, {businessName}.`}
               inpStyle={inp}
               onFocus={focusStyle}

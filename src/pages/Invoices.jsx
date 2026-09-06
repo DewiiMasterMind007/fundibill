@@ -2186,7 +2186,7 @@ function RecurringForm({ recurringInvoice, clients, catalog, settings, onBack, o
   const isMobile = useIsMobile()
 
   const defaultSubject = `Invoice from ${settings?.business_name || 'us'}`
-  const defaultMessage = `Dear [client name], please find your invoice attached. Thank you for your business.`
+  const defaultMessage = settings?.email_recurring_message || `Dear [client name], please find your invoice attached. Thank you for your business.`
 
   const [form, setForm] = useState(() => ({
     client_id:      recurringInvoice?.client_id      || '',

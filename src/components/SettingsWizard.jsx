@@ -38,6 +38,7 @@ const STEPS = [
 
   // ── Notifications & Messages ──
   { openSectionId: 'whatsapp', target: 'field-email_invoice_message', title: 'Invoice Message',          description: 'The default message sent with an invoice, by email or WhatsApp.' },
+  { openSectionId: 'whatsapp', target: 'field-email_recurring_message', title: 'Recurring Invoice Message', description: 'The default message used when setting up a new recurring invoice.' },
   { openSectionId: 'whatsapp', target: 'field-email_quote_message',   title: 'Quote Message',            description: 'The default message sent with a quote, by email or WhatsApp.' },
   { openSectionId: 'whatsapp', target: 'field-email_overdue_message', title: 'Overdue Reminder Message', description: 'The default message sent when reminding a client about an overdue invoice.' },
 
