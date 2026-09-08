@@ -878,6 +878,9 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
           subtotal,
           vat_amount: vatAmount,
           total,
+          discount_value: discountsOn ? (Number(form.discount_value) || 0) : 0,
+          discount_type:  discountsOn ? (form.discount_type || 'percent') : null,
+          banking_details_snapshot: createBankingSnapshot(bankingList.find(b => b.id === bankingDetailId)),
           status: 'draft',
           user_id: user.id,
         })
