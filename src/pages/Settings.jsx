@@ -1128,15 +1128,15 @@ export default function Settings() {
                 title="Run the guided settings setup wizard"
                 aria-label="Run the guided settings setup wizard"
                 style={{
-                  width: 28, height: 28, borderRadius: '50%',
-                  border: '1.5px solid #cbd5e1', background: '#fff',
-                  fontSize: 13, cursor: 'pointer',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  display: 'flex', alignItems: 'center', gap: 6,
+                  height: 32, padding: '0 14px 0 12px', borderRadius: 999,
+                  border: '1.5px solid #cbd5e1', background: '#fff', color: '#475569',
+                  fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
                 }}
               >
-                🪄
+                🪄 Settings Wizard
               </button>
-              <HelpButton page="settings" />
+              <HelpButton page="settings" label="Help" />
             </div>
           </div>
           <p style={{ color: '#64748b', fontSize: 14, marginBottom: saveError ? 16 : 28 }}>
@@ -1153,15 +1153,15 @@ export default function Settings() {
             title="Run the guided settings setup wizard"
             aria-label="Run the guided settings setup wizard"
             style={{
-              width: 28, height: 28, borderRadius: '50%',
-              border: '1.5px solid #cbd5e1', background: '#fff',
-              fontSize: 13, cursor: 'pointer',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              display: 'flex', alignItems: 'center', gap: 6,
+              height: 32, padding: '0 14px 0 12px', borderRadius: 999,
+              border: '1.5px solid #cbd5e1', background: '#fff', color: '#475569',
+              fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
             }}
           >
-            🪄
+            🪄 Wizard
           </button>
-          <HelpButton page="settings" />
+          <HelpButton page="settings" label="Help" />
         </div>
       )}
 

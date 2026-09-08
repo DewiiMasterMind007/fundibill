@@ -6,6 +6,7 @@
  *
  * Usage:
  *   <HelpButton page="invoices" />
+ *   <HelpButton page="settings" label="Help" />   // icon + text pill instead of icon-only circle
  *
  * Accepted page keys:
  *   "dashboard" | "invoices" | "estimates" | "clients" | "items" | "settings"
@@ -93,7 +94,7 @@ const HELP = {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export default function HelpButton({ page }) {
+export default function HelpButton({ page, label }) {
   const [open, setOpen] = useState(false)
   const [dropPos, setDropPos] = useState({ top: 0, right: 16, width: 360 })
   const wrapRef = useRef(null)
@@ -144,7 +145,24 @@ export default function HelpButton({ page }) {
         onClick={handleToggle}
         title={`Help — ${content.title}`}
         aria-label={`Help — ${content.title}`}
-        style={{
+        style={label ? {
+          display:        'flex',
+          alignItems:     'center',
+          gap:            6,
+          height:         32,
+          padding:        '0 14px 0 12px',
+          borderRadius:   999,
+          border:         `1.5px solid ${open ? '#94a3b8' : '#cbd5e1'}`,
+          background:     open ? '#f1f5f9' : '#fff',
+          color:          '#475569',
+          fontSize:       13,
+          fontWeight:     600,
+          cursor:         'pointer',
+          lineHeight:     1,
+          whiteSpace:     'nowrap',
+          transition:     'border-color 0.15s, background 0.15s',
+          flexShrink:     0,
+        } : {
           width:          28,
           height:         28,
           borderRadius:   '50%',
@@ -170,7 +188,16 @@ export default function HelpButton({ page }) {
           e.currentTarget.style.background  = open ? '#f1f5f9'  : '#fff'
         }}
       >
-        ?
+        {label ? (
+          <>
+            <span style={{
+              width: 18, height: 18, borderRadius: '50%', background: '#e2e8f0', color: '#64748b',
+              fontSize: 11, fontWeight: 800, display: 'inline-flex', alignItems: 'center',
+              justifyContent: 'center', flexShrink: 0,
+            }}>?</span>
+            {label}
+          </>
+        ) : '?'}
       </button>
 
       {/* ── Dropdown panel (position: fixed so it never clips off-screen) ───── */}
