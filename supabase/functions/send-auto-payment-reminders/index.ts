@@ -20,8 +20,7 @@
  *
  * Schedule (per invoice, driven by auto_reminder_count):
  *  - count 0: first reminder, due the moment due_date <= today
- *  - count 1: second reminder, due 7 days after due_date
- *  - count 2+: every 3 days after auto_reminder_last_sent_at
+ *  - count 1+: every 2 days after auto_reminder_last_sent_at
  *  Continues indefinitely until the invoice is marked paid (at which point
  *  the eligibility query above simply stops matching it).
  *
@@ -405,11 +404,9 @@ Deno.serve(async (req: Request) => {
         let due = false
         if (count === 0) {
           due = true // eligibility query already guarantees due_date <= today
-        } else if (count === 1) {
-          due = daysBetween(new Date(invoice.due_date + 'T00:00:00'), now) >= 7
         } else {
           due = !!invoice.auto_reminder_last_sent_at &&
-            daysBetween(new Date(invoice.auto_reminder_last_sent_at), now) >= 3
+            daysBetween(new Date(invoice.auto_reminder_last_sent_at), now) >= 2
         }
         if (!due) { results.skipped++; continue }
 
@@ -525,7 +522,7 @@ Deno.serve(async (req: Request) => {
             <p style="font-size:14px;color:#334155;font-family:Arial,Helvetica,sans-serif;margin:0 0 20px;line-height:1.7;">
               A ${esc(stageLabel)} payment reminder for invoice <strong>${esc(invoice.invoice_number)}</strong>
               was automatically sent to <strong>${esc(clientName)}</strong> (${esc(clientEmail)}) on ${esc(fmtDate(today))}.
-              This will keep repeating automatically every 3 days until the invoice is marked as paid.
+              This will keep repeating automatically every 2 days until the invoice is marked as paid.
             </p>
             <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;">
               <tr>

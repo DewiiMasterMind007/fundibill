@@ -1943,7 +1943,7 @@ export default function Settings() {
             </p>
             <p style={{ fontSize: 12, color: '#92400e', margin: '4px 0 0', lineHeight: 1.6 }}>
               Once enabled, overdue invoices automatically get a reminder email on their due date,
-              a second one 7 days later, then every 3 days after that, until the invoice is marked as paid.
+              then every 2 days after that, until the invoice is marked as paid.
               This continues automatically. A confirmation email is sent to you each time a reminder goes out.
             </p>
           </div>
