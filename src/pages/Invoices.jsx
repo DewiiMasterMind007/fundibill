@@ -18,6 +18,7 @@ import RecordPaymentModal from '../components/RecordPaymentModal'
 import { getPayments, getBalanceDue } from '../utils/payments'
 import { getBankingDetails, createBankingSnapshot } from '../utils/bankingDetails'
 import BankingDetailsSelector from '../components/BankingDetailsSelector'
+import { getClientContacts } from '../utils/clientContacts'
 
 const READONLY_MSG = 'Your trial has ended. Upgrade to continue.'
 
@@ -875,6 +876,19 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
     }).catch(() => {})
     return () => { cancelled = true }
   }, [user?.id])
+
+  // Additional client contacts — automatically CC'd when sending this invoice
+  const [clientContactEmails, setClientContactEmails] = useState([])
+  const selectedClientId = form.client_id
+  useEffect(() => {
+    if (!selectedClientId) { setClientContactEmails([]); return }
+    let cancelled = false
+    getClientContacts(supabase, selectedClientId).then(list => {
+      if (cancelled) return
+      setClientContactEmails(list.map(c => c.email).filter(Boolean))
+    }).catch(() => { if (!cancelled) setClientContactEmails([]) })
+    return () => { cancelled = true }
+  }, [selectedClientId])
 
   // VAT-inclusive: unit_price is the price the client pays (VAT already inside)
   const grossTotal    = lineItems.reduce((s, li) => s + (Number(li.quantity) || 0) * (Number(li.unit_price) || 0), 0)
@@ -2054,6 +2068,7 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
               settings={settings}
               docType="INVOICE"
               clientEmail={selectedClient?.email || ''}
+              additionalCc={clientContactEmails}
               configuredMessage={fillMessageTemplate(settings?.email_invoice_message, {
                 clientName:    selectedClient?.company_name || selectedClient?.name || '',
                 invoiceNumber: pdfData.invoice_number || '',

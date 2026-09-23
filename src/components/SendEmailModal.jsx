@@ -31,9 +31,12 @@ function smtpFromSettings(settings) {
  *                       email_quote_message template, with placeholders already
  *                       filled in by the caller. Used as the seed body instead of
  *                       the hardcoded default when provided and non-empty.
+ *   additionalCc       Optional array of extra contact emails (Zoho-style
+ *                       "additional contacts" on the client) automatically
+ *                       CC'd alongside cc_self_on_send, on every send.
  *   onClose            () => void
  */
-export function SendEmailModal({ isOpen, data, settings, docType, clientEmail, configuredMessage, onClose, onSent }) {
+export function SendEmailModal({ isOpen, data, settings, docType, clientEmail, configuredMessage, additionalCc, onClose, onSent }) {
   const isInvoice   = docType === 'INVOICE'
   const docNumber   = isInvoice ? data?.invoice_number : data?.estimate_number
   const docLabel    = isInvoice ? 'Invoice' : 'Quote'
@@ -146,6 +149,7 @@ export function SendEmailModal({ isOpen, data, settings, docType, clientEmail, c
       const { data: { user: authUser } } = await supabase.auth.getUser()
 
       const ccSelf = settings?.cc_self_on_send && settings?.email ? settings.email : null
+      const ccList = [ccSelf, ...(Array.isArray(additionalCc) ? additionalCc : [])].filter(Boolean)
       const bccList = bcc.trim()
         ? bcc.split(',').map(a => a.trim()).filter(Boolean)
         : []
@@ -159,7 +163,7 @@ export function SendEmailModal({ isOpen, data, settings, docType, clientEmail, c
         html,
         pdfBase64:   pdfBuffer ? arrayBufferToBase64(pdfBuffer) : null,
         pdfFilename: fileName,
-        cc:          ccSelf || undefined,
+        cc:          ccList.length ? ccList : undefined,
         bcc:         bccList.length ? bccList : undefined,
       })
 
@@ -276,6 +280,15 @@ export function SendEmailModal({ isOpen, data, settings, docType, clientEmail, c
                 {settings?.email_provider === 'smtp' && (
                   <p style={{ fontSize: 11, color: '#94a3b8', margin: '5px 0 0' }}>
                     Sending via Custom SMTP
+                  </p>
+                )}
+                {(settings?.cc_self_on_send || (Array.isArray(additionalCc) && additionalCc.length > 0)) && (
+                  <p style={{ fontSize: 11, color: '#94a3b8', margin: '5px 0 0' }}>
+                    Also CC'd:{' '}
+                    {[
+                      settings?.cc_self_on_send && settings?.email ? `${settings.email} (you)` : null,
+                      ...(Array.isArray(additionalCc) ? additionalCc : []),
+                    ].filter(Boolean).join(', ')}
                   </p>
                 )}
               </div>

@@ -6,6 +6,8 @@ import { useTrialStatus } from '../context/TrialContext'
 import { useAppData } from '../context/AppDataContext'
 import HelpButton from '../components/HelpButton'
 import useIsMobile from '../hooks/useIsMobile'
+import ClientContactModal from '../components/ClientContactModal'
+import { getClientContacts, addClientContact, updateClientContact, deleteClientContact } from '../utils/clientContacts'
 
 const READONLY_MSG = 'Your trial has ended. Upgrade to continue.'
 
@@ -553,6 +555,51 @@ export default function Clients() {
     setSelected(null)
   }
 
+  // ── Additional contacts ──────────────────────────────────────────────────
+
+  const [contacts,             setContacts]           = useState([])
+  const [contactsLoading,      setContactsLoading]     = useState(false)
+  const [contactModal,         setContactModal]        = useState(null) // null | 'new' | contact object
+  const [deleteContactConfirm, setDeleteContactConfirm] = useState(null)
+
+  async function loadContacts(clientId) {
+    setContactsLoading(true)
+    try {
+      const rows = await getClientContacts(supabase, clientId)
+      setContacts(rows)
+    } catch (_) {
+      setContacts([])
+    } finally {
+      setContactsLoading(false)
+    }
+  }
+
+  async function handleSaveContact(values) {
+    if (!editingClient) return
+    try {
+      if (contactModal && contactModal !== 'new') {
+        await updateClientContact(supabase, contactModal.id, user.id, values)
+      } else {
+        await addClientContact(supabase, user.id, editingClient.id, values)
+      }
+      setContactModal(null)
+      await loadContacts(editingClient.id)
+    } catch (e) {
+      setErrors(p => ({ ...p, _global: e.message }))
+    }
+  }
+
+  async function handleDeleteContact() {
+    if (!deleteContactConfirm) return
+    try {
+      await deleteClientContact(supabase, deleteContactConfirm.id, user.id)
+      setDeleteContactConfirm(null)
+      await loadContacts(editingClient.id)
+    } catch (e) {
+      setErrors(p => ({ ...p, _global: e.message }))
+    }
+  }
+
   // ── Panel helpers ─────────────────────────────────────────────────────────
 
   function openAdd() {
@@ -560,6 +607,7 @@ export default function Clients() {
     setForm(EMPTY_FORM)
     setOriginalForm(EMPTY_FORM)
     setErrors({})
+    setContacts([])
     setPanelOpen(true)
   }
 
@@ -584,6 +632,7 @@ export default function Clients() {
     setOriginalForm(initial)
     setErrors({})
     setPanelOpen(true)
+    loadContacts(client.id)
   }
 
   function closePanel() {
@@ -591,6 +640,7 @@ export default function Clients() {
     setEditing(null)
     setForm(EMPTY_FORM)
     setErrors({})
+    setContacts([])
   }
 
   function setField(field) {
@@ -1488,6 +1538,71 @@ export default function Clients() {
               onBlur={onBlur}
             />
           </PanelField>
+
+          {editingClient && (
+            <div style={{ marginTop: 8, paddingTop: 20, borderTop: '1px solid #f1f5f9' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                <div>
+                  <p style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', margin: 0 }}>Additional Contacts</p>
+                  <p style={{ fontSize: 12, color: '#94a3b8', margin: '2px 0 0' }}>Automatically CC'd on every invoice and quote sent to this client.</p>
+                </div>
+                <button
+                  onClick={() => setContactModal('new')}
+                  style={{
+                    padding: '7px 12px', borderRadius: 8, border: '1.5px solid #14b8a6',
+                    background: '#fff', color: '#14b8a6', fontSize: 12, fontWeight: 600,
+                    cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0,
+                  }}
+                >
+                  + Add Contact
+                </button>
+              </div>
+
+              {contactsLoading ? (
+                <p style={{ fontSize: 13, color: '#94a3b8' }}>Loading…</p>
+              ) : contacts.length === 0 ? (
+                <p style={{ fontSize: 13, color: '#94a3b8' }}>No additional contacts yet.</p>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {contacts.map(c => (
+                    <div key={c.id} style={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
+                      padding: '10px 12px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8,
+                    }}>
+                      <div style={{ minWidth: 0 }}>
+                        <p style={{ fontSize: 13, fontWeight: 600, color: '#0f172a', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {c.name || c.email}{c.role ? ` — ${c.role}` : ''}
+                        </p>
+                        <p style={{ fontSize: 12, color: '#64748b', margin: '2px 0 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {c.email}{c.phone ? ` · ${c.phone}` : ''}
+                        </p>
+                      </div>
+                      <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                        <button
+                          onClick={() => setContactModal(c)}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b', padding: 4 }}
+                          title="Edit contact"
+                        >
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+                          </svg>
+                        </button>
+                        <button
+                          onClick={() => setDeleteContactConfirm(c)}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: 4 }}
+                          title="Delete contact"
+                        >
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Panel footer — fixed save button */}
@@ -1540,6 +1655,37 @@ export default function Clients() {
           onConfirm={handleDeleteConfirm}
           onCancel={() => setConfirmDelete(false)}
         />
+      )}
+
+      {/* ═══════════════════ ADD/EDIT CONTACT MODAL ═════════════════════════ */}
+      {contactModal && (
+        <ClientContactModal
+          contact={contactModal === 'new' ? null : contactModal}
+          onSave={handleSaveContact}
+          onClose={() => setContactModal(null)}
+        />
+      )}
+
+      {/* ═══════════════════ DELETE CONTACT CONFIRM ══════════════════════════ */}
+      {deleteContactConfirm && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 700 }}>
+          <div style={{ background: '#fff', borderRadius: 14, padding: 28, width: 340, maxWidth: '92vw', boxShadow: '0 20px 60px rgba(0,0,0,0.18)' }}>
+            <h3 style={{ margin: '0 0 10px', fontSize: 17, fontWeight: 700, color: '#0f172a' }}>Delete Contact?</h3>
+            <p style={{ color: '#64748b', fontSize: 14, marginBottom: 22 }}>
+              Delete <strong>{deleteContactConfirm.name || deleteContactConfirm.email}</strong>? This cannot be undone.
+            </p>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button onClick={() => setDeleteContactConfirm(null)}
+                style={{ padding: '9px 18px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', color: '#64748b', fontWeight: 600, fontSize: 14, cursor: 'pointer' }}>
+                Cancel
+              </button>
+              <button onClick={handleDeleteContact}
+                style={{ padding: '9px 18px', borderRadius: 8, border: 'none', background: '#ef4444', color: '#fff', fontWeight: 600, fontSize: 14, cursor: 'pointer' }}>
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

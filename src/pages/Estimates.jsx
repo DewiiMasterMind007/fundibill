@@ -14,6 +14,7 @@ import useIsMobile from '../hooks/useIsMobile'
 import whatsappIcon from '../../public/whatsapp icon.png'
 import { getBankingDetails, createBankingSnapshot } from '../utils/bankingDetails'
 import BankingDetailsSelector from '../components/BankingDetailsSelector'
+import { getClientContacts } from '../utils/clientContacts'
 
 const READONLY_MSG = 'Your trial has ended. Upgrade to continue.'
 
@@ -568,6 +569,19 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
     }).catch(() => {})
     return () => { cancelled = true }
   }, [user?.id])
+
+  // Additional client contacts — automatically CC'd when sending this quote
+  const [clientContactEmails, setClientContactEmails] = useState([])
+  const selectedClientId = form.client_id
+  useEffect(() => {
+    if (!selectedClientId) { setClientContactEmails([]); return }
+    let cancelled = false
+    getClientContacts(supabase, selectedClientId).then(list => {
+      if (cancelled) return
+      setClientContactEmails(list.map(c => c.email).filter(Boolean))
+    }).catch(() => { if (!cancelled) setClientContactEmails([]) })
+    return () => { cancelled = true }
+  }, [selectedClientId])
 
   // Close share dialog when clicking outside
   useEffect(() => {
@@ -1609,6 +1623,7 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
               settings={settings}
               docType="ESTIMATE"
               clientEmail={selectedClient?.email || ''}
+              additionalCc={clientContactEmails}
               configuredMessage={fillMessageTemplate(settings?.email_quote_message, {
                 clientName:   selectedClient?.company_name || selectedClient?.name || '',
                 quoteNumber:  pdfData.estimate_number || '',
