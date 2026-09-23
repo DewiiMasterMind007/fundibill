@@ -3534,13 +3534,17 @@ export default function Invoices() {
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-open the Recurring Invoices view when navigated here via the
-  // sidebar's dedicated /invoices/recurring link (a separate <Route> to the
-  // same element, so this component remounts fresh on every click).
+  // sidebar's dedicated /invoices/recurring link. Two <Route>s rendering the
+  // same element at the same tree position do NOT remount it (React just
+  // reuses the existing instance), so this has to react to location.pathname
+  // itself rather than assume a fresh mount.
   useEffect(() => {
     if (location.pathname === '/invoices/recurring') {
       openRecurringList()
+    } else if (view === 'recurring' || view === 'recurring-form') {
+      setView('list')
     }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [location.pathname]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function openEdit(inv) {
     const [{ data: invData }, { data: itemsData }] = await Promise.all([
