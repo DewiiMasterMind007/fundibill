@@ -293,6 +293,7 @@ function AuthenticatedApp() {
       <Route path="/"          element={<Navigate to="/dashboard" replace />} />
       <Route path="/dashboard" element={<Dashboard />} />
       <Route path="/invoices"  element={<Invoices />} />
+      <Route path="/invoices/recurring" element={<Invoices />} />
       <Route path="/estimates" element={<Estimates />} />
       <Route path="/clients"   element={<Clients />} />
       <Route path="/items"     element={<Items />} />

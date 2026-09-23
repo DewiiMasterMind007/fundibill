@@ -3415,6 +3415,7 @@ function ListView({ invoices, onNew, onRecurring, onSelect, onOpenReminder, onRe
 
 export default function Invoices() {
   const location    = useLocation()
+  const navigate     = useNavigate()
   const { user }    = useAuth()
   const trialStatus = useTrialStatus()
   const isReadOnly  = trialStatus?.isReadOnly ?? false
@@ -3532,11 +3533,12 @@ export default function Invoices() {
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Auto-open the Recurring Invoices view when navigated via the sidebar
+  // Auto-open the Recurring Invoices view when navigated here via the
+  // sidebar's dedicated /invoices/recurring link (a separate <Route> to the
+  // same element, so this component remounts fresh on every click).
   useEffect(() => {
-    if (location.state?.openRecurring) {
+    if (location.pathname === '/invoices/recurring') {
       openRecurringList()
-      window.history.replaceState({}, '')
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -3779,6 +3781,9 @@ export default function Invoices() {
   function openRecurringList() {
     loadRecurring()
     setView('recurring')
+    if (location.pathname !== '/invoices/recurring') {
+      navigate('/invoices/recurring', { replace: true })
+    }
   }
 
   function openNewRecurring() {
@@ -3873,7 +3878,7 @@ export default function Invoices() {
           onEdit={openEditRecurring}
           onPauseResume={handleRecurringPauseResume}
           onDelete={handleRecurringDelete}
-          onBack={() => setView('list')}
+          onBack={() => { setView('list'); navigate('/invoices', { replace: true }) }}
           isReadOnly={isReadOnly}
         />
       )}

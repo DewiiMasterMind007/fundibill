@@ -21,6 +21,7 @@ const navItems = [
   },
   {
     path: '/invoices',
+    end: true,
     label: 'Invoices',
     tutorial: 'nav-invoices',
     icon: (
@@ -34,9 +35,7 @@ const navItems = [
     ),
   },
   {
-    key: 'recurring-invoices',
-    path: '/invoices',
-    state: { openRecurring: true },
+    path: '/invoices/recurring',
     label: 'Recurring Invoices',
     tutorial: 'nav-recurring-invoices',
     icon: (
@@ -203,13 +202,13 @@ export default function Sidebar({ onTutorial, primaryColor = '#14b8a6' }) {
         {/* ── Navigation ── */}
         <nav style={{ flex: 1, padding: '12px 10px', display: 'flex', flexDirection: 'column', gap: 3 }}>
 
-          {navItems.map(({ key, path, state, label, icon, tutorial }) => (
+          {navItems.map(({ path, end, label, icon, tutorial }) => (
             <NavLink
-              key={key || path}
+              key={path}
               to={path}
-              state={state}
+              end={end}
               data-tutorial={tutorial}
-              onMouseEnter={() => setHovered(key || path)}
+              onMouseEnter={() => setHovered(path)}
               onMouseLeave={() => setHovered(null)}
               style={({ isActive }) => ({
                 ...linkBase,
@@ -219,7 +218,7 @@ export default function Sidebar({ onTutorial, primaryColor = '#14b8a6' }) {
                 // Choose glass level: active > hover > none
                 ...(isActive
                   ? GLASS_ACTIVE
-                  : hovered === (key || path)
+                  : hovered === path
                     ? GLASS_HOVER
                     : { background: 'transparent', border: '1px solid transparent', boxShadow: 'none' }),
               })}
