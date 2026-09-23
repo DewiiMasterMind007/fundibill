@@ -52,20 +52,24 @@ export function SendEmailModal({ isOpen, data, settings, docType, clientEmail, c
   const [to,      setTo]      = useState(clientEmail || '')
   const [subject, setSubject] = useState(defaultSubject)
   const [body,    setBody]    = useState(defaultBody)
-  const [ccManual, setCcManual] = useState('')
   const [sending, setSending] = useState(false)
   const [sent,    setSent]    = useState(false)
   const [error,   setError]   = useState('')
 
   // "Also send to:" — collapsed by default, nothing selected by default.
-  const [alsoSendToOpen, setAlsoSendToOpen] = useState(false)
-  const [selectedExtras, setSelectedExtras] = useState(() => new Set())
+  const [alsoSendToOpen, setAlsoSendToOpen]   = useState(false)
+  const [selectedExtras, setSelectedExtras]   = useState(() => new Set())
+  const [manualExtras,   setManualExtras]     = useState([]) // ad-hoc "Add another" addresses, this send only
+  const [showAddAnother, setShowAddAnother]   = useState(false)
+  const [addAnotherValue, setAddAnotherValue] = useState('')
+  const [addAnotherError, setAddAnotherError] = useState('')
 
   const ccOptions = [
     settings?.email ? { key: 'self', label: `${settings.email} (you)`, email: settings.email } : null,
     ...(Array.isArray(additionalContacts) ? additionalContacts : [])
       .filter(c => c?.email)
       .map(c => ({ key: c.id, label: c.name ? `${c.name} (${c.email})` : c.email, email: c.email })),
+    ...manualExtras,
   ].filter(Boolean)
 
   function toggleExtra(key) {
@@ -76,15 +80,41 @@ export function SendEmailModal({ isOpen, data, settings, docType, clientEmail, c
     })
   }
 
+  function handleAddAnother() {
+    const email = addAnotherValue.trim()
+    if (!email) return
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setAddAnotherError('Enter a valid email address.')
+      return
+    }
+    const key = `manual-${Date.now()}`
+    setManualExtras(prev => [...prev, { key, label: email, email }])
+    setSelectedExtras(prev => new Set(prev).add(key))
+    setAddAnotherValue('')
+    setAddAnotherError('')
+  }
+
+  function removeManualExtra(key) {
+    setManualExtras(prev => prev.filter(m => m.key !== key))
+    setSelectedExtras(prev => {
+      const next = new Set(prev)
+      next.delete(key)
+      return next
+    })
+  }
+
   // Re-initialise fields whenever the modal opens with new data
   useEffect(() => {
     if (isOpen) {
       setTo(clientEmail || '')
       setSubject(defaultSubject)
       setBody(defaultBody)
-      setCcManual('')
       setAlsoSendToOpen(false)
       setSelectedExtras(new Set())
+      setManualExtras([])
+      setShowAddAnother(false)
+      setAddAnotherValue('')
+      setAddAnotherError('')
       setSending(false)
       setSent(false)
       setError('')
@@ -170,11 +200,7 @@ export function SendEmailModal({ isOpen, data, settings, docType, clientEmail, c
 
       const { data: { user: authUser } } = await supabase.auth.getUser()
 
-      const extraEmails = ccOptions.filter(o => selectedExtras.has(o.key)).map(o => o.email)
-      const manualEmails = ccManual.trim()
-        ? ccManual.split(',').map(a => a.trim()).filter(Boolean)
-        : []
-      const ccList = [...extraEmails, ...manualEmails]
+      const ccList = ccOptions.filter(o => selectedExtras.has(o.key)).map(o => o.email)
 
       await sendEmail({
         supabase,
@@ -305,29 +331,29 @@ export function SendEmailModal({ isOpen, data, settings, docType, clientEmail, c
                 )}
               </div>
 
-              {ccOptions.length > 0 && (
-                <div>
-                  <button
-                    type="button"
-                    onClick={() => setAlsoSendToOpen(o => !o)}
-                    disabled={sending}
-                    style={{
-                      display: 'flex', alignItems: 'center', gap: 6,
-                      background: 'none', border: 'none', padding: 0,
-                      color: '#14b8a6', fontSize: 13, fontWeight: 600,
-                      cursor: sending ? 'default' : 'pointer',
-                    }}
-                  >
-                    Also send to:{selectedExtras.size > 0 ? ` ${selectedExtras.size} selected` : ''}
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
-                      style={{ transform: alsoSendToOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }}>
-                      <polyline points="6 9 12 15 18 9" />
-                    </svg>
-                  </button>
-                  {alsoSendToOpen && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10, padding: 12, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8 }}>
-                      {ccOptions.map(opt => (
-                        <label key={opt.key} style={{ display: 'flex', alignItems: 'center', gap: 9, cursor: 'pointer', fontSize: 13, color: '#374151' }}>
+              <div>
+                <button
+                  type="button"
+                  onClick={() => setAlsoSendToOpen(o => !o)}
+                  disabled={sending}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 6,
+                    background: 'none', border: 'none', padding: 0,
+                    color: '#14b8a6', fontSize: 13, fontWeight: 600,
+                    cursor: sending ? 'default' : 'pointer',
+                  }}
+                >
+                  Also send to:{selectedExtras.size > 0 ? ` ${selectedExtras.size} selected` : ''}
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+                    style={{ transform: alsoSendToOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }}>
+                    <polyline points="6 9 12 15 18 9" />
+                  </svg>
+                </button>
+                {alsoSendToOpen && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10, padding: 12, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8 }}>
+                    {ccOptions.map(opt => (
+                      <div key={opt.key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 9, cursor: 'pointer', fontSize: 13, color: '#374151' }}>
                           <input
                             type="checkbox"
                             checked={selectedExtras.has(opt.key)}
@@ -337,26 +363,70 @@ export function SendEmailModal({ isOpen, data, settings, docType, clientEmail, c
                           />
                           {opt.label}
                         </label>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
+                        {opt.key.startsWith('manual-') && (
+                          <button
+                            type="button"
+                            onClick={() => removeManualExtra(opt.key)}
+                            disabled={sending}
+                            title="Remove"
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: 2, lineHeight: 1 }}
+                          >
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                              <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                            </svg>
+                          </button>
+                        )}
+                      </div>
+                    ))}
 
-              <div>
-                <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 5 }}>CC <span style={{ fontWeight: 400, color: '#94a3b8' }}>(optional)</span></label>
-                <input
-                  type="text"
-                  value={ccManual}
-                  onChange={e => setCcManual(e.target.value)}
-                  placeholder="another@example.com, someone-else@example.com"
-                  style={INPUT}
-                  disabled={sending}
-                />
-                <p style={{ fontSize: 11, color: '#94a3b8', margin: '5px 0 0' }}>
-                  Separate multiple addresses with commas. Each will receive the exact same email.
-                </p>
+                    {showAddAnother ? (
+                      <div style={{ paddingTop: ccOptions.length > 0 ? 4 : 0, borderTop: ccOptions.length > 0 ? '1px solid #e2e8f0' : 'none', marginTop: ccOptions.length > 0 ? 2 : 0 }}>
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <input
+                            type="email"
+                            autoFocus
+                            value={addAnotherValue}
+                            onChange={e => { setAddAnotherValue(e.target.value); setAddAnotherError('') }}
+                            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleAddAnother() } }}
+                            placeholder="someone@example.com"
+                            disabled={sending}
+                            style={{ ...INPUT, padding: '7px 10px', fontSize: 13 }}
+                          />
+                          <button
+                            type="button"
+                            onClick={handleAddAnother}
+                            disabled={sending}
+                            style={{
+                              padding: '7px 14px', borderRadius: 8, border: 'none',
+                              background: '#14b8a6', color: '#fff', fontSize: 13, fontWeight: 600,
+                              cursor: 'pointer', flexShrink: 0,
+                            }}
+                          >
+                            Add
+                          </button>
+                        </div>
+                        {addAnotherError && (
+                          <p style={{ fontSize: 11, color: '#dc2626', margin: '5px 0 0' }}>{addAnotherError}</p>
+                        )}
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setShowAddAnother(true)}
+                        disabled={sending}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 5,
+                          background: 'none', border: 'none', padding: ccOptions.length > 0 ? '4px 0 0' : 0,
+                          color: '#14b8a6', fontSize: 13, fontWeight: 600, cursor: 'pointer', alignSelf: 'flex-start',
+                        }}
+                      >
+                        + Add another
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
+
               <div>
                 <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 5 }}>Subject</label>
                 <input

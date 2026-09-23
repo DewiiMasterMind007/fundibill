@@ -3532,6 +3532,14 @@ export default function Invoices() {
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Auto-open the Recurring Invoices view when navigated via the sidebar
+  useEffect(() => {
+    if (location.state?.openRecurring) {
+      openRecurringList()
+      window.history.replaceState({}, '')
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
   async function openEdit(inv) {
     const [{ data: invData }, { data: itemsData }] = await Promise.all([
       supabase.from('invoices').select('*').eq('id', inv.id).single(),
