@@ -31,12 +31,13 @@ function smtpFromSettings(settings) {
  *                       email_quote_message template, with placeholders already
  *                       filled in by the caller. Used as the seed body instead of
  *                       the hardcoded default when provided and non-empty.
- *   additionalCc       Optional array of extra contact emails (Zoho-style
- *                       "additional contacts" on the client) automatically
- *                       CC'd alongside cc_self_on_send, on every send.
+ *   additionalContacts Optional array of the client's additional contacts
+ *                       ({ id, name, email }, Zoho-style) — offered, along
+ *                       with the user's own address, as opt-in "Also send
+ *                       to:" choices. Nothing is CC'd unless picked.
  *   onClose            () => void
  */
-export function SendEmailModal({ isOpen, data, settings, docType, clientEmail, configuredMessage, additionalCc, onClose, onSent }) {
+export function SendEmailModal({ isOpen, data, settings, docType, clientEmail, configuredMessage, additionalContacts, onClose, onSent }) {
   const isInvoice   = docType === 'INVOICE'
   const docNumber   = isInvoice ? data?.invoice_number : data?.estimate_number
   const docLabel    = isInvoice ? 'Invoice' : 'Quote'
@@ -51,10 +52,29 @@ export function SendEmailModal({ isOpen, data, settings, docType, clientEmail, c
   const [to,      setTo]      = useState(clientEmail || '')
   const [subject, setSubject] = useState(defaultSubject)
   const [body,    setBody]    = useState(defaultBody)
-  const [bcc,     setBcc]     = useState('')
+  const [ccManual, setCcManual] = useState('')
   const [sending, setSending] = useState(false)
   const [sent,    setSent]    = useState(false)
   const [error,   setError]   = useState('')
+
+  // "Also send to:" — collapsed by default, nothing selected by default.
+  const [alsoSendToOpen, setAlsoSendToOpen] = useState(false)
+  const [selectedExtras, setSelectedExtras] = useState(() => new Set())
+
+  const ccOptions = [
+    settings?.email ? { key: 'self', label: `${settings.email} (you)`, email: settings.email } : null,
+    ...(Array.isArray(additionalContacts) ? additionalContacts : [])
+      .filter(c => c?.email)
+      .map(c => ({ key: c.id, label: c.name ? `${c.name} (${c.email})` : c.email, email: c.email })),
+  ].filter(Boolean)
+
+  function toggleExtra(key) {
+    setSelectedExtras(prev => {
+      const next = new Set(prev)
+      next.has(key) ? next.delete(key) : next.add(key)
+      return next
+    })
+  }
 
   // Re-initialise fields whenever the modal opens with new data
   useEffect(() => {
@@ -62,7 +82,9 @@ export function SendEmailModal({ isOpen, data, settings, docType, clientEmail, c
       setTo(clientEmail || '')
       setSubject(defaultSubject)
       setBody(defaultBody)
-      setBcc('')
+      setCcManual('')
+      setAlsoSendToOpen(false)
+      setSelectedExtras(new Set())
       setSending(false)
       setSent(false)
       setError('')
@@ -148,11 +170,11 @@ export function SendEmailModal({ isOpen, data, settings, docType, clientEmail, c
 
       const { data: { user: authUser } } = await supabase.auth.getUser()
 
-      const ccSelf = settings?.cc_self_on_send && settings?.email ? settings.email : null
-      const ccList = [ccSelf, ...(Array.isArray(additionalCc) ? additionalCc : [])].filter(Boolean)
-      const bccList = bcc.trim()
-        ? bcc.split(',').map(a => a.trim()).filter(Boolean)
+      const extraEmails = ccOptions.filter(o => selectedExtras.has(o.key)).map(o => o.email)
+      const manualEmails = ccManual.trim()
+        ? ccManual.split(',').map(a => a.trim()).filter(Boolean)
         : []
+      const ccList = [...extraEmails, ...manualEmails]
 
       await sendEmail({
         supabase,
@@ -164,7 +186,6 @@ export function SendEmailModal({ isOpen, data, settings, docType, clientEmail, c
         pdfBase64:   pdfBuffer ? arrayBufferToBase64(pdfBuffer) : null,
         pdfFilename: fileName,
         cc:          ccList.length ? ccList : undefined,
-        bcc:         bccList.length ? bccList : undefined,
       })
 
       setSent(true)
@@ -282,22 +303,52 @@ export function SendEmailModal({ isOpen, data, settings, docType, clientEmail, c
                     Sending via Custom SMTP
                   </p>
                 )}
-                {(settings?.cc_self_on_send || (Array.isArray(additionalCc) && additionalCc.length > 0)) && (
-                  <p style={{ fontSize: 11, color: '#94a3b8', margin: '5px 0 0' }}>
-                    Also CC'd:{' '}
-                    {[
-                      settings?.cc_self_on_send && settings?.email ? `${settings.email} (you)` : null,
-                      ...(Array.isArray(additionalCc) ? additionalCc : []),
-                    ].filter(Boolean).join(', ')}
-                  </p>
-                )}
               </div>
+
+              {ccOptions.length > 0 && (
+                <div>
+                  <button
+                    type="button"
+                    onClick={() => setAlsoSendToOpen(o => !o)}
+                    disabled={sending}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 6,
+                      background: 'none', border: 'none', padding: 0,
+                      color: '#14b8a6', fontSize: 13, fontWeight: 600,
+                      cursor: sending ? 'default' : 'pointer',
+                    }}
+                  >
+                    Also send to:{selectedExtras.size > 0 ? ` ${selectedExtras.size} selected` : ''}
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+                      style={{ transform: alsoSendToOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }}>
+                      <polyline points="6 9 12 15 18 9" />
+                    </svg>
+                  </button>
+                  {alsoSendToOpen && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10, padding: 12, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8 }}>
+                      {ccOptions.map(opt => (
+                        <label key={opt.key} style={{ display: 'flex', alignItems: 'center', gap: 9, cursor: 'pointer', fontSize: 13, color: '#374151' }}>
+                          <input
+                            type="checkbox"
+                            checked={selectedExtras.has(opt.key)}
+                            onChange={() => toggleExtra(opt.key)}
+                            disabled={sending}
+                            style={{ width: 16, height: 16, accentColor: '#14b8a6', cursor: 'pointer' }}
+                          />
+                          {opt.label}
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div>
-                <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 5 }}>Bcc <span style={{ fontWeight: 400, color: '#94a3b8' }}>(optional)</span></label>
+                <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 5 }}>CC <span style={{ fontWeight: 400, color: '#94a3b8' }}>(optional)</span></label>
                 <input
                   type="text"
-                  value={bcc}
-                  onChange={e => setBcc(e.target.value)}
+                  value={ccManual}
+                  onChange={e => setCcManual(e.target.value)}
                   placeholder="another@example.com, someone-else@example.com"
                   style={INPUT}
                   disabled={sending}

@@ -877,16 +877,16 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
     return () => { cancelled = true }
   }, [user?.id])
 
-  // Additional client contacts — automatically CC'd when sending this invoice
-  const [clientContactEmails, setClientContactEmails] = useState([])
+  // Additional client contacts — offered as opt-in "Also send to:" choices
+  const [clientContacts, setClientContacts] = useState([])
   const selectedClientId = form.client_id
   useEffect(() => {
-    if (!selectedClientId) { setClientContactEmails([]); return }
+    if (!selectedClientId) { setClientContacts([]); return }
     let cancelled = false
     getClientContacts(supabase, selectedClientId).then(list => {
       if (cancelled) return
-      setClientContactEmails(list.map(c => c.email).filter(Boolean))
-    }).catch(() => { if (!cancelled) setClientContactEmails([]) })
+      setClientContacts(list)
+    }).catch(() => { if (!cancelled) setClientContacts([]) })
     return () => { cancelled = true }
   }, [selectedClientId])
 
@@ -2068,7 +2068,7 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
               settings={settings}
               docType="INVOICE"
               clientEmail={selectedClient?.email || ''}
-              additionalCc={clientContactEmails}
+              additionalContacts={clientContacts}
               configuredMessage={fillMessageTemplate(settings?.email_invoice_message, {
                 clientName:    selectedClient?.company_name || selectedClient?.name || '',
                 invoiceNumber: pdfData.invoice_number || '',
