@@ -867,6 +867,15 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
   // Banking details selector (multiple-accounts feature)
   const [bankingList, setBankingList] = useState([])
   const [bankingDetailId, setBankingDetailId] = useState(null)
+  const [showBankingDetails, setShowBankingDetails] = useState(invoice?.show_banking_details ?? true)
+  function toggleShowBankingDetails(checked) {
+    setShowBankingDetails(checked)
+    if (checked) {
+      const fallback = bankingList.find(b => b.is_default) || bankingList[0]
+      setBankingDetailId(fallback?.id || null)
+    }
+  }
+  const bankingSnapshot = showBankingDetails ? createBankingSnapshot(bankingList.find(b => b.id === bankingDetailId)) : null
   useEffect(() => {
     if (!user?.id) return
     let cancelled = false
@@ -1000,7 +1009,8 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
       status:         nextStatus,
       discount_value: discountsOn ? (Number(form.discount_value) || 0) : 0,
       discount_type:  discountsOn ? (form.discount_type || 'percent') : null,
-      banking_details_snapshot: createBankingSnapshot(bankingList.find(b => b.id === bankingDetailId)),
+      banking_details_snapshot: bankingSnapshot,
+      show_banking_details: showBankingDetails,
     }
 
     if (overrideStatus && overrideStatus !== form.status) {
@@ -1174,7 +1184,8 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
         client_address: selectedClient?.address || '',
         items:          lineItems.filter(li => (li.item_name || '').trim()),
         payments:       invoicePayments,
-        banking_details_snapshot: createBankingSnapshot(bankingList.find(b => b.id === bankingDetailId)),
+        banking_details_snapshot: bankingSnapshot,
+        show_banking_details: showBankingDetails,
       }
       let pdfBuffer
       try {
@@ -1282,7 +1293,8 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
           client_address: selectedClient?.address || '',
           items:          lineItems.filter(li => (li.item_name || '').trim()),
           payments:       invoicePayments,
-          banking_details_snapshot: createBankingSnapshot(bankingList.find(b => b.id === bankingDetailId)),
+          banking_details_snapshot: bankingSnapshot,
+          show_banking_details: showBankingDetails,
         }
         pdfBuffer = await buildPdfBuffer(pdfData, settings, 'INVOICE')
       } catch (_) {
@@ -1407,7 +1419,8 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
         client_address: selectedClient?.address || '',
         items:          lineItems.filter(li => (li.item_name || '').trim()),
         payments:       invoicePayments,
-        banking_details_snapshot: createBankingSnapshot(bankingList.find(b => b.id === bankingDetailId)),
+        banking_details_snapshot: bankingSnapshot,
+        show_banking_details: showBankingDetails,
       }
 
       let arrayBuffer
@@ -1923,8 +1936,23 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
 
           {/* ── Banking Details ── */}
           <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0', padding: isMobile ? 16 : 24 }}>
-            <h3 style={{ margin: `0 0 ${isMobile ? 10 : 12}px`, fontSize: 14, fontWeight: 700, color: '#0f172a' }}>Banking Details</h3>
-            <BankingDetailsSelector bankingDetails={bankingList} value={bankingDetailId} onChange={setBankingDetailId} />
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: showBankingDetails ? (isMobile ? 10 : 12) : 0 }}>
+              <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: '#0f172a' }}>Banking Details</h3>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer' }}>
+                <span style={{ fontSize: 12, color: '#64748b', fontWeight: 500 }}>Show on this invoice</span>
+                <input
+                  type="checkbox"
+                  checked={showBankingDetails}
+                  onChange={e => toggleShowBankingDetails(e.target.checked)}
+                  style={{ width: 16, height: 16, accentColor: '#14b8a6', cursor: 'pointer' }}
+                />
+              </label>
+            </div>
+            {showBankingDetails ? (
+              <BankingDetailsSelector bankingDetails={bankingList} value={bankingDetailId} onChange={setBankingDetailId} />
+            ) : (
+              <p style={{ fontSize: 12, color: '#94a3b8', margin: 0 }}>Banking details will not be included on this invoice.</p>
+            )}
           </div>
 
           {/* ── Notes ── */}
@@ -2055,7 +2083,8 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
           client_address: selectedClient?.address || '',
           items:          lineItems.filter(li => (li.item_name || '').trim()),
           payments:       invoicePayments,
-          banking_details_snapshot: createBankingSnapshot(bankingList.find(b => b.id === bankingDetailId)),
+          banking_details_snapshot: bankingSnapshot,
+          show_banking_details: showBankingDetails,
         }
         return (
           <>

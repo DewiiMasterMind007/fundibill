@@ -201,7 +201,13 @@ export function PdfDocument({ data, settings, docType }) {
     ? (data.discount_type === 'percent' ? grossTotal * (discountValue / 100) : discountValue)
     : 0
   const logoSrc      = settings?._logoSrc || null
-  const bankingText  = formatBankingDetails(data.banking_details_snapshot, settings?.banking_details, settings?.business_name)
+  // show_banking_details defaults to true for documents saved before this
+  // toggle existed — only an explicit false hides the section. This check
+  // happens before the legacy profiles.banking_details fallback so hiding
+  // the section can never be defeated by that fallback kicking in.
+  const bankingText  = data.show_banking_details === false
+    ? ''
+    : formatBankingDetails(data.banking_details_snapshot, settings?.banking_details, settings?.business_name)
 
   // Dynamic colour overrides driven by the user's primary_color setting
   const primary = settings?.primary_color || C.teal
