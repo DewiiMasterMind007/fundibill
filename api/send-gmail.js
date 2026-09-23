@@ -79,6 +79,8 @@ export default async function handler(req, res) {
       pdf_base64,
       pdf_filename,
       from_name,
+      cc,
+      bcc,
     } = req.body || {};
 
     if (!user_id || !to || !subject || !html) {
@@ -117,12 +119,19 @@ export default async function handler(req, res) {
     const fromHeader = `${from_name || 'FundiBill'} <${profile.gmail_connected_email}>`;
     const encodedSubject = encodeEmailSubject(subject);
     const htmlBase64 = base64UrlEncodeBody(html);
+    // Gmail's send API honors a Cc/Bcc header in the raw RFC 2822 message —
+    // it actually delivers to those recipients and strips Bcc from the copy
+    // other recipients see, same as any standard SMTP relay would.
+    const ccHeader  = cc  ? `Cc: ${cc}\r\n`  : '';
+    const bccHeader = bcc ? `Bcc: ${bcc}\r\n` : '';
 
     let rawEmail;
     if (pdf_base64) {
       rawEmail =
         `From: ${fromHeader}\r\n` +
         `To: ${to}\r\n` +
+        ccHeader +
+        bccHeader +
         `Subject: ${encodedSubject}\r\n` +
         `MIME-Version: 1.0\r\n` +
         `Content-Type: multipart/mixed; boundary="${boundary}"\r\n\r\n` +
@@ -140,6 +149,8 @@ export default async function handler(req, res) {
       rawEmail =
         `From: ${fromHeader}\r\n` +
         `To: ${to}\r\n` +
+        ccHeader +
+        bccHeader +
         `Subject: ${encodedSubject}\r\n` +
         `MIME-Version: 1.0\r\n` +
         `Content-Type: text/html; charset="UTF-8"\r\n` +

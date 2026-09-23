@@ -52,6 +52,8 @@ export async function sendEmail(payload) {
       text_body:     payload.text || payload.message,
       pdf_base64:    payload.pdfBuffer ? arrayBufferToBase64(payload.pdfBuffer) : null,
       pdf_filename:  payload.fileName || null,
+      cc_email:      payload.cc  || null,
+      bcc_email:     payload.bcc || null,
     }),
   })
 

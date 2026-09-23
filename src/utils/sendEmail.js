@@ -42,9 +42,13 @@ function base64ToArrayBuffer(base64) {
  *   html          HTML email body
  *   pdfBase64     Base64 PDF string, or null/undefined if no attachment
  *   pdfFilename   PDF filename, or null/undefined if no attachment
+ *   cc            Optional comma-separated string (or array) of Cc addresses
+ *   bcc           Optional comma-separated string (or array) of Bcc addresses
  */
-export async function sendEmail({ supabase, userId, profile, to, subject, html, pdfBase64, pdfFilename }) {
+export async function sendEmail({ supabase, userId, profile, to, subject, html, pdfBase64, pdfFilename, cc, bcc }) {
   const provider = profile?.email_provider
+  const ccJoined  = Array.isArray(cc)  ? cc.filter(Boolean).join(',')  : (cc  || '')
+  const bccJoined = Array.isArray(bcc) ? bcc.filter(Boolean).join(',') : (bcc || '')
 
   if (provider === 'gmail') {
     if (!profile?.gmail_access_token) {
@@ -66,6 +70,8 @@ export async function sendEmail({ supabase, userId, profile, to, subject, html, 
         pdf_base64:   pdfBase64 || null,
         pdf_filename: pdfFilename || null,
         from_name:    profile?.business_name || 'FundiBill',
+        cc:           ccJoined || null,
+        bcc:          bccJoined || null,
       }),
     })
 
@@ -101,6 +107,8 @@ export async function sendEmail({ supabase, userId, profile, to, subject, html, 
     pdfBuffer:     pdfBase64 ? base64ToArrayBuffer(pdfBase64) : undefined,
     fileName:      pdfFilename || undefined,
     emailProvider: 'smtp',
+    cc:            ccJoined || undefined,
+    bcc:           bccJoined || undefined,
   })
 
   if (result?.success === false) {

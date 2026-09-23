@@ -48,6 +48,7 @@ export function SendEmailModal({ isOpen, data, settings, docType, clientEmail, c
   const [to,      setTo]      = useState(clientEmail || '')
   const [subject, setSubject] = useState(defaultSubject)
   const [body,    setBody]    = useState(defaultBody)
+  const [bcc,     setBcc]     = useState('')
   const [sending, setSending] = useState(false)
   const [sent,    setSent]    = useState(false)
   const [error,   setError]   = useState('')
@@ -58,6 +59,7 @@ export function SendEmailModal({ isOpen, data, settings, docType, clientEmail, c
       setTo(clientEmail || '')
       setSubject(defaultSubject)
       setBody(defaultBody)
+      setBcc('')
       setSending(false)
       setSent(false)
       setError('')
@@ -143,6 +145,11 @@ export function SendEmailModal({ isOpen, data, settings, docType, clientEmail, c
 
       const { data: { user: authUser } } = await supabase.auth.getUser()
 
+      const ccSelf = settings?.cc_self_on_send && settings?.email ? settings.email : null
+      const bccList = bcc.trim()
+        ? bcc.split(',').map(a => a.trim()).filter(Boolean)
+        : []
+
       await sendEmail({
         supabase,
         userId:      authUser?.id,
@@ -152,6 +159,8 @@ export function SendEmailModal({ isOpen, data, settings, docType, clientEmail, c
         html,
         pdfBase64:   pdfBuffer ? arrayBufferToBase64(pdfBuffer) : null,
         pdfFilename: fileName,
+        cc:          ccSelf || undefined,
+        bcc:         bccList.length ? bccList : undefined,
       })
 
       setSent(true)
@@ -269,6 +278,20 @@ export function SendEmailModal({ isOpen, data, settings, docType, clientEmail, c
                     Sending via Custom SMTP
                   </p>
                 )}
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 5 }}>Bcc <span style={{ fontWeight: 400, color: '#94a3b8' }}>(optional)</span></label>
+                <input
+                  type="text"
+                  value={bcc}
+                  onChange={e => setBcc(e.target.value)}
+                  placeholder="another@example.com, someone-else@example.com"
+                  style={INPUT}
+                  disabled={sending}
+                />
+                <p style={{ fontSize: 11, color: '#94a3b8', margin: '5px 0 0' }}>
+                  Separate multiple addresses with commas. Each will receive the exact same email.
+                </p>
               </div>
               <div>
                 <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 5 }}>Subject</label>

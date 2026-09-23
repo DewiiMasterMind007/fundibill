@@ -47,6 +47,7 @@ const DEFAULTS = {
   payment_methods:         null,
   default_payment_method:  null,
   email_provider:           'smtp',
+  cc_self_on_send:          false,
   smtp_host:                '',
   smtp_port:                '',
   smtp_user:                '',
@@ -83,6 +84,7 @@ const SUPABASE_COL = {
   default_payment_method:   'default_payment_method',
   terms_conditions:         'terms',
   email_provider:           'email_provider',
+  cc_self_on_send:          'cc_self_on_send',
   smtp_host:                'smtp_host',
   smtp_port:                'smtp_port',
   smtp_user:                'smtp_user',
@@ -683,6 +685,7 @@ export default function Settings() {
         terms_conditions:         profile.terms                    ?? DEFAULTS.terms_conditions,
         ...parseBankingDetails(profile.banking_details),
         email_provider:           profile.email_provider           ?? DEFAULTS.email_provider,
+        cc_self_on_send:          profile.cc_self_on_send           ?? DEFAULTS.cc_self_on_send,
         smtp_host:                profile.smtp_host                ?? DEFAULTS.smtp_host,
         smtp_port:                profile.smtp_port                ?? DEFAULTS.smtp_port,
         smtp_user:                profile.smtp_user                ?? DEFAULTS.smtp_user,
@@ -1888,6 +1891,24 @@ export default function Settings() {
           )}
         </div>
         )}
+
+        {/* CC myself on send */}
+        <div style={{ marginTop: 20, paddingTop: 20, borderTop: '1px solid #f1f5f9' }}>
+          <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={!!form.cc_self_on_send}
+              onChange={e => setForm(p => ({ ...p, cc_self_on_send: e.target.checked }))}
+              style={{ width: 17, height: 17, marginTop: 1, accentColor: form.primary_color || '#14b8a6', cursor: 'pointer', flexShrink: 0 }}
+            />
+            <span>
+              <span style={{ display: 'block', fontSize: 14, fontWeight: 600, color: '#0f172a' }}>CC myself on every invoice and quote sent</span>
+              <span style={{ display: 'block', fontSize: 12, color: '#64748b', marginTop: 2 }}>
+                When enabled, every invoice and quote sent from the app also emails an exact copy to your own address ({form.email || 'your business email'}).
+              </span>
+            </span>
+          </label>
+        </div>
 
       </Section>
 

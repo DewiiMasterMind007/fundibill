@@ -124,6 +124,7 @@ function registerHandlers() {
     smtpHost, smtpPort, smtpUser, smtpPassword,
     smtpFromName, smtpFromEmail,
     pdfBuffer, fileName,
+    cc, bcc,
   }) => {
     // ── Diagnostic: confirm what arrived from the renderer ──────────────────
     console.log('[send-email] handler invoked:', {
@@ -160,6 +161,8 @@ function registerHandlers() {
         subject,
         text:    message,           // plain-text fallback for clients that block HTML
         html:    html || undefined, // branded HTML body
+        cc:      cc  || undefined,
+        bcc:     bcc || undefined,
       }
 
       if (pdfBuffer && fileName) {
