@@ -335,7 +335,7 @@ function StatCard({ value, label, accent }) {
 
 // ─── Mobile client card ───────────────────────────────────────────────────────
 
-function MobileClientCard({ client, onEdit, onViewInvoices, onViewEstimates, onDelete, isReadOnly }) {
+function MobileClientCard({ client, onEdit, onViewInvoices, onViewEstimates, onDelete, onUnarchive, isReadOnly }) {
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef(null)
 
@@ -352,7 +352,8 @@ function MobileClientCard({ client, onEdit, onViewInvoices, onViewEstimates, onD
     { label: 'Edit',           fn: () => { setMenuOpen(false); onEdit(client) } },
     { label: 'View Invoices',  fn: () => { setMenuOpen(false); onViewInvoices(client) } },
     { label: 'View Estimates', fn: () => { setMenuOpen(false); onViewEstimates(client) } },
-    !isReadOnly && { label: 'Delete', fn: () => { setMenuOpen(false); onDelete(client) }, danger: true },
+    !isReadOnly && client.is_archived && { label: 'Unarchive', fn: () => { setMenuOpen(false); onUnarchive(client) } },
+    !isReadOnly && !client.is_archived && { label: 'Delete', fn: () => { setMenuOpen(false); onDelete(client) }, danger: true },
   ].filter(Boolean)
 
   return (
@@ -393,8 +394,13 @@ function MobileClientCard({ client, onEdit, onViewInvoices, onViewEstimates, onD
 
       {/* Content */}
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 15, fontWeight: 700, color: '#0f172a', marginBottom: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {name}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+          <span style={{ fontSize: 15, fontWeight: 700, color: '#0f172a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {name}
+          </span>
+          {client.is_archived && (
+            <span style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', background: '#f1f5f9', padding: '2px 7px', borderRadius: 999, flexShrink: 0 }}>ARCHIVED</span>
+          )}
         </div>
         {client.email && (
           <div style={{ fontSize: 13, color: '#64748b', marginBottom: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -469,6 +475,7 @@ export default function Clients() {
   const [opError,       setOpError]      = useState('')
   const [search,        setSearch]       = useState('')
   const [clientStats,   setClientStats]  = useState({})
+  const [showArchived,  setShowArchived] = useState(false)
 
   // Detail view
   const [selected,      setSelected]     = useState(null)
@@ -486,6 +493,10 @@ export default function Clients() {
 
   // Delete confirmation
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [checkingDelete, setCheckingDelete] = useState(false)
+  const [archiveConfirm, setArchiveConfirm] = useState(null) // client with linked docs, offered archive instead
+  const [archiving,      setArchiving]      = useState(false)
+  const [unarchivingId,  setUnarchivingId]  = useState(null)
 
   const firstInputRef = useRef(null)
 
@@ -650,10 +661,67 @@ export default function Clients() {
     }
   }
 
-  // Delete from mobile card: set selected then show confirm
-  function handleDeleteFromCard(client) {
+  // Entry point for both the detail-view Delete button and the mobile
+  // card's Delete menu item. Checks whether this client has any invoices
+  // or estimates before deciding whether a hard delete is even possible —
+  // if it has history, offers archiving instead of letting the delete hit
+  // the FK constraint and surface a raw Postgres error.
+  async function openDeleteFlow(client) {
     setSelected(client)
-    setConfirmDelete(true)
+    setOpError('')
+    setCheckingDelete(true)
+    try {
+      const [{ count: invCount }, { count: estCount }] = await Promise.all([
+        supabase.from('invoices').select('id', { count: 'exact', head: true }).eq('client_id', client.id).eq('user_id', user.id),
+        supabase.from('estimates').select('id', { count: 'exact', head: true }).eq('client_id', client.id).eq('user_id', user.id),
+      ])
+      const hasDocs = (invCount || 0) + (estCount || 0) > 0
+      if (hasDocs) {
+        setArchiveConfirm(client)
+      } else {
+        setConfirmDelete(true)
+      }
+    } catch (err) {
+      setOpError(err.message)
+    } finally {
+      setCheckingDelete(false)
+    }
+  }
+
+  async function handleArchiveConfirm() {
+    if (!archiveConfirm) return
+    setArchiving(true)
+    const { error } = await supabase
+      .from('clients')
+      .update({ is_archived: true })
+      .eq('id', archiveConfirm.id)
+      .eq('user_id', user.id)
+    setArchiving(false)
+    setArchiveConfirm(null)
+    if (error) {
+      setOpError(error.message)
+    } else {
+      goBack()
+      refreshClients()
+    }
+  }
+
+  async function handleUnarchive(client) {
+    setUnarchivingId(client.id)
+    const { error } = await supabase
+      .from('clients')
+      .update({ is_archived: false })
+      .eq('id', client.id)
+      .eq('user_id', user.id)
+    setUnarchivingId(null)
+    if (error) {
+      setOpError(error.message)
+    } else {
+      if (view === 'detail' && selected?.id === client.id) {
+        setSelected(prev => ({ ...prev, is_archived: false }))
+      }
+      refreshClients()
+    }
   }
 
   const hasChanges = JSON.stringify(form) !== JSON.stringify(originalForm)
@@ -721,23 +789,33 @@ export default function Clients() {
       .eq('user_id', user.id)
     setConfirmDelete(false)
     if (error) {
-      setOpError(error.message)
+      // 23503 = Postgres foreign key violation. The pre-check in
+      // openDeleteFlow() should already catch this, but a doc created in
+      // the window between that check and this delete (or any other path
+      // that somehow reaches this function) would otherwise surface a raw
+      // DB error — fall back to offering archive instead.
+      if (error.code === '23503') {
+        setArchiveConfirm(selected)
+      } else {
+        setOpError(error.message)
+      }
     } else {
       goBack()
       refreshClients()
     }
   }
 
-  // ── Search filter (client-side) ───────────────────────────────────────────
+  // ── Search + archived filter (client-side) ────────────────────────────────
 
   const q = search.toLowerCase()
+  const searchScope = showArchived ? clients : clients.filter(c => !c.is_archived)
   const visibleClients = q
-    ? clients.filter(c =>
+    ? searchScope.filter(c =>
         (c.company_name || c.name)?.toLowerCase().includes(q) ||
         c.email?.toLowerCase().includes(q) ||
         c.phone?.toLowerCase().includes(q)
       )
-    : clients
+    : searchScope
 
   // ─────────────────────────────────────────────────────────────────────────
   // Render
@@ -889,6 +967,19 @@ export default function Clients() {
               </div>
             )}
 
+            {/* Show archived toggle */}
+            {clients.some(c => c.is_archived) && (
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', marginBottom: isMobile ? 12 : 16, width: 'fit-content' }}>
+                <input
+                  type="checkbox"
+                  checked={showArchived}
+                  onChange={e => setShowArchived(e.target.checked)}
+                  style={{ width: 16, height: 16, accentColor: '#14b8a6', cursor: 'pointer' }}
+                />
+                <span style={{ fontSize: 13, color: '#64748b', fontWeight: 500 }}>Show archived clients</span>
+              </label>
+            )}
+
             {/* Client list */}
             {!loading && visibleClients.length === 0 ? (
               search ? (
@@ -913,7 +1004,8 @@ export default function Clients() {
                     onEdit={openEdit}
                     onViewInvoices={c => openDetailWithTab(c, 'invoices')}
                     onViewEstimates={c => openDetailWithTab(c, 'estimates')}
-                    onDelete={handleDeleteFromCard}
+                    onDelete={openDeleteFlow}
+                    onUnarchive={handleUnarchive}
                     isReadOnly={isReadOnly}
                   />
                 ))}
@@ -973,6 +1065,9 @@ export default function Clients() {
                             <span style={{ fontSize: 14, fontWeight: 600, color: '#0f172a' }}>
                               {client.company_name || client.name}
                             </span>
+                            {client.is_archived && (
+                              <span style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', background: '#f1f5f9', padding: '2px 7px', borderRadius: 999, flexShrink: 0 }}>ARCHIVED</span>
+                            )}
                           </div>
                         </td>
                         <td style={{ padding: '14px 16px', fontSize: 13, color: '#334155', maxWidth: 200 }}>
@@ -1093,27 +1188,52 @@ export default function Clients() {
                     </svg>
                     Edit
                   </button>
-                  <button
-                    onClick={() => setConfirmDelete(true)}
-                    style={{
-                      background: '#fff', border: '1.5px solid #fca5a5', color: '#dc2626',
-                      borderRadius: 8,
-                      padding:     isMobile ? '0 16px' : '8px 16px',
-                      minHeight:   isMobile ? 44 : undefined,
-                      flex:        isMobile ? 1 : undefined,
-                      fontSize: 13, fontWeight: 600,
-                      cursor: 'pointer', display: 'flex', alignItems: 'center',
-                      justifyContent: isMobile ? 'center' : undefined,
-                      gap: 6,
-                    }}
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
-                      stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <polyline points="3 6 5 6 21 6" />
-                      <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-                    </svg>
-                    Delete
-                  </button>
+                  {selected.is_archived ? (
+                    <button
+                      onClick={() => handleUnarchive(selected)}
+                      disabled={unarchivingId === selected.id}
+                      style={{
+                        background: '#fff', border: '1.5px solid #14b8a6', color: '#0f766e',
+                        borderRadius: 8,
+                        padding:     isMobile ? '0 16px' : '8px 16px',
+                        minHeight:   isMobile ? 44 : undefined,
+                        flex:        isMobile ? 1 : undefined,
+                        fontSize: 13, fontWeight: 600,
+                        cursor: unarchivingId === selected.id ? 'wait' : 'pointer', display: 'flex', alignItems: 'center',
+                        justifyContent: isMobile ? 'center' : undefined,
+                        gap: 6,
+                      }}
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="21 8 21 21 3 21 3 8" /><rect x="1" y="3" width="22" height="5" /><line x1="10" y1="12" x2="14" y2="12" />
+                      </svg>
+                      {unarchivingId === selected.id ? 'Unarchiving…' : 'Unarchive'}
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => openDeleteFlow(selected)}
+                      disabled={checkingDelete}
+                      style={{
+                        background: '#fff', border: '1.5px solid #fca5a5', color: '#dc2626',
+                        borderRadius: 8,
+                        padding:     isMobile ? '0 16px' : '8px 16px',
+                        minHeight:   isMobile ? 44 : undefined,
+                        flex:        isMobile ? 1 : undefined,
+                        fontSize: 13, fontWeight: 600,
+                        cursor: checkingDelete ? 'wait' : 'pointer', display: 'flex', alignItems: 'center',
+                        justifyContent: isMobile ? 'center' : undefined,
+                        gap: 6,
+                      }}
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="3 6 5 6 21 6" />
+                        <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                      </svg>
+                      {checkingDelete ? 'Checking…' : 'Delete'}
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -1133,8 +1253,11 @@ export default function Clients() {
                     <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 10 }}>
                       <Avatar name={selected.company_name || selected.name} size={56} />
                     </div>
-                    <h2 style={{ fontSize: 18, fontWeight: 700, color: '#0f172a', marginBottom: 6 }}>
+                    <h2 style={{ fontSize: 18, fontWeight: 700, color: '#0f172a', marginBottom: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
                       {selected.company_name || selected.name}
+                      {selected.is_archived && (
+                        <span style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', background: '#f1f5f9', padding: '2px 7px', borderRadius: 999 }}>ARCHIVED</span>
+                      )}
                     </h2>
                     {selected.email && (
                       <div style={{ fontSize: 13, color: '#64748b', marginBottom: 3 }}>{selected.email}</div>
@@ -1180,8 +1303,11 @@ export default function Clients() {
                   <Avatar name={selected.company_name || selected.name} size={60} />
 
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <h2 style={{ fontSize: 22, fontWeight: 700, color: '#0f172a', marginBottom: 2 }}>
+                    <h2 style={{ fontSize: 22, fontWeight: 700, color: '#0f172a', marginBottom: 2, display: 'flex', alignItems: 'center', gap: 8 }}>
                       {selected.company_name || selected.name}
+                      {selected.is_archived && (
+                        <span style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', background: '#f1f5f9', padding: '2px 7px', borderRadius: 999 }}>ARCHIVED</span>
+                      )}
                     </h2>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 12 }}>
                       <InfoRow
@@ -1655,6 +1781,29 @@ export default function Clients() {
           onConfirm={handleDeleteConfirm}
           onCancel={() => setConfirmDelete(false)}
         />
+      )}
+
+      {/* ═══════════════════ ARCHIVE-INSTEAD MODAL ══════════════════════════ */}
+      {archiveConfirm && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 700, padding: 16 }}>
+          <div style={{ background: '#fff', borderRadius: 14, padding: 28, width: 400, maxWidth: '100%', boxShadow: '0 20px 60px rgba(0,0,0,0.18)' }}>
+            <h3 style={{ margin: '0 0 10px', fontSize: 17, fontWeight: 700, color: '#0f172a' }}>Archive Client?</h3>
+            <p style={{ color: '#64748b', fontSize: 14, lineHeight: 1.6, marginBottom: 22 }}>
+              This client has invoice history and can't be permanently deleted. Would you like to archive them instead?
+              Archived clients are hidden from your client list but their invoice history stays intact.
+            </p>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button onClick={() => setArchiveConfirm(null)} disabled={archiving}
+                style={{ padding: '9px 18px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', color: '#64748b', fontWeight: 600, fontSize: 14, cursor: archiving ? 'wait' : 'pointer' }}>
+                Cancel
+              </button>
+              <button onClick={handleArchiveConfirm} disabled={archiving}
+                style={{ padding: '9px 18px', borderRadius: 8, border: 'none', background: '#14b8a6', color: '#fff', fontWeight: 600, fontSize: 14, cursor: archiving ? 'wait' : 'pointer' }}>
+                {archiving ? 'Archiving…' : 'Archive'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ═══════════════════ ADD/EDIT CONTACT MODAL ═════════════════════════ */}

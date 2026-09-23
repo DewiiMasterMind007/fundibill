@@ -473,9 +473,13 @@ function ClientSelector({ clients, value, onChange, onAddNewClient }) {
   const ref = useRef(null)
 
   const selected = clients.find(c => c.id === value)
+  // Archived clients never show up to be newly picked, but if one is
+  // already selected (e.g. editing an old invoice created before they were
+  // archived), keep them visible so the field doesn't go blank.
+  const selectableClients = clients.filter(c => !c.is_archived || c.id === value)
   const filtered = query.trim()
-    ? clients.filter(c => (c.name || '').toLowerCase().includes(query.toLowerCase()) || (c.company_name || '').toLowerCase().includes(query.toLowerCase()))
-    : clients
+    ? selectableClients.filter(c => (c.name || '').toLowerCase().includes(query.toLowerCase()) || (c.company_name || '').toLowerCase().includes(query.toLowerCase()))
+    : selectableClients
 
   useEffect(() => {
     const fn = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
