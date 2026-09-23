@@ -2255,6 +2255,14 @@ function RecurringForm({ recurringInvoice, clients, catalog, settings, onBack, o
   // created by the process-recurring-invoices cron job) should snapshot.
   const [bankingList, setBankingList] = useState([])
   const [bankingDetailId, setBankingDetailId] = useState(recurringInvoice?.banking_detail_id || null)
+  const [showBankingDetails, setShowBankingDetails] = useState(recurringInvoice?.show_banking_details ?? true)
+  function toggleShowBankingDetails(checked) {
+    setShowBankingDetails(checked)
+    if (checked) {
+      const fallback = bankingList.find(b => b.is_default) || bankingList[0]
+      setBankingDetailId(fallback?.id || null)
+    }
+  }
   useEffect(() => {
     if (!user?.id) return
     let cancelled = false
@@ -2344,6 +2352,7 @@ function RecurringForm({ recurringInvoice, clients, catalog, settings, onBack, o
       auto_send:          form.auto_send,
       auto_send_cc_user:  form.auto_send_cc_user,
       banking_detail_id:  bankingDetailId,
+      show_banking_details: showBankingDetails,
       items,
     }
 
@@ -2400,7 +2409,8 @@ function RecurringForm({ recurringInvoice, clients, catalog, settings, onBack, o
               status:               'draft',
               from_recurring:       true,
               notification_dismissed: false,
-              banking_details_snapshot: createBankingSnapshot(bankingList.find(b => b.id === bankingDetailId)),
+              banking_details_snapshot: showBankingDetails ? createBankingSnapshot(bankingList.find(b => b.id === bankingDetailId)) : null,
+              show_banking_details: showBankingDetails,
               user_id:              user.id,
             })
             .select()
@@ -2542,8 +2552,23 @@ function RecurringForm({ recurringInvoice, clients, catalog, settings, onBack, o
 
               {/* Banking details for this recurring invoice's snapshots */}
               <div>
-                <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 6 }}>Banking Details</label>
-                <BankingDetailsSelector bankingDetails={bankingList} value={bankingDetailId} onChange={setBankingDetailId} />
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b' }}>Banking Details</label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer' }}>
+                    <span style={{ fontSize: 12, color: '#64748b', fontWeight: 500 }}>Show on these invoices</span>
+                    <input
+                      type="checkbox"
+                      checked={showBankingDetails}
+                      onChange={e => toggleShowBankingDetails(e.target.checked)}
+                      style={{ width: 16, height: 16, accentColor: '#14b8a6', cursor: 'pointer' }}
+                    />
+                  </label>
+                </div>
+                {showBankingDetails ? (
+                  <BankingDetailsSelector bankingDetails={bankingList} value={bankingDetailId} onChange={setBankingDetailId} />
+                ) : (
+                  <p style={{ fontSize: 12, color: '#94a3b8', margin: 0 }}>Banking details will not be included on invoices created by this recurring schedule.</p>
+                )}
               </div>
 
               {/* Auto-send toggle */}

@@ -482,8 +482,13 @@ Deno.serve(async (req: Request) => {
         // template has none set (new template created before this field
         // existed, or the picked account was since deleted — the
         // banking_detail_id FK is ON DELETE SET NULL for that reason).
+        // show_banking_details (RecurringForm's per-template toggle) defaults
+        // to true for templates created before this field existed — an
+        // explicit false skips the lookup entirely, same as the client-side
+        // toggle skipping createBankingSnapshot() in RecurringForm.
+        const showBankingDetails = template.show_banking_details !== false
         let bankingSnapshot: Record<string, unknown> | null = null
-        {
+        if (showBankingDetails) {
           const { data: bankingRows } = await supabase
             .from('banking_details')
             .select('*')
@@ -523,6 +528,7 @@ Deno.serve(async (req: Request) => {
             from_recurring: true,
             notification_dismissed: false,
             banking_details_snapshot: bankingSnapshot,
+            show_banking_details: showBankingDetails,
             user_id: template.user_id,
           })
           .select()
