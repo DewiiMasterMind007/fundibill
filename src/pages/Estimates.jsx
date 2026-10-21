@@ -17,6 +17,8 @@ import BankingDetailsSelector from '../components/BankingDetailsSelector'
 import { getClientContacts } from '../utils/clientContacts'
 import { saveDocument, loadDocument, normalizeItems, findUnnamedPricedLines, computeTotals, checkIntegrity } from '../utils/documentSave'
 import IntegrityBanner from '../components/IntegrityBanner'
+import LineMoveButtons from '../components/LineMoveButtons'
+import LineOrderNotice from '../components/LineOrderNotice'
 
 const READONLY_MSG = 'Your trial has ended. Upgrade to continue.'
 
@@ -711,6 +713,16 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
 
   function addLine() { setLineItems(p => [...p, newLineItem()]) }
   function removeLine(key) { setLineItems(p => p.filter(li => li._key !== key)) }
+  function moveLine(key, dir) {
+    setLineItems(p => {
+      const i = p.findIndex(l => l._key === key)
+      const j = i + dir
+      if (i < 0 || j < 0 || j >= p.length) return p
+      const n = [...p]
+      ;[n[i], n[j]] = [n[j], n[i]]
+      return n
+    })
+  }
 
   function validate() {
     const errs = {}
@@ -1300,6 +1312,8 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
             </div>
           </div>
 
+          <LineOrderNotice key={estimate?.id || 'new'} items={estimate?.items} />
+
           {/* ── Line Items ── */}
           <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0', overflow: 'hidden' }}>
             <div style={{ padding: isMobile ? '12px 16px' : '16px 20px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -1320,7 +1334,10 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
                     </button>
 
-                    <div style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', marginBottom: 8 }}>Item {idx + 1}</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, paddingRight: 28 }}>
+                      <span style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase' }}>Item {idx + 1}</span>
+                      <LineMoveButtons index={idx} count={lineItems.length} onMove={d => moveLine(li._key, d)} />
+                    </div>
 
                     <div style={{ marginBottom: 8 }}>
                       <label style={{ fontSize: 11, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4 }}>Item Name</label>
@@ -1372,13 +1389,13 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
             ) : (
               /* Desktop: existing grid layout (unchanged) */
               <>
-                <div style={{ display: 'grid', gridTemplateColumns: '2fr 2fr 80px 110px 24px', gap: 8, padding: '8px 20px', background: '#f8fafc', borderBottom: '1px solid #f1f5f9' }}>
-                  {['Item', 'Description', 'Qty', 'Unit Price', ''].map(h => (
+                <div style={{ display: 'grid', gridTemplateColumns: '2fr 2fr 80px 110px 56px 24px', gap: 8, padding: '8px 20px', background: '#f8fafc', borderBottom: '1px solid #f1f5f9' }}>
+                  {['Item', 'Description', 'Qty', 'Unit Price', '', ''].map(h => (
                     <span key={h} style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</span>
                   ))}
                 </div>
-                {lineItems.map(li => (
-                  <div key={li._key} style={{ display: 'grid', gridTemplateColumns: '2fr 2fr 80px 110px 24px', gap: 8, padding: '8px 20px', borderBottom: '1px solid #f9fafb', alignItems: 'start' }}>
+                {lineItems.map((li, idx) => (
+                  <div key={li._key} style={{ display: 'grid', gridTemplateColumns: '2fr 2fr 80px 110px 56px 24px', gap: 8, padding: '8px 20px', borderBottom: '1px solid #f9fafb', alignItems: 'start' }}>
                     <AutocompleteInput
                       value={li.item_name}
                       onChange={(val, item) => { if (item) selectCatalogItem(li._key, item); else updateLine(li._key, 'item_name', val) }}
@@ -1393,6 +1410,7 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
                       style={{ padding: '7px 8px', borderRadius: 7, fontSize: 13, border: '1px solid #e2e8f0', background: '#f8fafc', color: '#0f172a', outline: 'none', width: '100%', boxSizing: 'border-box', textAlign: 'right', marginTop: 1 }} />
                     <input type="number" min="0" step="0.01" value={li.unit_price} onChange={e => updateLine(li._key, 'unit_price', e.target.value)} placeholder="0.00"
                       style={{ padding: '7px 8px', borderRadius: 7, fontSize: 13, border: '1px solid #e2e8f0', background: '#f8fafc', color: '#0f172a', outline: 'none', width: '100%', boxSizing: 'border-box', textAlign: 'right', marginTop: 1 }} />
+                    <LineMoveButtons index={idx} count={lineItems.length} onMove={dd => moveLine(li._key, dd)} style={{ marginTop: 2 }} />
                     <button onClick={() => removeLine(li._key)} disabled={lineItems.length === 1}
                       style={{ background: 'none', border: 'none', cursor: lineItems.length === 1 ? 'default' : 'pointer', color: '#94a3b8', padding: 0, display: 'flex', alignItems: 'center', marginTop: 6 }}>
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>

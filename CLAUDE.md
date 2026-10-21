@@ -397,10 +397,12 @@ RLS: `"Users can manage their own banking details" FOR ALL USING (auth.uid() = u
 │   │                                     by Settings.jsx's Banking Details section.
 │   │
 │   ├── pdf/
-│   │   ├── PdfDocument.jsx     — @react-pdf/renderer branded A4 document; dynamic header
-│   │   │                          height; fixed header+footer every page; PAID watermark;
-│   │   │                          discount row in totals; Payment History section
-│   │   │                          (only when data.payments is non-empty)
+│   │   ├── PdfDocument.jsx     — THE one PDF layout (quotes, invoices, receipts, reminders,
+│   │   │                          server-side auto-send). Normal-flow layout, 34pt margins,
+│   │   │                          full header on page 1 only, compact header on continuation
+│   │   │                          pages; PAID watermark; discount row; Payment History
+│   │   │                          (only when data.payments is non-empty). See Section 10
+│   │   │                          "PDF layout rules"
 │   │   └── PdfPreviewModal.jsx — In-app PDF preview; Save to disk; Send Email trigger
 │   │
 │   ├── lib/
@@ -730,11 +732,12 @@ Lets a user save more than one banking account in Settings and choose which one 
 
 ### PDF Generation
 - Branded A4 documents via `@react-pdf/renderer` (dynamically imported)
-- Fixed header + footer on every page
-- "Continues on page N" for multi-page
-- "Page X / Y" numbering
+- Normal-flow layout (no hand-computed heights): full header (logo, business details, document number) and Bill To on page 1 only; continuation pages get a compact header ("business name | Invoice/Quote # · continued")
+- Line-item column header repeats on every page the table spans; rows never split across pages and never truncate
+- Totals, payment history (when short), notes, banking details and the payment reference form one closing block that moves to the next page as a whole, together with the last line row; Terms & Conditions follow (inside the block when ≤ ~30 lines, otherwise flowing across pages)
+- One-page document: closing block is pushed to the bottom of the page. Multi-page: it appears only on the last line-item page, after the totals
+- "Continues on page N" on non-final pages and "Page X of Y" (multi-page only)
 - PAID watermark on paid invoices
-- Dynamic header height based on logo presence and business detail lines
 - Discount row in totals section
 - Notes section
 - Logo: only HTTPS URLs render in PDFs (base64/local paths blocked by email clients)
@@ -1084,7 +1087,10 @@ These exist because of Known Issue #16 (a quote went out with 9 lines while the 
 - **Integrity banner:** `<IntegrityBanner>` shows on quote/invoice detail when `checkIntegrity(header, items)` fails (stored subtotal/total differs from the lines by more than R0.01, or zero lines with a non-zero total). While it shows, PDF / email / WhatsApp / reminder actions are disabled. Saving such a document asks for confirmation first because it replaces the only surviving total.
 - **Always load line items through `loadDocument()`** (ordered by `sort_order`, throws on error). Never `.select('*')` an items table and ignore `error` — that is what turned a failed read into "no lines".
 - **No swallowed errors on document writes:** every Supabase call that touches estimates/invoices/items/payments checks `error` and surfaces it (toast or `errors._global`). Email-after-payment flows may continue past a PDF problem but must say so.
-- Line order is `sort_order` (0-based submitted order). Rows saved before the migration have NULL `sort_order` and sort last.
+- Line order is `sort_order` (0-based position in the form when saved, written by the atomic save functions via `WITH ORDINALITY`). Conversion and recurring creation pass the loaded array in order, so they preserve relative order; nothing regenerates or guesses an order.
+- **Every read orders by `sort_order ASC NULLS LAST, id ASC`** (`loadDocument()` and `api/generate-invoice-pdf.js`). The `id` tie-breaker is a last-resort deterministic fallback for legacy rows only; it is NOT the entry order. There is no retry-without-ordering fallback — if the ordered query fails the error is shown.
+- Rows saved before the migration have NULL `sort_order` and physically come back in unrecorded order. Never write ctid-based or guessed ordering from application code. `supabase/diagnostics/freeze_line_order_estimates.sql` / `_invoices.sql` are optional one-off scripts the owner runs by hand: they freeze the CURRENT displayed order (ctid) for tied legacy documents, back up old values first, and do NOT restore the original order of documents that were already scrambled (e.g. EST-0048).
+- Quote/invoice forms have move-up/move-down arrows per line (`LineMoveButtons`); reordering only changes the array position, the next atomic save writes `sort_order`. `LineOrderNotice` shows a dismissible notice on loaded documents whose lines all share one `sort_order`/NULL.
 
 ### Date Arithmetic
 - Always guard against invalid dates with `isNaN(d.getTime())` when using `addDays()` or `calcNextSendDate()`
@@ -1100,6 +1106,14 @@ These exist because of Known Issue #16 (a quote went out with 9 lines while the 
 - `recoveryModeRef` mirrors `recoveryMode` state to avoid stale closure in `onAuthStateChange` callback
 - Never clear the URL hash before Supabase's `detectSessionInUrl` has read it (causes "Auth session missing!" on password reset)
 - **Auth loading/restoration pattern:** `AuthContext` does **not** call `supabase.auth.getSession()` on mount. On a hard full-page reload (e.g. the OAuth-style redirect back from `/api/gmail-callback.js`), `getSession()` can resolve with a stale `session: null` before the Supabase client finishes restoring the real session from `localStorage`, which would flip `loading` to `false` with no user and briefly bounce an already-logged-in user to the login screen. Instead, `loading` (exposed as `authLoading` in `App.jsx`) starts `true` and is only set `false` inside the `onAuthStateChange` callback — whose first invocation (`event: 'INITIAL_SESSION'`) fires only once Supabase has actually finished restoring the session, so it's the single source of truth. `App.jsx`'s top-level guard renders nothing while `authLoading` is true, `<Auth/>` only once `authLoading` is false and `user` is null — never based on a mid-restoration snapshot.
+
+### PDF layout rules
+- `src/pdf/PdfDocument.jsx` is the only document template; every PDF path (preview, download, email attachment, WhatsApp, receipts, reminders, `api/generate-invoice-pdf.js` via the generated `api/_lib/PdfDocument.mjs`) uses it. `scripts/build-api-pdf.mjs` compiles that ONE file — if the layout is ever split across several files, the build script must be changed to bundle them (esbuild `bundle: true` with react/@react-pdf/renderer external) before deploying.
+- Do not reintroduce `position: 'absolute'` or hand-computed heights (the old `HEADER_H`/`FOOTER_H`) for content. A fixed-height footer is what let a 7-line Terms block paint over line items. Only the page-number and "Continues on page N" texts are fixed/absolute, inside the reserved 40pt bottom margin.
+- Margins: 34pt left/right/top, 40pt bottom reserve. Font sizes, colours and branding are unchanged by layout work.
+- Rows use `wrap={false}`; the column header is `fixed` INSIDE the table View so it repeats only on pages the table spans; the last row travels with the closing block so the totals never sit alone on a page. A future "pay online" line goes in `closingBottom`, directly under the banking details.
+- Known limit: if Terms are very long (> ~30 estimated lines) they flow across pages after the closing block; pages that contain only Terms get just the compact header.
+- To check a layout change without a rasteriser: compile with `npx esbuild src/pdf/PdfDocument.jsx --format=esm`, render with `renderToFile` for several line counts and terms lengths, and read text positions with `pdfjs-dist` — check ascending y, no content below the reserved bottom margin, header/column-header repetition.
 
 ### PDF
 - `@react-pdf/renderer` is dynamically imported in `pdfBuffer.js` to keep initial bundle small

@@ -51,16 +51,21 @@ const C = {
   green:  '#16a34a',
 }
 
-// ── Fixed-element heights (pt) ────────────────────────────────────────────────
-// HEADER_H is computed dynamically inside the component from actual content.
-// FOOTER_H stays fixed (banking + terms + ref + notes is roughly constant).
-const FOOTER_H = 178   // bottom: 52 + footer content ~126 pt
+// ── Page geometry (pt) ────────────────────────────────────────────────────────
+// A4, 34pt margins on the sides and top. The bottom keeps 40pt free for the only
+// fixed elements ("Continues on page N" and "Page X of Y"). Everything else is
+// laid out in normal flow, so nothing can run underneath anything else.
+const MARGIN        = 34
+const BOTTOM_RESERVE = 40
+const LONG_PAYMENT_LIST = 8   // above this, Payment History flows after the totals block
+const LONG_TERMS_LINES  = 30  // above this (estimated 8pt lines), Terms flow across pages instead of staying in the closing block
 
 // ── Styles ────────────────────────────────────────────────────────────────────
 const S = StyleSheet.create({
-  // page: paddingTop and paddingBottom are applied dynamically (see render)
-  page: {
-    paddingHorizontal: 44,
+    page: {
+    paddingHorizontal: MARGIN,
+    paddingTop: MARGIN,
+    paddingBottom: BOTTOM_RESERVE,
     backgroundColor: C.white,
     fontFamily: 'Helvetica',
     fontSize: 10,
@@ -139,16 +144,20 @@ const S = StyleSheet.create({
   paidInFullText:      { fontSize: 12, fontFamily: 'Helvetica-Bold', color: C.green,
                          letterSpacing: 0.5 },
 
-  // ── Footer
-  footColumns:   { flexDirection: 'row', gap: 24 },
-  footColLeft:   { flex: 1 },
-  footColRight:  { flex: 1, alignItems: 'flex-end' },
+  // ── Compact header (continuation pages)
+  compactHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end',
+                   paddingBottom: 6, marginBottom: 8, borderBottomWidth: 0.75, borderBottomColor: C.teal },
+  compactBiz:    { fontSize: 11, fontFamily: 'Helvetica-Bold', color: C.dark },
+  compactDoc:    { fontSize: 9, color: C.muted },
+
+  // ── Closing block (totals, notes, banking, reference) and terms
+  closing:       { flexGrow: 1 },
+  closingBottom: { marginTop: 8 },
+  bankSection:   { marginTop: 8, paddingTop: 10, borderTopWidth: 0.75, borderTopColor: C.border },
+  termsSection:  { marginTop: 8, paddingTop: 10, borderTopWidth: 0.75, borderTopColor: C.border },
   footSecLabel:  { fontSize: 8, fontFamily: 'Helvetica-Bold', color: C.teal,
                    textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 4 },
-  footSecLabelR: { fontSize: 8, fontFamily: 'Helvetica-Bold', color: C.teal,
-                   textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 4, textAlign: 'right' },
   footText:      { fontSize: 8, color: C.slate, lineHeight: 1.5 },
-  footTextRight: { fontSize: 8, color: C.slate, lineHeight: 1.5, textAlign: 'right' },
   refText:       { fontSize: 9, color: C.muted, fontFamily: 'Helvetica-Oblique',
                    marginTop: 10, textAlign: 'center' },
   notesWrap:     { marginTop: 8, alignItems: 'center' },
@@ -219,150 +228,243 @@ export function PdfDocument({ data, settings, docType }) {
     balLabel:      { color: primary },
     balVal:        { color: primary },
     footSecLabel:  { color: primary },
-    footSecLabelR: { color: primary },
   }
 
-  // ── Compute HEADER_H from real content so paddingTop is as tight as possible ──
-  //
-  // Left column:  logo (if any) + business name + N detail lines
-  // Right column: "INVOICE/ESTIMATE" label (32pt) + 3 meta rows
-  // Header height = max(left, right) + header marginBottom + divider + buffer
-  //
-  const LOGO_H    = 80   // logo image (72pt) + its marginBottom (8pt)
-  const BIZ_NAME  = 22   // fontSize:15 ~18pt + marginBottom:4
-  const LINE_H    = 13   // each bizDetail line: fontSize:9 ~11pt + marginBottom:2
-  const META_ROW  = 15   // each MetaRow: fontSize:9 ~11pt + marginBottom:4
   const showPaymentDate = isInvoice && isPaid && !!data.payment_date
-  const RIGHT_COL = 95 + (showPaymentDate ? META_ROW : 0)  // docLabel 48pt + MetaRows ~15pt each
+  const docWord = isInvoice ? 'Invoice' : 'Quote'
+  const items = data.items || []
+  const payments = Array.isArray(data.payments) ? data.payments : []
+  const longPayments = payments.length > LONG_PAYMENT_LIST
 
-  const addressLineCount = settings?.business_address
-    ? settings.business_address.split('\n').filter(l => l.trim()).length
-    : 0
-  const detailLineCount  = addressLineCount
-    + (settings?.email      ? 1 : 0)
-    + (settings?.phone      ? 1 : 0)
-    + (settings?.vat_number ? 1 : 0)
+  const renderRow = (item, i) => (
+    <View
+      key={item.id || i}
+      wrap={false}
+      style={[S.tableRow, i % 2 === 1 && S.tableRowAlt]}
+    >
+      <View style={S.colDesc}>
+        <Text style={S.itemName}>{item.item_name}</Text>
+        {item.description
+          ? item.description.split('\n').map((line, idx) => (
+              <Text key={idx} style={S.itemDesc}>{line}</Text>
+            ))
+          : null}
+      </View>
+      <Text style={[S.cellNum, S.colQty]}>{item.quantity}</Text>
+      <Text style={[S.cellNum, S.colRate]}>{fmtZAR(item.unit_price)}</Text>
+      <Text style={[S.cellNum, S.colAmount]}>{fmtZAR(item.line_total || (Number(item.quantity) * Number(item.unit_price)))}</Text>
+    </View>
+  )
 
-  const leftColH  = (logoSrc ? LOGO_H : 0) + BIZ_NAME + detailLineCount * LINE_H
-  const headerRowH = Math.max(leftColH, RIGHT_COL)
+  const columnHeader = (
+    <View style={[S.tableHeader, D.tableHeader]}>
+      <Text style={[S.thCell, S.colDesc]}>Item Description</Text>
+      <Text style={[S.thCell, S.colQty]}>Qty</Text>
+      <Text style={[S.thCell, S.colRate]}>Rate</Text>
+      <Text style={[S.thCell, S.colAmount]}>Amount</Text>
+    </View>
+  )
 
-  // 44pt top margin + header row height + 14pt (header marginBottom)
-  //   + 1pt (divider border) + 14pt (divider marginBottom)
-  // The divider's own marginBottom IS the gap below the green line, so no extra
-  // buffer is needed — this makes the space above and below the line identical.
-  const HEADER_H  = 44 + headerRowH + 29
+  const paymentHistory = payments.length > 0 && (
+    <View style={S.paymentsSection}>
+      <Text style={S.paymentsHeading}>Payment History</Text>
+
+      <View style={S.paymentsTableHeader}>
+        <Text style={[S.paymentsHCell, S.paymentsColDate]}>Date</Text>
+        <Text style={[S.paymentsHCell, S.paymentsColMethod]}>Method</Text>
+        <Text style={[S.paymentsHCell, S.paymentsColNote]}>Note</Text>
+        <Text style={[S.paymentsHCell, S.paymentsColAmount]}>Amount</Text>
+      </View>
+
+      {payments.map((p, idx) => (
+        <View key={p.id || idx} wrap={false} style={S.paymentsRow}>
+          <Text style={[S.paymentsCell, S.paymentsColDate]}>{p.payment_date || '—'}</Text>
+          <Text style={[S.paymentsCell, S.paymentsColMethod]}>{p.payment_method || '—'}</Text>
+          <Text style={[S.paymentsCell, S.paymentsColNote]}>{p.note || '—'}</Text>
+          <Text style={[S.paymentsCellNum, S.paymentsColAmount]}>{fmtZAR(p.amount)}</Text>
+        </View>
+      ))}
+
+      <View style={S.paymentsSummaryRow}>
+        <Text style={S.totLabel}>Total Paid</Text>
+        <Text style={S.totVal}>{fmtZAR(amountPaid)}</Text>
+      </View>
+
+      {balanceDue === 0 ? (
+        <View style={S.paymentsSummaryRow}>
+          <Text style={S.paidInFullText}>PAID IN FULL</Text>
+        </View>
+      ) : (
+        <View style={S.paymentsSummaryRow}>
+          <Text style={[S.balLabel, D.balLabel]}>Balance Due</Text>
+          <Text style={[S.balVal,   D.balVal]}>{fmtZAR(balanceDue)}</Text>
+        </View>
+      )}
+    </View>
+  )
+
+  const totals = (
+    <View style={S.totalsOuter}>
+      <View style={S.totalsBlock}>
+        {discountAmt > 0 && (
+          <TotRow
+            label={data.discount_type === 'percent' ? `Discount (${discountValue}%)` : 'Discount'}
+            value={`-${fmtZAR(discountAmt)}`}
+          />
+        )}
+        {Number(data.vat_enabled) ? (
+          <>
+            <TotRow label="Subtotal" value={fmtZAR(data.subtotal)} />
+            <TotRow label={`VAT (${data.vat_rate || 15}%)`} value={fmtZAR(data.vat_amount)} />
+            <View style={S.totDivider} />
+          </>
+        ) : null}
+
+        <View style={S.totalRow}>
+          <Text style={S.totalLabel}>Total</Text>
+          <Text style={S.totalVal}>{fmtZAR(total)}</Text>
+        </View>
+
+        {amountPaid > 0 && (
+          <>
+            <TotRow label="Amount Paid" value={`-${fmtZAR(amountPaid)}`} />
+            <View style={S.totDivider} />
+          </>
+        )}
+
+        {(amountPaid > 0 || isInvoice) && (
+          <View style={S.balRow}>
+            <Text style={[S.balLabel, D.balLabel]}>Balance Due</Text>
+            <Text style={[S.balVal,   D.balVal]}>{fmtZAR(balanceDue)}</Text>
+          </View>
+        )}
+      </View>
+    </View>
+  )
+
+  // Notes, banking and the payment reference form the lower half of the closing
+  // block. Any further payment-related line (e.g. a pay-online link) belongs here,
+  // directly under the banking details.
+  const closingBottom = (
+    <View style={S.closingBottom}>
+      {data.notes ? (
+        <View style={S.notesWrap}>
+          <Text style={[S.notesLabel, { color: primary }]}>Notes</Text>
+          <Text style={S.notesText}>{data.notes}</Text>
+        </View>
+      ) : null}
+
+      {!!bankingText && (
+        <View style={S.bankSection}>
+          <Text style={[S.footSecLabel, D.footSecLabel]}>Banking Details</Text>
+          <Text style={S.footText}>{bankingText}</Text>
+        </View>
+      )}
+
+      <Text style={S.refText}>
+        Please use {docNumber} as your payment reference.
+      </Text>
+    </View>
+  )
+
+  // The last line row travels WITH the closing block (one unbreakable group), so the
+  // totals and banking can never land alone on a page, and every continuation page
+  // always has at least one line item under its column header. flexGrow lets the
+  // group fill the remaining page so banking sits at the bottom of a one-page document.
+  const termsLineEstimate = (settings?.terms || '').split('\n').reduce((n, l) => n + Math.max(1, Math.ceil(l.length / 120)), 0)
+  const termsInGroup = termsLineEstimate <= LONG_TERMS_LINES
+  const termsBlock = !!settings?.terms && (
+    <View style={S.termsSection}>
+      <Text style={[S.footSecLabel, D.footSecLabel]}>Terms & Conditions</Text>
+      <Text style={S.footText}>{settings.terms}</Text>
+    </View>
+  )
+
+  const lastItem = items.length > 0 ? items[items.length - 1] : null
+  const closingGroup = (
+    <View wrap={false} style={S.closing}>
+      {lastItem && renderRow(lastItem, items.length - 1)}
+      {totals}
+      {!longPayments && paymentHistory}
+      <View style={{ flexGrow: 1 }} />
+      {closingBottom}
+      {termsInGroup && termsBlock}
+    </View>
+  )
 
   return (
     <Document>
-      <Page
-        size="A4"
-        style={{
-          ...S.page,
-          paddingTop:    HEADER_H,   // reserves space for the fixed header on every page
-          paddingBottom: FOOTER_H,   // reserves space for the fixed footer on every page
-        }}
-      >
+      <Page size="A4" style={S.page}>
 
-        {/* ═══════════════════════════════════════════════════════════════════
-            FIXED HEADER — absolutely positioned; repeats on every page.
-            backgroundColor:white covers any flow-content that might bleed
-            into the header zone on pages 2+.
-        ════════════════════════════════════════════════════════════════════ */}
+        {/* Continuation pages only: compact header + repeated column header. Renders
+            nothing on page 1, where the full header below is part of the normal flow. */}
         <View
           fixed
-          style={{
-            position:        'absolute',
-            top:             44,
-            left:            44,
-            right:           44,
-            backgroundColor: C.white,
-          }}
-        >
-          {/* Business info (left)  |  Doc type + meta (right) */}
-          <View style={S.header}>
-            <View style={S.headerLeft}>
-              {!!logoSrc && <Image src={logoSrc} style={S.logo} />}
-              <Text style={S.bizName}>{settings?.business_name || 'Your Business'}</Text>
-              {!!settings?.business_address && (
-                <Text style={S.bizDetail}>{settings.business_address}</Text>
-              )}
-              {!!settings?.email && (
-                <Text style={S.bizDetail}>{settings.email}</Text>
-              )}
-              {!!settings?.phone && (
-                <Text style={S.bizDetail}>{settings.phone}</Text>
-              )}
-              {!!settings?.vat_number && (
-                <Text style={S.bizDetail}>VAT: {settings.vat_number}</Text>
-              )}
+          render={({ pageNumber }) => pageNumber > 1 ? (
+            <View>
+              <View style={[S.compactHeader, D.divider]}>
+                <Text style={S.compactBiz}>{settings?.business_name || 'Your Business'}</Text>
+                <Text style={S.compactDoc}>{docWord} {docNumber || ''} · continued</Text>
+              </View>
             </View>
+          ) : null}
+        />
 
-            <View style={S.headerRight}>
-              <Text style={[S.docLabel, D.docLabel]}>{isInvoice ? 'INVOICE' : 'QUOTE'}</Text>
-              <MetaRow label={isInvoice ? 'Invoice #' : 'Quote #'} value={docNumber} />
-              <MetaRow label="Issue Date"    value={data.issue_date} />
-              <MetaRow label={secDateLabel}  value={secDate} />
-              {showPaymentDate && (
-                <View style={S.metaRow}>
-                  <Text style={S.metaLabel}>Payment Date</Text>
-                  <Text style={[S.metaVal, { color: C.green }]}>{data.payment_date}</Text>
-                </View>
-              )}
-            </View>
+        {/* "Continues on page N" — non-final pages only */}
+        <Text
+          fixed
+          style={{ position: 'absolute', bottom: 16, left: MARGIN, right: MARGIN,
+                   fontSize: 8, color: C.muted, fontFamily: 'Helvetica-Oblique', textAlign: 'center' }}
+          render={({ pageNumber, totalPages }) =>
+            totalPages > 1 && pageNumber < totalPages ? `── Continues on page ${pageNumber + 1} ──` : ''
+          }
+        />
+
+        {/* Page X of Y — multi-page documents only */}
+        <Text
+          fixed
+          style={{ position: 'absolute', bottom: 16, right: MARGIN, fontSize: 8, color: C.muted }}
+          render={({ pageNumber, totalPages }) =>
+            totalPages > 1 ? `Page ${pageNumber} of ${totalPages}` : ''
+          }
+        />
+
+        {/* ── Full header (page 1) ── */}
+        <View style={S.header}>
+          <View style={S.headerLeft}>
+            {!!logoSrc && <Image src={logoSrc} style={S.logo} />}
+            <Text style={S.bizName}>{settings?.business_name || 'Your Business'}</Text>
+            {!!settings?.business_address && (
+              <Text style={S.bizDetail}>{settings.business_address}</Text>
+            )}
+            {!!settings?.email && (
+              <Text style={S.bizDetail}>{settings.email}</Text>
+            )}
+            {!!settings?.phone && (
+              <Text style={S.bizDetail}>{settings.phone}</Text>
+            )}
+            {!!settings?.vat_number && (
+              <Text style={S.bizDetail}>VAT: {settings.vat_number}</Text>
+            )}
           </View>
 
-          {/* Coloured divider line */}
-          <View style={[S.divider, D.divider]} />
+          <View style={S.headerRight}>
+            <Text style={[S.docLabel, D.docLabel]}>{isInvoice ? 'INVOICE' : 'QUOTE'}</Text>
+            <MetaRow label={isInvoice ? 'Invoice #' : 'Quote #'} value={docNumber} />
+            <MetaRow label="Issue Date"    value={data.issue_date} />
+            <MetaRow label={secDateLabel}  value={secDate} />
+            {showPaymentDate && (
+              <View style={S.metaRow}>
+                <Text style={S.metaLabel}>Payment Date</Text>
+                <Text style={[S.metaVal, { color: C.green }]}>{data.payment_date}</Text>
+              </View>
+            )}
+          </View>
         </View>
 
-        {/* ═══════════════════════════════════════════════════════════════════
-            PAGE NUMBER — bottom-right of every page (hidden on single-page docs)
-        ════════════════════════════════════════════════════════════════════ */}
-        <Text
-          fixed
-          style={{
-            position: 'absolute',
-            bottom:   30,
-            right:    44,
-            fontSize: 8,
-            color:    C.muted,
-          }}
-          render={({ pageNumber, totalPages }) =>
-            totalPages > 1 ? `Page ${pageNumber} / ${totalPages}` : ''
-          }
-        />
+        <View style={[S.divider, D.divider]} />
 
-        {/* ═══════════════════════════════════════════════════════════════════
-            "CONTINUES ON PAGE N" — centred just above the footer on all pages
-            except the last.  Shows only when there is more than one page.
-        ════════════════════════════════════════════════════════════════════ */}
-        <Text
-          fixed
-          style={{
-            position:   'absolute',
-            bottom:     FOOTER_H + 10,
-            left:       44,
-            right:      44,
-            fontSize:   8,
-            color:      C.muted,
-            fontFamily: 'Helvetica-Oblique',
-            textAlign:  'center',
-          }}
-          render={({ pageNumber, totalPages }) =>
-            totalPages > 1 && pageNumber < totalPages
-              ? `── Continues on page ${pageNumber + 1} ──`
-              : ''
-          }
-        />
-
-        {/* ═══════════════════════════════════════════════════════════════════
-            FLOW CONTENT — sits between the fixed header and fixed footer.
-            Bill To appears first (only ever on page 1 naturally).
-            Each item row is wrap={false} so a row is never split mid-row.
-            The totals block is also wrap={false} so it moves as a whole.
-        ════════════════════════════════════════════════════════════════════ */}
-
-        {/* ── Bill To ──────────────────────────────────────────────────────── */}
+        {/* ── Bill To ── */}
         <View style={S.billToSection}>
           <Text style={[S.sectionLabel, D.sectionLabel]}>Bill To</Text>
           <Text style={S.clientName}>{data.client_company || data.client_name || '—'}</Text>
@@ -371,171 +473,20 @@ export function PdfDocument({ data, settings, docType }) {
           {!!data.client_phone   && <Text style={S.clientDetail}>{data.client_phone}</Text>}
         </View>
 
-        {/* ── Line items table ─────────────────────────────────────────────── */}
-        <View>
-          {/* Column header row */}
-          <View style={[S.tableHeader, D.tableHeader]}>
-            <Text style={[S.thCell, S.colDesc]}>Item Description</Text>
-            <Text style={[S.thCell, S.colQty]}>Qty</Text>
-            <Text style={[S.thCell, S.colRate]}>Rate</Text>
-            <Text style={[S.thCell, S.colAmount]}>Amount</Text>
-          </View>
-
-          {/* Data rows — wrap={false} keeps each row intact */}
-          {(data.items || []).map((item, i) => (
-            <View
-              key={item.id || i}
-              wrap={false}
-              style={[S.tableRow, i % 2 === 1 && S.tableRowAlt]}
-            >
-              <View style={S.colDesc}>
-                <Text style={S.itemName}>{item.item_name}</Text>
-                {item.description
-                  ? item.description.split('\n').map((line, idx) => (
-                      <Text key={idx} style={S.itemDesc}>{line}</Text>
-                    ))
-                  : null}
-              </View>
-              <Text style={[S.cellNum, S.colQty]}>{item.quantity}</Text>
-              <Text style={[S.cellNum, S.colRate]}>{fmtZAR(item.unit_price)}</Text>
-              <Text style={[S.cellNum, S.colAmount]}>{fmtZAR(item.line_total || (Number(item.quantity) * Number(item.unit_price)))}</Text>
-            </View>
-          ))}
+        {/* ── Line items + closing block. The column header is `fixed` INSIDE this View, so
+            it repeats on every page the table spans (and only those). ── */}
+        <View style={{ flexGrow: 1 }}>
+          <View fixed>{columnHeader}</View>
+          {items.slice(0, -1).map((item, i) => renderRow(item, i))}
+          {closingGroup}
         </View>
 
-        {/* ── Totals — kept together on the same page ──────────────────────── */}
-        <View wrap={false} style={S.totalsOuter}>
-          <View style={S.totalsBlock}>
-            {discountAmt > 0 && (
-              <TotRow
-                label={data.discount_type === 'percent' ? `Discount (${discountValue}%)` : 'Discount'}
-                value={`-${fmtZAR(discountAmt)}`}
-              />
-            )}
-            {Number(data.vat_enabled) ? (
-              <>
-                <TotRow label="Subtotal" value={fmtZAR(data.subtotal)} />
-                <TotRow label={`VAT (${data.vat_rate || 15}%)`} value={fmtZAR(data.vat_amount)} />
-                <View style={S.totDivider} />
-              </>
-            ) : null}
+        {longPayments && paymentHistory}
 
-            <View style={S.totalRow}>
-              <Text style={S.totalLabel}>Total</Text>
-              <Text style={S.totalVal}>{fmtZAR(total)}</Text>
-            </View>
+        {/* Very long terms flow across pages after the closing block; never clipped */}
+        {!termsInGroup && termsBlock}
 
-            {amountPaid > 0 && (
-              <>
-                <TotRow label="Amount Paid" value={`-${fmtZAR(amountPaid)}`} />
-                <View style={S.totDivider} />
-              </>
-            )}
-
-            {(amountPaid > 0 || isInvoice) && (
-              <View style={S.balRow}>
-                <Text style={[S.balLabel, D.balLabel]}>Balance Due</Text>
-                <Text style={[S.balVal,   D.balVal]}>{fmtZAR(balanceDue)}</Text>
-              </View>
-            )}
-          </View>
-        </View>
-
-        {/* ── Payment History — only when the invoice has recorded payments ── */}
-        {Array.isArray(data.payments) && data.payments.length > 0 && (
-          <View wrap={false} style={S.paymentsSection}>
-            <Text style={S.paymentsHeading}>Payment History</Text>
-
-            <View style={S.paymentsTableHeader}>
-              <Text style={[S.paymentsHCell, S.paymentsColDate]}>Date</Text>
-              <Text style={[S.paymentsHCell, S.paymentsColMethod]}>Method</Text>
-              <Text style={[S.paymentsHCell, S.paymentsColNote]}>Note</Text>
-              <Text style={[S.paymentsHCell, S.paymentsColAmount]}>Amount</Text>
-            </View>
-
-            {data.payments.map((p, idx) => (
-              <View key={p.id || idx} style={S.paymentsRow}>
-                <Text style={[S.paymentsCell, S.paymentsColDate]}>{p.payment_date || '—'}</Text>
-                <Text style={[S.paymentsCell, S.paymentsColMethod]}>{p.payment_method || '—'}</Text>
-                <Text style={[S.paymentsCell, S.paymentsColNote]}>{p.note || '—'}</Text>
-                <Text style={[S.paymentsCellNum, S.paymentsColAmount]}>{fmtZAR(p.amount)}</Text>
-              </View>
-            ))}
-
-            <View style={S.paymentsSummaryRow}>
-              <Text style={S.totLabel}>Total Paid</Text>
-              <Text style={S.totVal}>{fmtZAR(amountPaid)}</Text>
-            </View>
-
-            {balanceDue === 0 ? (
-              <View style={S.paymentsSummaryRow}>
-                <Text style={S.paidInFullText}>PAID IN FULL</Text>
-              </View>
-            ) : (
-              <View style={S.paymentsSummaryRow}>
-                <Text style={[S.balLabel, D.balLabel]}>Balance Due</Text>
-                <Text style={[S.balVal,   D.balVal]}>{fmtZAR(balanceDue)}</Text>
-              </View>
-            )}
-          </View>
-        )}
-
-        {/* ═══════════════════════════════════════════════════════════════════
-            FIXED FOOTER — absolutely positioned; repeats on every page.
-            backgroundColor:white ensures it covers flow content underneath.
-        ════════════════════════════════════════════════════════════════════ */}
-        <View
-          fixed
-          style={{
-            position:         'absolute',
-            bottom:           52,
-            left:             44,
-            right:            44,
-            backgroundColor:  C.white,
-            paddingTop:       12,
-            borderTopWidth:   0.75,
-            borderTopColor:   C.border,
-          }}
-        >
-          {/* Banking Details (left) | Terms & Conditions (right) */}
-          {!!(bankingText || settings?.terms) && (
-            <View style={S.footColumns}>
-              <View style={S.footColLeft}>
-                {!!bankingText && (
-                  <>
-                    <Text style={[S.footSecLabel, D.footSecLabel]}>Banking Details</Text>
-                    <Text style={S.footText}>{bankingText}</Text>
-                  </>
-                )}
-              </View>
-              <View style={S.footColRight}>
-                {!!settings?.terms && (
-                  <>
-                    <Text style={[S.footSecLabelR, D.footSecLabelR]}>Terms & Conditions</Text>
-                    <Text style={S.footTextRight}>{settings.terms}</Text>
-                  </>
-                )}
-              </View>
-            </View>
-          )}
-
-          {/* Payment reference — centred */}
-          <Text style={S.refText}>
-            Please use {docNumber} as your payment reference.
-          </Text>
-
-          {/* Notes — only when the user typed something */}
-          {data.notes ? (
-            <View style={S.notesWrap}>
-              <Text style={[S.notesLabel, { color: primary }]}>Notes</Text>
-              <Text style={S.notesText}>{data.notes}</Text>
-            </View>
-          ) : null}
-        </View>
-
-        {/* ═══════════════════════════════════════════════════════════════════
-            PAID WATERMARK (diagonal stamp, full-page)
-        ════════════════════════════════════════════════════════════════════ */}
+        {/* ── PAID watermark (diagonal stamp) ── */}
         {isPaid && (
           <View style={S.paidOverlay}>
             <View style={S.paidStamp}>

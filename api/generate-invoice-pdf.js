@@ -69,17 +69,14 @@ export default async function handler(req, res) {
       return res.status(403).json({ error: 'user_id does not match this invoice' });
     }
 
-    let [{ data: items, error: itemsErr }, { data: profile }, { data: client }] = await Promise.all([
-      supabase.from('invoice_items').select('*').eq('invoice_id', invoice_id).order('sort_order', { ascending: true, nullsFirst: false }),
+    const [{ data: items, error: itemsErr }, { data: profile }, { data: client }] = await Promise.all([
+      supabase.from('invoice_items').select('*').eq('invoice_id', invoice_id).order('sort_order', { ascending: true, nullsFirst: false }).order('id', { ascending: true }),
       supabase.from('profiles').select('*').eq('id', user_id).maybeSingle(),
       invoice.client_id
         ? supabase.from('clients').select('*').eq('id', invoice.client_id).maybeSingle()
         : Promise.resolve({ data: null }),
     ]);
 
-    if (itemsErr && /sort_order/i.test(itemsErr.message || '')) {
-      ({ data: items, error: itemsErr } = await supabase.from('invoice_items').select('*').eq('invoice_id', invoice_id));
-    }
     if (itemsErr) {
       return res.status(500).json({ error: `Could not load invoice line items: ${itemsErr.message}` });
     }

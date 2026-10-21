@@ -74,11 +74,12 @@ export async function loadDocument(supabase, kind, id) {
   const { data: header, error: hErr } = await supabase.from(k.table).select('*').eq('id', id).single()
   if (hErr) throw new Error(`Could not load the ${k.noun}: ${hErr.message}`)
 
-  let res = await supabase.from(k.itemsTable).select('*').eq(k.fk, id)
+  // Order is sort_order (the line's position when saved). NULLS LAST then id is only a
+  // deterministic last resort for legacy rows that were never given an order — it is not
+  // the entry order. If this query fails we surface the error rather than show a scrambled order.
+  const res = await supabase.from(k.itemsTable).select('*').eq(k.fk, id)
     .order('sort_order', { ascending: true, nullsFirst: false })
-  if (res.error && /sort_order/i.test(res.error.message || '')) {
-    res = await supabase.from(k.itemsTable).select('*').eq(k.fk, id)
-  }
+    .order('id', { ascending: true })
   if (res.error) throw new Error(`Could not load the ${k.noun} line items: ${res.error.message}`)
   return { header, items: res.data ?? [] }
 }
