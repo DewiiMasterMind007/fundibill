@@ -509,10 +509,16 @@ Deno.serve(async (req: Request) => {
           }
         }
 
-        // ── 4. Insert the invoice ────────────────────────────────────────────
-        const { data: invoice, error: invErr } = await supabase
-          .from('invoices')
-          .insert({
+        // ── 4. Insert the invoice + its lines in ONE transaction ─────────────
+        // save_invoice_with_items (supabase/migrations/add_atomic_document_save.sql)
+        // writes the header and every line item atomically and verifies the stored
+        // total against the stored lines, so a failure can never leave an invoice
+        // without its lines (and the schedule below is only advanced on success).
+        if (lineItems.length === 0) throw new Error('template has no valid line items')
+        const { data: newInvoiceId, error: invErr } = await supabase.rpc('save_invoice_with_items', {
+          p_invoice_id: null,
+          p_user_id: template.user_id,
+          p_header: {
             invoice_number: invoiceNumber,
             client_id: template.client_id || null,
             issue_date: issueDate,
@@ -525,30 +531,27 @@ Deno.serve(async (req: Request) => {
             total: lineTotal,
             amount_paid: 0,
             status: 'draft',
+            discount_value: 0,
+            discount_type: null,
             from_recurring: true,
             notification_dismissed: false,
             banking_details_snapshot: bankingSnapshot,
             show_banking_details: showBankingDetails,
-            user_id: template.user_id,
-          })
-          .select()
-          .single()
-
-        if (invErr) throw new Error(`invoice insert failed: ${invErr.message}`)
-
-        if (lineItems.length > 0) {
-          const { error: itemsErr } = await supabase
-            .from('invoice_items')
-            .insert(lineItems.map((li) => ({ ...li, invoice_id: invoice.id })))
-          if (itemsErr) throw new Error(`invoice_items insert failed: ${itemsErr.message}`)
-        }
+          },
+          p_items: lineItems,
+        })
+        if (invErr || !newInvoiceId) throw new Error(`invoice save failed: ${invErr?.message || 'no id returned'}`)
+        const invoice = { id: newInvoiceId as string }
 
         // ── 5. Advance the template's schedule ───────────────────────────────
         const nextSendDate = calcNextSendDate(issueDate, template.interval)
-        await supabase
+        const { error: advanceErr } = await supabase
           .from('recurring_invoices')
           .update({ next_send_date: nextSendDate, last_sent_date: issueDate })
           .eq('id', template.id)
+        if (advanceErr) {
+          results.errors.push(`${invoiceNumber}: invoice created but schedule not advanced (${advanceErr.message}); a duplicate may be created on the next run`)
+        }
 
         results.created++
 

@@ -15,6 +15,8 @@ import whatsappIcon from '../../public/whatsapp icon.png'
 import { getBankingDetails, createBankingSnapshot } from '../utils/bankingDetails'
 import BankingDetailsSelector from '../components/BankingDetailsSelector'
 import { getClientContacts } from '../utils/clientContacts'
+import { saveDocument, loadDocument, normalizeItems, findUnnamedPricedLines, computeTotals, checkIntegrity } from '../utils/documentSave'
+import IntegrityBanner from '../components/IntegrityBanner'
 
 const READONLY_MSG = 'Your trial has ended. Upgrade to continue.'
 
@@ -548,8 +550,15 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
   const [convertedInvoiceNumber, setConvertedInvoiceNumber] = useState(null)
   const shareDialogRef = useRef(null)
   const currentEstimateIdRef = useRef(estimate?.id)
+  // Fresh-from-database copy of the document, set only by prepareForSend(); every
+  // PDF / email / WhatsApp output is built from this, never from form state.
+  const [verifiedDoc, setVerifiedDoc] = useState(null)
+  const savedSnapshotRef = useRef(null)
 
   useEffect(() => { currentEstimateIdRef.current = estimate?.id }, [estimate?.id])
+
+  const integrity = estimate?.id ? checkIntegrity(estimate, estimate.items) : { ok: true }
+  const sendBlocked = !integrity.ok
 
   useEffect(() => {
     if (!estimate?.converted_invoice_id) { setConvertedInvoiceNumber(null); return }
@@ -560,6 +569,7 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
   // Banking details selector (multiple-accounts feature)
   const [bankingList, setBankingList] = useState([])
   const [bankingDetailId, setBankingDetailId] = useState(null)
+  const [bankingLoaded, setBankingLoaded] = useState(false)
   const [showBankingDetails, setShowBankingDetails] = useState(estimate?.show_banking_details ?? true)
   function toggleShowBankingDetails(checked) {
     setShowBankingDetails(checked)
@@ -579,9 +589,16 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
       const matched = snap && list.find(b => b.account_number === snap.account_number && b.bank_name === snap.bank_name)
       const fallback = list.find(b => b.is_default) || list[0]
       setBankingDetailId((matched || fallback)?.id || null)
-    }).catch(() => {})
+      setBankingLoaded(true)
+    }).catch(() => { if (!cancelled) setBankingLoaded(true) })
     return () => { cancelled = true }
   }, [user?.id])
+
+  // Baseline for dirty-tracking on an existing quote: taken once the async form
+  // inputs (banking account) have settled, so an untouched quote isn't re-saved.
+  useEffect(() => {
+    if (estimate?.id && bankingLoaded && savedSnapshotRef.current === null) savedSnapshotRef.current = currentSnapshot()
+  }, [bankingLoaded]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Additional client contacts — offered as opt-in "Also send to:" choices
   const [clientContacts, setClientContacts] = useState([])
@@ -645,17 +662,17 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
     if (estimate) setForm(p => ({ ...p, status: estimate.status, previous_status: estimate.previous_status || null }))
   }, [estimate?.status, estimate?.previous_status])
 
-  // VAT-inclusive: unit_price is the price the client pays (VAT already inside)
-  const grossTotal    = lineItems.reduce((s, i) => s + (Number(i.quantity) || 0) * (Number(i.unit_price) || 0), 0)
+  // VAT-inclusive: unit_price is the price the client pays (VAT already inside).
+  // Totals are computed from exactly the lines that get saved (named lines only).
   const discountsOn   = !!settings?.discounts_enabled
   const discountValue = discountsOn ? (Number(form.discount_value) || 0) : 0
-  const discountAmt   = discountsOn
+  const { gross: grossTotal, total, subtotal, vatAmount } = computeTotals(normalizeItems(lineItems), {
+    vatEnabled: form.vat_enabled, discountsOn, discountType: form.discount_type, discountValue,
+  })
+  const discountAmt     = discountsOn
     ? (form.discount_type === 'percent' ? grossTotal * (discountValue / 100) : discountValue)
     : 0
-  const discountedTotal = Math.max(0, grossTotal - discountAmt)
-  const subtotal   = form.vat_enabled ? discountedTotal / 1.15 : discountedTotal
-  const vatAmount  = form.vat_enabled ? discountedTotal - subtotal : 0
-  const total      = discountedTotal
+  const discountedTotal = total
 
   const selectedClient = [...clients, ...extraClients].find(c => c.id === form.client_id)
 
@@ -702,13 +719,33 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
     if (!form.expiry_date) errs.expiry_date = 'Required.'
     const validLines = lineItems.filter(li => (li.item_name || '').trim())
     if (validLines.length === 0) errs.items = 'Add at least one line item.'
+    else if (findUnnamedPricedLines(lineItems).length > 0) errs.items = 'Some lines have a price or description but no item name. Name them or remove them — unnamed lines are not saved.'
     return errs
   }
 
+  function currentSnapshot() {
+    return JSON.stringify({
+      f: [form.estimate_number, form.client_id, form.issue_date, form.expiry_date, form.notes, form.vat_enabled, form.discount_value, form.discount_type],
+      l: normalizeItems(lineItems),
+      b: [bankingDetailId, showBankingDetails],
+    })
+  }
+
   async function handleSave(overrideStatus) {
-    if (saving) return // already mid-save — ignore a repeat click/call instead of racing it
+    if (saving) return null // already mid-save — ignore a repeat click/call instead of racing it
     const errs = validate()
-    if (Object.keys(errs).length) { setErrors(errs); return }
+    if (Object.keys(errs).length) { setErrors(errs); return null }
+
+    const knownId = currentEstimateIdRef.current || estimate?.id || null
+    const items = normalizeItems(lineItems)
+
+    if (knownId && !integrity.ok) {
+      const ok = window.confirm(
+        `This quote's saved lines don't match its saved total (stored ${fmt(integrity.storedTotal)}, saved lines add up to ${fmt(integrity.itemsTotal)}).\n\n` +
+        `Saving will replace the stored total with ${fmt(total)}, calculated from the ${items.length} line(s) shown on screen. Continue?`
+      )
+      if (!ok) return null
+    }
 
     // setSaving(true) before the duplicate-number check (not after) so the Save
     // button is disabled for the whole save, not just the DB write — otherwise a
@@ -719,17 +756,22 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
     setErrors({})
 
     // Duplicate-number guard: reject if this number already exists on a DIFFERENT estimate
-    const { data: clash } = await supabase
+    const { data: clash, error: clashErr } = await supabase
       .from('estimates')
       .select('id')
       .eq('user_id', user.id)
       .eq('estimate_number', form.estimate_number)
       .limit(1)
+    if (clashErr) {
+      setSaving(false)
+      setErrors({ _global: `Your quote could not be saved: ${clashErr.message}` })
+      return null
+    }
     const clashId = clash?.[0]?.id
-    if (clashId && clashId !== estimate?.id) {
+    if (clashId && clashId !== knownId) {
       setSaving(false)
       setErrors({ _global: `Quote number ${form.estimate_number} is already in use. Please choose a different number.` })
-      return
+      return null
     }
 
     const payload = {
@@ -750,16 +792,6 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
       show_banking_details: showBankingDetails,
     }
 
-    const items = lineItems
-      .filter(li => (li.item_name || '').trim())
-      .map(li => ({
-        item_name: li.item_name,
-        description: li.description || null,
-        quantity: Number(li.quantity) || 1,
-        unit_price: Number(li.unit_price) || 0,
-        line_total: (Number(li.quantity) || 1) * (Number(li.unit_price) || 0),
-      }))
-
     // Auto-save new catalog items — then refresh the in-memory catalog so
     // autocomplete suggestions update immediately without a page reload.
     const catalogNames = new Set(catalog.map(c => c.name.toLowerCase()))
@@ -776,42 +808,14 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
     if (catalogChanged) refreshCatalog()
 
     try {
-      let estimateId
-      if (isNew) {
-        const { data, error } = await supabase
-          .from('estimates')
-          .insert({ ...payload, user_id: user.id })
-          .select()
-          .single()
-        if (error) throw new Error(error.message)
-        estimateId = data.id
-      } else {
-        const { error } = await supabase
-          .from('estimates')
-          .update(payload)
-          .eq('id', estimate.id)
-          .eq('user_id', user.id)
-        if (error) throw new Error(error.message)
-        estimateId = estimate.id
-        // Replace all line items
-        const { error: delErr } = await supabase
-          .from('estimate_items')
-          .delete()
-          .eq('estimate_id', estimateId)
-        if (delErr) throw new Error(delErr.message)
-      }
-
-      if (items.length > 0) {
-        const { error: itemsErr } = await supabase
-          .from('estimate_items')
-          .insert(items.map(i => ({ ...i, estimate_id: estimateId })))
-        if (itemsErr) throw new Error(itemsErr.message)
-      }
-
+      const saved = await saveDocument(supabase, 'estimate', {
+        id: knownId, userId: user.id, header: payload, items,
+      })
+      currentEstimateIdRef.current = saved.id
+      savedSnapshotRef.current = currentSnapshot()
       setSaving(false)
-      currentEstimateIdRef.current = estimateId
-      onSaved({ id: estimateId, ...payload })
-      return estimateId
+      onSaved({ id: saved.id, ...payload })
+      return saved
     } catch (e) {
       setSaving(false)
       setErrors({ _global: e.message })
@@ -819,71 +823,70 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
     }
   }
 
-  async function ensureSaved() {
-    if (currentEstimateIdRef.current) return currentEstimateIdRef.current
-    return await handleSave()
-  }
-
-  async function handleConvert() {
-    const errs = validate()
-    if (Object.keys(errs).length) { setErrors(errs); return }
-    setSaving(true)
+  // The only way to reach PDF / email / WhatsApp. Saves the form if it is new or
+  // changed, then re-reads the stored document and verifies it before anything
+  // is generated or sent. Returns the fresh stored document, or null (and shows
+  // an error) — callers must abort on null.
+  async function prepareForSend() {
     setErrors({})
+    if (sendBlocked) { setErrors({ _global: integrity.message }); return null }
+    const errs = validate()
+    if (Object.keys(errs).length) { setErrors(errs); return null }
 
-    const items = lineItems
-      .filter(li => (li.item_name || '').trim())
-      .map(li => ({
-        item_name: li.item_name,
-        description: li.description || null,
-        quantity: Number(li.quantity) || 1,
-        unit_price: Number(li.unit_price) || 0,
-        line_total: (Number(li.quantity) || 1) * (Number(li.unit_price) || 0),
-      }))
-
-    const estimatePayload = {
-      estimate_number: form.estimate_number,
-      client_id: form.client_id || null,
-      issue_date: form.issue_date,
-      expiry_date: form.expiry_date,
-      notes: form.notes || null,
-      vat_enabled: form.vat_enabled,
-      vat_rate: form.vat_enabled ? 15 : 0,
-      subtotal,
-      vat_amount: vatAmount,
-      total,
+    let id = currentEstimateIdRef.current
+    if (!id || currentSnapshot() !== savedSnapshotRef.current) {
+      const saved = await handleSave()
+      if (!saved) return null
+      id = saved.id
     }
 
     try {
-      // Save / update the estimate
-      let estimateId
-      if (isNew) {
-        const { data, error } = await supabase
-          .from('estimates')
-          .insert({ ...estimatePayload, status: 'draft', user_id: user.id })
-          .select()
-          .single()
-        if (error) throw new Error(error.message)
-        estimateId = data.id
-      } else {
-        const { error } = await supabase
-          .from('estimates')
-          .update(estimatePayload)
-          .eq('id', estimate.id)
-          .eq('user_id', user.id)
-        if (error) throw new Error(error.message)
-        estimateId = estimate.id
-        await supabase.from('estimate_items').delete().eq('estimate_id', estimateId)
+      const doc = await loadDocument(supabase, 'estimate', id)
+      const check = checkIntegrity(doc.header, doc.items)
+      if (!check.ok || doc.items.length === 0) {
+        setErrors({ _global: 'Your quote could not be fully saved — nothing has been sent. ' + (check.message || '') })
+        return null
       }
+      setVerifiedDoc(doc)
+      return doc
+    } catch (e) {
+      setErrors({ _global: `Could not verify the saved quote — nothing has been sent. ${e.message}` })
+      return null
+    }
+  }
 
-      if (items.length > 0) {
-        await supabase.from('estimate_items').insert(items.map(i => ({ ...i, estimate_id: estimateId })))
-      }
+  function buildPdfData(doc) {
+    const h = doc.header
+    const client = [...clients, ...extraClients].find(c => c.id === h.client_id)
+    return {
+      ...h,
+      client_name:    client?.name || '',
+      client_company: client?.company_name || '',
+      client_email:   client?.email || '',
+      client_phone:   client?.phone || '',
+      client_address: client?.address || '',
+      items:          doc.items,
+    }
+  }
 
-      // Generate next invoice number from the highest existing number
-      const [{ data: profile }, { data: existingInvoices }] = await Promise.all([
+  async function handleConvert() {
+    if (saving) return
+    const errs = validate()
+    if (Object.keys(errs).length) { setErrors(errs); return }
+
+    // Quote first: atomic save + verification. Nothing is converted unless this succeeds.
+    const savedQuote = await handleSave()
+    if (!savedQuote) return
+
+    setSaving(true)
+    setErrors({})
+    try {
+      const [{ data: profile, error: profErr }, { data: existingInvoices, error: numErr }] = await Promise.all([
         supabase.from('profiles').select('invoice_prefix').eq('id', user.id).maybeSingle(),
         supabase.from('invoices').select('invoice_number').eq('user_id', user.id),
       ])
+      if (profErr) throw new Error(profErr.message)
+      if (numErr) throw new Error(numErr.message)
       const invPrefix = profile?.invoice_prefix || settings?.invoice_prefix || 'INV-'
       const invStart  = settings?.starting_invoice_number || 1
       const maxNum    = (existingInvoices ?? []).reduce((max, inv) => {
@@ -892,40 +895,46 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
       }, 0)
       const invoiceNumber = `${invPrefix}${String(maxNum > 0 ? maxNum + 1 : invStart).padStart(4, '0')}`
 
-      // Create invoice from estimate
-      const { data: inv, error: invErr } = await supabase
-        .from('invoices')
-        .insert({
+      const h = savedQuote.header
+      const invItems = savedQuote.items.map(i => ({
+        item_name: i.item_name,
+        description: i.description || null,
+        quantity: Number(i.quantity) || 1,
+        unit_price: Number(i.unit_price) || 0,
+        line_total: (Number(i.quantity) || 1) * (Number(i.unit_price) || 0),
+      }))
+
+      const invoice = await saveDocument(supabase, 'invoice', {
+        id: null,
+        userId: user.id,
+        header: {
           invoice_number: invoiceNumber,
-          client_id: form.client_id || null,
-          issue_date: form.issue_date,
-          due_date: form.expiry_date,
-          notes: form.notes || null,
-          vat_enabled: form.vat_enabled,
-          vat_rate: form.vat_enabled ? 15 : 0,
-          subtotal,
-          vat_amount: vatAmount,
-          total,
-          discount_value: discountsOn ? (Number(form.discount_value) || 0) : 0,
-          discount_type:  discountsOn ? (form.discount_type || 'percent') : null,
-          banking_details_snapshot: bankingSnapshot,
-          show_banking_details: showBankingDetails,
+          client_id: h.client_id || null,
+          issue_date: h.issue_date,
+          due_date: h.expiry_date,
+          notes: h.notes || null,
+          vat_enabled: h.vat_enabled,
+          vat_rate: h.vat_rate,
+          subtotal: h.subtotal,
+          vat_amount: h.vat_amount,
+          total: h.total,
+          discount_value: h.discount_value ?? 0,
+          discount_type: h.discount_type ?? null,
+          banking_details_snapshot: h.banking_details_snapshot ?? null,
+          show_banking_details: h.show_banking_details,
           status: 'draft',
-          user_id: user.id,
-        })
-        .select()
-        .single()
-      if (invErr) throw new Error(invErr.message)
+        },
+        items: invItems,
+      })
 
-      if (items.length > 0) {
-        await supabase.from('invoice_items').insert(items.map(i => ({ ...i, invoice_id: inv.id })))
-      }
-
-      // Mark estimate as converted, linking to the new invoice
-      await supabase
+      const { error: markErr } = await supabase
         .from('estimates')
-        .update({ status: 'converted', converted_invoice_id: inv.id, previous_status: form.status })
-        .eq('id', estimateId)
+        .update({ status: 'converted', converted_invoice_id: invoice.id, previous_status: form.status })
+        .eq('id', savedQuote.id)
+        .eq('user_id', user.id)
+      if (markErr) {
+        throw new Error(`Invoice ${invoiceNumber} was created, but the quote could not be marked as converted: ${markErr.message}. Open Invoices to check it before converting again.`)
+      }
 
       setSaving(false)
       navigate('/invoices')
@@ -959,8 +968,10 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
       if (undoTarget === 'convert') {
         const invoiceId = estimate.converted_invoice_id
         if (invoiceId) {
-          await supabase.from('invoice_items').delete().eq('invoice_id', invoiceId)
-          await supabase.from('invoices').delete().eq('id', invoiceId).eq('user_id', user.id)
+          const { error: itemsDelErr } = await supabase.from('invoice_items').delete().eq('invoice_id', invoiceId)
+          if (itemsDelErr) throw new Error(itemsDelErr.message)
+          const { error: invDelErr } = await supabase.from('invoices').delete().eq('id', invoiceId).eq('user_id', user.id)
+          if (invDelErr) throw new Error(invDelErr.message)
         }
         const revertStatus = form.previous_status || 'draft'
         const { error } = await supabase
@@ -993,34 +1004,16 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
   const [waToast, setWaToast] = useState(null)
 
   async function handleSendWhatsApp() {
-    if (waLoading) return
+    if (waLoading || saving) return
     setShowShareDialog(false)
     setWaToast(null)
-    const savedId = await ensureSaved()
-    if (!savedId) return
+    const doc = await prepareForSend()
+    if (!doc) return
     setWaLoading(true)
     try {
-      const pdfData = {
-        ...(estimate || {}),
-        estimate_number: form.estimate_number,
-        issue_date:      form.issue_date,
-        expiry_date:     form.expiry_date,
-        notes:           form.notes,
-        vat_enabled:     form.vat_enabled,
-        vat_rate:        form.vat_enabled ? 15 : 0,
-        subtotal,
-        vat_amount:      vatAmount,
-        total,
-        status:          form.status,
-        client_name:     selectedClient?.name || '',
-        client_company:  selectedClient?.company_name || '',
-        client_email:    selectedClient?.email || '',
-        client_phone:    selectedClient?.phone || '',
-        client_address:  selectedClient?.address || '',
-        items:           lineItems.filter(li => (li.item_name || '').trim()),
-        banking_details_snapshot: bankingSnapshot,
-        show_banking_details: showBankingDetails,
-      }
+      const pdfData = buildPdfData(doc)
+      const h = doc.header
+      const client = [...clients, ...extraClients].find(c => c.id === h.client_id)
 
       let arrayBuffer
       try {
@@ -1032,22 +1025,22 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
       }
 
       const blob         = new Blob([arrayBuffer], { type: 'application/pdf' })
-      const filename     = `Quote-${form.estimate_number || 'draft'}.pdf`
+      const filename     = `Quote-${h.estimate_number || 'draft'}.pdf`
       const businessName = settings?.business_name || ''
-      const clientName   = selectedClient?.company_name || selectedClient?.name || 'there'
+      const clientName   = client?.company_name || client?.name || 'there'
       const message = buildEstimateWhatsAppMessage({
         clientName,
-        estimateNumber: form.estimate_number,
-        amount:         fmt(total),
-        expiryDate:     form.expiry_date,
+        estimateNumber: h.estimate_number,
+        amount:         fmt(h.total),
+        expiryDate:     h.expiry_date,
         businessName,
         template:       settings?.whatsapp_estimate_message || settings?.whatsapp_default_message || undefined,
       })
 
       const result = await sendPdfViaWhatsApp({
         blob, filename, message,
-        phone: selectedClient?.phone,
-        title: `Quote ${form.estimate_number} from ${businessName}`,
+        phone: client?.phone,
+        title: `Quote ${h.estimate_number} from ${businessName}`,
       })
 
       if (result.status === 'fallback') {
@@ -1061,14 +1054,16 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
 
   async function handleOpenEmail() {
     setShowShareDialog(false)
-    const savedId = await ensureSaved()
-    if (!savedId) return
+    if (saving) return
+    const doc = await prepareForSend()
+    if (!doc) return
     setShowEmailModal(true)
   }
 
   async function handleOpenPdf() {
-    const savedId = await ensureSaved()
-    if (!savedId) return
+    if (saving) return
+    const doc = await prepareForSend()
+    if (!doc) return
     setPdfOpen(true)
   }
 
@@ -1155,7 +1150,7 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
                   View only
                 </span>
               )}
-              <button onClick={handleOpenPdf}
+              <button onClick={handleOpenPdf} disabled={sendBlocked}
                 style={{ padding: '9px 14px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontWeight: 600, fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
                 Preview PDF
@@ -1171,13 +1166,13 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
                   </button>
                   {showShareDialog && (
                     <div style={{ position: 'absolute', top: 'calc(100% + 6px)', right: 0, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, boxShadow: '0 8px 24px rgba(15,23,42,0.12)', zIndex: 100, minWidth: 160, padding: '6px 0', overflow: 'hidden' }}>
-                      <button onClick={handleSendWhatsApp} style={{ width: '100%', padding: '10px 16px', border: 'none', background: 'none', textAlign: 'left', fontSize: 13, fontWeight: 600, color: '#374151', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 9 }}
+                      <button onClick={handleSendWhatsApp} disabled={sendBlocked} style={{ width: '100%', padding: '10px 16px', border: 'none', background: 'none', textAlign: 'left', fontSize: 13, fontWeight: 600, color: '#374151', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 9 }}
                         onMouseEnter={e => e.currentTarget.style.background = '#f1f5f9'}
                         onMouseLeave={e => e.currentTarget.style.background = 'none'}>
                         <img src={whatsappIcon} alt="" width={14} height={14} style={{ display: 'block', borderRadius: 3 }} />
                         WhatsApp
                       </button>
-                      <button onClick={handleOpenEmail} style={{ width: '100%', padding: '10px 16px', border: 'none', background: 'none', textAlign: 'left', fontSize: 13, fontWeight: 600, color: '#374151', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 9 }}
+                      <button onClick={handleOpenEmail} disabled={sendBlocked} style={{ width: '100%', padding: '10px 16px', border: 'none', background: 'none', textAlign: 'left', fontSize: 13, fontWeight: 600, color: '#374151', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 9 }}
                         onMouseEnter={e => e.currentTarget.style.background = '#f1f5f9'}
                         onMouseLeave={e => e.currentTarget.style.background = 'none'}>
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#475569" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
@@ -1209,7 +1204,7 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
           {/* Mobile: compact icon buttons */}
           {isMobile && (
             <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }}>
-              <button onClick={handleOpenPdf} title="Preview PDF"
+              <button onClick={handleOpenPdf} disabled={sendBlocked} title="Preview PDF"
                 style={{ padding: '7px', borderRadius: 7, border: '1px solid #e2e8f0', background: '#fff', color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
               </button>
@@ -1263,6 +1258,11 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
         paddingBottom: isMobile ? 'calc(148px + env(safe-area-inset-bottom))' : undefined,
       }}>
         <div style={{ maxWidth: 860, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: isMobile ? 14 : 20 }}>
+
+          <IntegrityBanner integrity={integrity} />
+          {errors._global && !isMobile && (
+            <div role="alert" style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 10, padding: '10px 14px', color: '#991b1b', fontSize: 13 }}>{errors._global}</div>
+          )}
 
           {/* ── Details card ── */}
           <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0', padding: isMobile ? 16 : 24 }}>
@@ -1517,11 +1517,11 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
               </button>
               {showShareDialog && (
                 <div style={{ marginTop: 6, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, boxShadow: '0 4px 16px rgba(15,23,42,0.10)', overflow: 'hidden' }}>
-                  <button onClick={handleSendWhatsApp} style={{ width: '100%', padding: '13px 16px', border: 'none', borderBottom: '1px solid #f1f5f9', background: 'none', textAlign: 'left', fontSize: 14, fontWeight: 600, color: '#374151', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10, fontFamily: 'inherit' }}>
+                  <button onClick={handleSendWhatsApp} disabled={sendBlocked} style={{ width: '100%', padding: '13px 16px', border: 'none', borderBottom: '1px solid #f1f5f9', background: 'none', textAlign: 'left', fontSize: 14, fontWeight: 600, color: '#374151', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10, fontFamily: 'inherit' }}>
                     <img src={whatsappIcon} alt="" width={16} height={16} style={{ display: 'block', borderRadius: 3 }} />
                     WhatsApp
                   </button>
-                  <button onClick={handleOpenEmail} style={{ width: '100%', padding: '13px 16px', border: 'none', background: 'none', textAlign: 'left', fontSize: 14, fontWeight: 600, color: '#374151', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10, fontFamily: 'inherit' }}>
+                  <button onClick={handleOpenEmail} disabled={sendBlocked} style={{ width: '100%', padding: '13px 16px', border: 'none', background: 'none', textAlign: 'left', fontSize: 14, fontWeight: 600, color: '#374151', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10, fontFamily: 'inherit' }}>
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#475569" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
                     Email
                   </button>
@@ -1617,29 +1617,9 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
       )}
 
       {/* PDF Preview + Email modals */}
-      {(pdfOpen || showEmailModal) && (() => {
-        const selectedClient = [...clients, ...extraClients].find(c => c.id === form.client_id)
-        const pdfData = {
-          ...(estimate || {}),
-          estimate_number: form.estimate_number,
-          issue_date: form.issue_date,
-          expiry_date: form.expiry_date,
-          notes: form.notes,
-          vat_enabled: form.vat_enabled,
-          vat_rate: form.vat_enabled ? 15 : 0,
-          subtotal,
-          vat_amount: vatAmount,
-          total,
-          status: form.status,
-          client_name: selectedClient?.name || '',
-          client_company: selectedClient?.company_name || '',
-          client_email: selectedClient?.email || '',
-          client_phone: selectedClient?.phone || '',
-          client_address: selectedClient?.address || '',
-          items: lineItems.filter(li => (li.item_name || '').trim()),
-          banking_details_snapshot: bankingSnapshot,
-          show_banking_details: showBankingDetails,
-        }
+      {(pdfOpen || showEmailModal) && verifiedDoc && (() => {
+        const selectedClient = [...clients, ...extraClients].find(c => c.id === verifiedDoc.header.client_id)
+        const pdfData = buildPdfData(verifiedDoc)
         return (
           <>
             <PdfPreviewModal
@@ -1659,7 +1639,7 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
               configuredMessage={fillMessageTemplate(settings?.email_quote_message, {
                 clientName:   selectedClient?.company_name || selectedClient?.name || '',
                 quoteNumber:  pdfData.estimate_number || '',
-                amount:       fmt(total),
+                amount:       fmt(pdfData.total),
                 expiryDate:   pdfData.expiry_date || '',
                 businessName: settings?.business_name || '',
               })}
@@ -1670,11 +1650,12 @@ function EstimateForm({ estimate, clients, catalog, settings, onBack, onSaved, o
                 // to separately click "Mark as Sent" for status to update.
                 const estId = currentEstimateIdRef.current
                 if (estId && form.status === 'draft') {
-                  await supabase
+                  const { error: sentErr } = await supabase
                     .from('estimates')
                     .update({ status: 'sent' })
                     .eq('id', estId)
                     .eq('user_id', user.id)
+                  if (sentErr) { setErrors({ _global: `The quote was sent, but its status could not be updated: ${sentErr.message}` }); return }
                   setField('status', 'sent')
                   onSaved({ id: estId, status: 'sent' })
                 }
@@ -1958,15 +1939,10 @@ export default function Estimates() {
   useEffect(() => {
     const openId = location.state?.openId
     if (!openId || loading) return
-    Promise.all([
-      supabase.from('estimates').select('*').eq('id', openId).single(),
-      supabase.from('estimate_items').select('*').eq('estimate_id', openId),
-    ]).then(([{ data: estData }, { data: itemsData }]) => {
-      if (estData) {
-        setEditing({ ...estData, items: itemsData ?? [] })
-        setView('form')
-      }
-    })
+    loadDocument(supabase, 'estimate', openId).then(({ header, items }) => {
+      setEditing({ ...header, items })
+      setView('form')
+    }).catch(e => setToast({ message: e.message, type: 'error' }))
   }, [location.state?.openId, loading])
 
   function openNew() { setEditing(null); setView('form') }
@@ -1980,13 +1956,12 @@ export default function Estimates() {
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function openEdit(est) {
-    const [{ data: estData }, { data: itemsData }] = await Promise.all([
-      supabase.from('estimates').select('*').eq('id', est.id).single(),
-      supabase.from('estimate_items').select('*').eq('estimate_id', est.id),
-    ])
-    if (estData) {
-      setEditing({ ...estData, items: itemsData ?? [] })
+    try {
+      const { header, items } = await loadDocument(supabase, 'estimate', est.id)
+      setEditing({ ...header, items })
       setView('form')
+    } catch (e) {
+      setToast({ message: e.message, type: 'error' })
     }
   }
 
@@ -1996,11 +1971,12 @@ export default function Estimates() {
     await load()
     setToast({ message: 'Estimate saved.', type: 'success' })
     // Re-open with full data (includes items array)
-    const [{ data: estData }, { data: itemsData }] = await Promise.all([
-      supabase.from('estimates').select('*').eq('id', savedEst.id).single(),
-      supabase.from('estimate_items').select('*').eq('estimate_id', savedEst.id),
-    ])
-    if (estData) setEditing({ ...estData, items: itemsData ?? [] })
+    try {
+      const { header, items } = await loadDocument(supabase, 'estimate', savedEst.id)
+      setEditing({ ...header, items })
+    } catch (e) {
+      setToast({ message: e.message, type: 'error' })
+    }
   }
 
   function handleDeleted() {

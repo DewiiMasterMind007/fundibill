@@ -19,6 +19,8 @@ import { getPayments, getBalanceDue } from '../utils/payments'
 import { getBankingDetails, createBankingSnapshot } from '../utils/bankingDetails'
 import BankingDetailsSelector from '../components/BankingDetailsSelector'
 import { getClientContacts } from '../utils/clientContacts'
+import { saveDocument, loadDocument, normalizeItems, findUnnamedPricedLines, computeTotals, checkIntegrity } from '../utils/documentSave'
+import IntegrityBanner from '../components/IntegrityBanner'
 
 const READONLY_MSG = 'Your trial has ended. Upgrade to continue.'
 
@@ -773,6 +775,13 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
 
   // Tracks the current invoice ID including after an autosave-on-new
   const currentInvoiceIdRef = useRef(invoice?.id)
+  // Fresh-from-database copy set only by prepareForSend(); every PDF / email /
+  // WhatsApp output is built from this, never from form state.
+  const [verifiedDoc, setVerifiedDoc] = useState(null)
+  const savedSnapshotRef = useRef(null)
+
+  const integrity = invoice?.id ? checkIntegrity(invoice, invoice.items) : { ok: true }
+  const sendBlocked = !integrity.ok
 
   const selectedClient = [...clients, ...extraClients].find(c => c.id === form.client_id)
 
@@ -867,6 +876,7 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
   // Banking details selector (multiple-accounts feature)
   const [bankingList, setBankingList] = useState([])
   const [bankingDetailId, setBankingDetailId] = useState(null)
+  const [bankingLoaded, setBankingLoaded] = useState(false)
   const [showBankingDetails, setShowBankingDetails] = useState(invoice?.show_banking_details ?? true)
   function toggleShowBankingDetails(checked) {
     setShowBankingDetails(checked)
@@ -886,9 +896,16 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
       const matched = snap && list.find(b => b.account_number === snap.account_number && b.bank_name === snap.bank_name)
       const fallback = list.find(b => b.is_default) || list[0]
       setBankingDetailId((matched || fallback)?.id || null)
-    }).catch(() => {})
+      setBankingLoaded(true)
+    }).catch(() => { if (!cancelled) setBankingLoaded(true) })
     return () => { cancelled = true }
   }, [user?.id])
+
+  // Baseline for dirty-tracking on an existing invoice, taken once the async
+  // form inputs (banking account) have settled so an untouched invoice isn't re-saved.
+  useEffect(() => {
+    if (invoice?.id && bankingLoaded && savedSnapshotRef.current === null) savedSnapshotRef.current = currentSnapshot()
+  }, [bankingLoaded]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Additional client contacts — offered as opt-in "Also send to:" choices
   const [clientContacts, setClientContacts] = useState([])
@@ -903,17 +920,17 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
     return () => { cancelled = true }
   }, [selectedClientId])
 
-  // VAT-inclusive: unit_price is the price the client pays (VAT already inside)
-  const grossTotal    = lineItems.reduce((s, li) => s + (Number(li.quantity) || 0) * (Number(li.unit_price) || 0), 0)
+  // VAT-inclusive: unit_price is the price the client pays (VAT already inside).
+  // Totals are computed from exactly the lines that get saved (named lines only).
   const discountsOn   = !!settings?.discounts_enabled
   const discountValue = discountsOn ? (Number(form.discount_value) || 0) : 0
-  const discountAmt   = discountsOn
+  const { gross: grossTotal, total, subtotal, vatAmount } = computeTotals(normalizeItems(lineItems), {
+    vatEnabled: form.vat_enabled, discountsOn, discountType: form.discount_type, discountValue,
+  })
+  const discountAmt     = discountsOn
     ? (form.discount_type === 'percent' ? grossTotal * (discountValue / 100) : discountValue)
     : 0
-  const discountedTotal = Math.max(0, grossTotal - discountAmt)
-  const subtotal   = form.vat_enabled ? discountedTotal / 1.15 : discountedTotal
-  const vatAmount  = form.vat_enabled ? discountedTotal - subtotal : 0
-  const total      = discountedTotal
+  const discountedTotal = total
   const balanceDue = Math.max(0, total - (Number(form.amount_paid) || 0))
 
   function setField(k, v) {
@@ -955,13 +972,33 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
     if (!form.issue_date) errs.issue_date  = 'Required.'
     if (!form.due_date)   errs.due_date    = 'Required.'
     if (!lineItems.some(li => (li.item_name || '').trim())) errs.items = 'Add at least one line item.'
+    else if (findUnnamedPricedLines(lineItems).length > 0) errs.items = 'Some lines have a price or description but no item name. Name them or remove them — unnamed lines are not saved.'
     return errs
   }
 
+  function currentSnapshot() {
+    return JSON.stringify({
+      f: [form.invoice_number, form.client_id, form.issue_date, form.due_date, form.notes, form.vat_enabled, form.discount_value, form.discount_type],
+      l: normalizeItems(lineItems),
+      b: [bankingDetailId, showBankingDetails],
+    })
+  }
+
   async function handleSave(overrideStatus) {
-    if (saving) return // already mid-save — ignore a repeat click/call instead of racing it
+    if (saving) return null // already mid-save — ignore a repeat click/call instead of racing it
     const errs = validate()
-    if (Object.keys(errs).length) { setErrors(errs); return }
+    if (Object.keys(errs).length) { setErrors(errs); return null }
+
+    const knownId = currentInvoiceIdRef.current || invoice?.id || null
+    const items = normalizeItems(lineItems)
+
+    if (knownId && !integrity.ok) {
+      const ok = window.confirm(
+        `This invoice's saved lines don't match its saved total (stored ${fmt(integrity.storedTotal)}, saved lines add up to ${fmt(integrity.itemsTotal)}).\n\n` +
+        `Saving will replace the stored total with ${fmt(total)}, calculated from the ${items.length} line(s) shown on screen. Continue?`
+      )
+      if (!ok) return null
+    }
 
     // setSaving(true) before the duplicate-number check (not after) so the Save
     // button is disabled for the whole save, not just the DB write — otherwise a
@@ -972,17 +1009,22 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
     setErrors({})
 
     // Duplicate-number guard: reject if this number already exists on a DIFFERENT invoice
-    const { data: clash } = await supabase
+    const { data: clash, error: clashErr } = await supabase
       .from('invoices')
       .select('id')
       .eq('user_id', user.id)
       .eq('invoice_number', form.invoice_number)
       .limit(1)
+    if (clashErr) {
+      setSaving(false)
+      setErrors({ _global: `Your invoice could not be saved: ${clashErr.message}` })
+      return null
+    }
     const clashId = clash?.[0]?.id
-    if (clashId && clashId !== invoice?.id) {
+    if (clashId && clashId !== knownId) {
       setSaving(false)
       setErrors({ _global: `Invoice number ${form.invoice_number} is already in use. Please choose a different number.` })
-      return
+      return null
     }
 
     // If the invoice was marked overdue but the due date has since been
@@ -1017,16 +1059,6 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
       payload.previous_status = form.status
     }
 
-    const items = lineItems
-      .filter(li => (li.item_name || '').trim())
-      .map(li => ({
-        item_name:   li.item_name,
-        description: li.description || null,
-        quantity:    Number(li.quantity) || 1,
-        unit_price:  Number(li.unit_price) || 0,
-        line_total:  (Number(li.quantity) || 1) * (Number(li.unit_price) || 0),
-      }))
-
     // Auto-save new catalog items — then refresh the in-memory catalog so
     // autocomplete suggestions update immediately without a page reload.
     const catalogNames = new Set(catalog.map(c => c.name.toLowerCase()))
@@ -1043,46 +1075,18 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
     if (catalogChanged) refreshCatalog()
 
     try {
-      let invoiceId
-      if (isNew) {
-        const { data, error } = await supabase
-          .from('invoices')
-          .insert({ ...payload, user_id: user.id })
-          .select()
-          .single()
-        if (error) throw new Error(error.message)
-        invoiceId = data.id
-      } else {
-        const { error } = await supabase
-          .from('invoices')
-          .update(payload)
-          .eq('id', invoice.id)
-          .eq('user_id', user.id)
-        if (error) throw new Error(error.message)
-        invoiceId = invoice.id
-        // Replace all line items
-        const { error: delErr } = await supabase
-          .from('invoice_items')
-          .delete()
-          .eq('invoice_id', invoiceId)
-        if (delErr) throw new Error(delErr.message)
-      }
-
-      if (items.length > 0) {
-        const { error: itemsErr } = await supabase
-          .from('invoice_items')
-          .insert(items.map(i => ({ ...i, invoice_id: invoiceId })))
-        if (itemsErr) throw new Error(itemsErr.message)
-      }
-
+      const saved = await saveDocument(supabase, 'invoice', {
+        id: knownId, userId: user.id, header: payload, items,
+      })
       setSaving(false)
       // Auto-dismiss the recurring-invoice notification when the invoice is marked as sent
-      if (!isNew && payload.status === 'sent' && invoice?.from_recurring) {
+      if (knownId && payload.status === 'sent' && invoice?.from_recurring) {
         dismissNotification(invoice.id)
       }
-      currentInvoiceIdRef.current = invoiceId
-      onSaved({ id: invoiceId, ...payload })
-      return invoiceId
+      currentInvoiceIdRef.current = saved.id
+      savedSnapshotRef.current = currentSnapshot()
+      onSaved({ id: saved.id, ...payload })
+      return saved
     } catch (e) {
       setSaving(false)
       setErrors({ _global: e.message })
@@ -1090,10 +1094,52 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
     }
   }
 
-  // Saves as draft if the invoice is new; returns the invoice ID (null on failure)
-  async function ensureSaved() {
-    if (currentInvoiceIdRef.current) return currentInvoiceIdRef.current
-    return await handleSave()
+  // The only way to reach PDF / email / WhatsApp. Saves the form if it is new or
+  // changed, then re-reads the stored document and verifies it before anything
+  // is generated or sent. Returns the fresh stored document, or null (and shows
+  // an error) — callers must abort on null.
+  async function prepareForSend() {
+    setErrors({})
+    if (sendBlocked) { setErrors({ _global: integrity.message }); return null }
+    const errs = validate()
+    if (Object.keys(errs).length) { setErrors(errs); return null }
+
+    let id = currentInvoiceIdRef.current
+    if (!id || currentSnapshot() !== savedSnapshotRef.current) {
+      const saved = await handleSave()
+      if (!saved) return null
+      id = saved.id
+    }
+
+    try {
+      const doc = await loadDocument(supabase, 'invoice', id)
+      const check = checkIntegrity(doc.header, doc.items)
+      if (!check.ok || doc.items.length === 0) {
+        setErrors({ _global: 'Your invoice could not be fully saved — nothing has been sent. ' + (check.message || '') })
+        return null
+      }
+      setVerifiedDoc(doc)
+      return doc
+    } catch (e) {
+      setErrors({ _global: `Could not verify the saved invoice — nothing has been sent. ${e.message}` })
+      return null
+    }
+  }
+
+  function buildPdfData(doc, overrides = {}) {
+    const h = doc.header
+    const client = [...clients, ...extraClients].find(c => c.id === h.client_id)
+    return {
+      ...h,
+      client_name:    client?.name || '',
+      client_company: client?.company_name || '',
+      client_email:   client?.email || '',
+      client_phone:   client?.phone || '',
+      client_address: client?.address || '',
+      items:          doc.items,
+      payments:       invoicePayments,
+      ...overrides,
+    }
   }
 
   async function confirmMarkAsPaid(paymentMethod, paymentDate) {
@@ -1162,36 +1208,22 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
         customMessage: message,
       })
 
-      // Build a PDF of the now-paid invoice (with PAID watermark) to attach
-      const pdfData = {
-        ...(invoice || {}),
-        invoice_number: form.invoice_number,
-        issue_date:     form.issue_date,
-        due_date:       form.due_date,
-        notes:          form.notes,
-        vat_enabled:    form.vat_enabled,
-        vat_rate:       form.vat_enabled ? 15 : 0,
-        subtotal,
-        vat_amount:     vatAmount,
-        total,
-        amount_paid:    total,
-        status:         'paid',
-        payment_date:   paymentDate || todayStr(),
-        client_name:    selectedClient?.name || '',
-        client_company: selectedClient?.company_name || '',
-        client_email:   selectedClient?.email || '',
-        client_phone:   selectedClient?.phone || '',
-        client_address: selectedClient?.address || '',
-        items:          lineItems.filter(li => (li.item_name || '').trim()),
-        payments:       invoicePayments,
-        banking_details_snapshot: bankingSnapshot,
-        show_banking_details: showBankingDetails,
-      }
+      // Build a PDF of the now-paid invoice (with PAID watermark) to attach.
+      // Built from freshly loaded stored data; if that data is inconsistent the
+      // email goes without an attachment rather than with a wrong PDF.
       let pdfBuffer
       try {
+        const fresh = await loadDocument(supabase, 'invoice', invoice.id)
+        if (!checkIntegrity(fresh.header, fresh.items).ok) throw new Error("the invoice's lines don't match its total")
+        const pdfData = buildPdfData(fresh, {
+          amount_paid:  fresh.header.total,
+          status:       'paid',
+          payment_date: paymentDate || todayStr(),
+        })
         pdfBuffer = await buildPdfBuffer(pdfData, settings, 'INVOICE')
-      } catch (_) {
+      } catch (pdfErr) {
         pdfBuffer = undefined
+        setErrors({ _global: `The payment confirmation email is being sent without the PDF attachment: ${pdfErr.message}` })
       }
 
       const { data: { user: authUser } } = await supabase.auth.getUser()
@@ -1206,8 +1238,9 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
         pdfBase64:   pdfBuffer ? arrayBufferToBase64(pdfBuffer) : null,
         pdfFilename: `Invoice-${form.invoice_number || 'paid'}.pdf`,
       })
-    } catch (_) {
-      // Non-fatal — the invoice has already been marked as paid.
+    } catch (e) {
+      // Non-fatal to the payment itself (already recorded) but never silent.
+      setErrors({ _global: `The invoice was marked as paid, but the confirmation email could not be sent: ${e.message}` })
     } finally {
       setSendingPaymentEmail(false)
     }
@@ -1271,34 +1304,16 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
 
       let pdfBuffer
       try {
-        const invoicePayments = await getPayments(supabase, invoice.id)
-        const pdfData = {
-          ...(invoice || {}),
-          invoice_number: form.invoice_number,
-          issue_date:     form.issue_date,
-          due_date:       form.due_date,
-          notes:          form.notes,
-          vat_enabled:    form.vat_enabled,
-          vat_rate:       form.vat_enabled ? 15 : 0,
-          subtotal,
-          vat_amount:     vatAmount,
-          total,
-          amount_paid:    form.amount_paid,
-          status:         'paid',
-          payment_date:   form.payment_date,
-          client_name:    selectedClient?.name || '',
-          client_company: selectedClient?.company_name || '',
-          client_email:   selectedClient?.email || '',
-          client_phone:   selectedClient?.phone || '',
-          client_address: selectedClient?.address || '',
-          items:          lineItems.filter(li => (li.item_name || '').trim()),
-          payments:       invoicePayments,
-          banking_details_snapshot: bankingSnapshot,
-          show_banking_details: showBankingDetails,
-        }
+        const [fresh, invoicePayments] = await Promise.all([
+          loadDocument(supabase, 'invoice', invoice.id),
+          getPayments(supabase, invoice.id),
+        ])
+        if (!checkIntegrity(fresh.header, fresh.items).ok) throw new Error("the invoice's lines don't match its total")
+        const pdfData = buildPdfData(fresh, { status: 'paid', payments: invoicePayments })
         pdfBuffer = await buildPdfBuffer(pdfData, settings, 'INVOICE')
-      } catch (_) {
+      } catch (pdfErr) {
         pdfBuffer = undefined
+        setErrors({ _global: `The payment confirmation email is being sent without the PDF attachment: ${pdfErr.message}` })
       }
 
       const { data: { user: authUser } } = await supabase.auth.getUser()
@@ -1313,8 +1328,8 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
         pdfBase64:   pdfBuffer ? arrayBufferToBase64(pdfBuffer) : null,
         pdfFilename: `Invoice-${form.invoice_number || 'paid'}.pdf`,
       })
-    } catch (_) {
-      // Non-fatal — the payment has already been recorded.
+    } catch (e) {
+      setErrors({ _global: `The payment was recorded, but the confirmation email could not be sent: ${e.message}` })
     } finally {
       setSendingThankYouEmail(false)
     }
@@ -1391,37 +1406,16 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
   }
 
   async function handleSendWhatsApp() {
-    if (waLoading) return
+    if (waLoading || saving) return
     setShowShareDialog(false)
     setWaToast(null)
-    const savedId = await ensureSaved()
-    if (!savedId) return
+    const doc = await prepareForSend()
+    if (!doc) return
     setWaLoading(true)
     try {
-      const pdfData = {
-        ...(invoice || {}),
-        invoice_number: form.invoice_number,
-        issue_date:     form.issue_date,
-        due_date:       form.due_date,
-        notes:          form.notes,
-        vat_enabled:    form.vat_enabled,
-        vat_rate:       form.vat_enabled ? 15 : 0,
-        subtotal,
-        vat_amount:     vatAmount,
-        total,
-        amount_paid:    Number(form.amount_paid) || 0,
-        status:         form.status,
-        payment_date:   form.payment_date,
-        client_name:    selectedClient?.name || '',
-        client_company: selectedClient?.company_name || '',
-        client_email:   selectedClient?.email || '',
-        client_phone:   selectedClient?.phone || '',
-        client_address: selectedClient?.address || '',
-        items:          lineItems.filter(li => (li.item_name || '').trim()),
-        payments:       invoicePayments,
-        banking_details_snapshot: bankingSnapshot,
-        show_banking_details: showBankingDetails,
-      }
+      const pdfData = buildPdfData(doc)
+      const h = doc.header
+      const client = [...clients, ...extraClients].find(c => c.id === h.client_id)
 
       let arrayBuffer
       try {
@@ -1433,22 +1427,22 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
       }
 
       const blob         = new Blob([arrayBuffer], { type: 'application/pdf' })
-      const filename     = `Invoice-${form.invoice_number || 'draft'}.pdf`
+      const filename     = `Invoice-${h.invoice_number || 'draft'}.pdf`
       const businessName = settings?.business_name || ''
-      const clientName   = selectedClient?.company_name || selectedClient?.name || 'there'
+      const clientName   = client?.company_name || client?.name || 'there'
       const message = buildInvoiceWhatsAppMessage({
         clientName,
-        invoiceNumber: form.invoice_number,
-        amount:        fmt(total),
-        dueDate:       form.due_date,
+        invoiceNumber: h.invoice_number,
+        amount:        fmt(h.total),
+        dueDate:       h.due_date,
         businessName,
         template:      settings?.whatsapp_default_message || undefined,
       })
 
       const result = await sendPdfViaWhatsApp({
         blob, filename, message,
-        phone: selectedClient?.phone,
-        title: `Invoice ${form.invoice_number} from ${businessName}`,
+        phone: client?.phone,
+        title: `Invoice ${h.invoice_number} from ${businessName}`,
       })
 
       if (result.status === 'fallback') {
@@ -1462,14 +1456,16 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
 
   async function handleOpenEmail() {
     setShowShareDialog(false)
-    const savedId = await ensureSaved()
-    if (!savedId) return
+    if (saving) return
+    const doc = await prepareForSend()
+    if (!doc) return
     setShowEmailModal(true)
   }
 
   async function handleOpenPdf() {
-    const savedId = await ensureSaved()
-    if (!savedId) return
+    if (saving) return
+    const doc = await prepareForSend()
+    if (!doc) return
     setPdfOpen(true)
   }
 
@@ -1561,7 +1557,7 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
                   View only
                 </span>
               )}
-              <button onClick={handleOpenPdf}
+              <button onClick={handleOpenPdf} disabled={sendBlocked}
                 style={{ padding: '9px 14px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontWeight: 600, fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
                 Preview PDF
@@ -1577,13 +1573,13 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
                   </button>
                   {showShareDialog && (
                     <div style={{ position: 'absolute', top: 'calc(100% + 6px)', right: 0, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, boxShadow: '0 8px 24px rgba(15,23,42,0.12)', zIndex: 100, minWidth: 160, padding: '6px 0', overflow: 'hidden' }}>
-                      <button onClick={handleSendWhatsApp} style={{ width: '100%', padding: '10px 16px', border: 'none', background: 'none', textAlign: 'left', fontSize: 13, fontWeight: 600, color: '#374151', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 9 }}
+                      <button onClick={handleSendWhatsApp} disabled={sendBlocked} style={{ width: '100%', padding: '10px 16px', border: 'none', background: 'none', textAlign: 'left', fontSize: 13, fontWeight: 600, color: '#374151', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 9 }}
                         onMouseEnter={e => e.currentTarget.style.background = '#f1f5f9'}
                         onMouseLeave={e => e.currentTarget.style.background = 'none'}>
                         <img src={whatsappIcon} alt="" width={14} height={14} style={{ display: 'block', borderRadius: 3 }} />
                         WhatsApp
                       </button>
-                      <button onClick={handleOpenEmail} style={{ width: '100%', padding: '10px 16px', border: 'none', background: 'none', textAlign: 'left', fontSize: 13, fontWeight: 600, color: '#374151', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 9 }}
+                      <button onClick={handleOpenEmail} disabled={sendBlocked} style={{ width: '100%', padding: '10px 16px', border: 'none', background: 'none', textAlign: 'left', fontSize: 13, fontWeight: 600, color: '#374151', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 9 }}
                         onMouseEnter={e => e.currentTarget.style.background = '#f1f5f9'}
                         onMouseLeave={e => e.currentTarget.style.background = 'none'}>
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#475569" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
@@ -1633,7 +1629,7 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
           {/* Mobile: compact icon buttons */}
           {isMobile && (
             <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }}>
-              <button onClick={handleOpenPdf} title="Preview PDF"
+              <button onClick={handleOpenPdf} disabled={sendBlocked} title="Preview PDF"
                 style={{ padding: '7px', borderRadius: 7, border: '1px solid #e2e8f0', background: '#fff', color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
               </button>
@@ -1691,6 +1687,11 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
         paddingBottom: isMobile ? 160 : undefined,
       }}>
         <div style={{ maxWidth: 860, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: isMobile ? 14 : 20 }}>
+
+          <IntegrityBanner integrity={integrity} />
+          {errors._global && !isMobile && (
+            <div role="alert" style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 10, padding: '10px 14px', color: '#991b1b', fontSize: 13 }}>{errors._global}</div>
+          )}
 
           {/* ── Details card ── */}
           <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0', padding: isMobile ? 16 : 24 }}>
@@ -1992,11 +1993,11 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
               </button>
               {showShareDialog && (
                 <div style={{ marginTop: 6, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, boxShadow: '0 4px 16px rgba(15,23,42,0.10)', overflow: 'hidden' }}>
-                  <button onClick={handleSendWhatsApp} style={{ width: '100%', padding: '13px 16px', border: 'none', borderBottom: '1px solid #f1f5f9', background: 'none', textAlign: 'left', fontSize: 14, fontWeight: 600, color: '#374151', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10, fontFamily: 'inherit' }}>
+                  <button onClick={handleSendWhatsApp} disabled={sendBlocked} style={{ width: '100%', padding: '13px 16px', border: 'none', borderBottom: '1px solid #f1f5f9', background: 'none', textAlign: 'left', fontSize: 14, fontWeight: 600, color: '#374151', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10, fontFamily: 'inherit' }}>
                     <img src={whatsappIcon} alt="" width={16} height={16} style={{ display: 'block', borderRadius: 3 }} />
                     WhatsApp
                   </button>
-                  <button onClick={handleOpenEmail} style={{ width: '100%', padding: '13px 16px', border: 'none', background: 'none', textAlign: 'left', fontSize: 14, fontWeight: 600, color: '#374151', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10, fontFamily: 'inherit' }}>
+                  <button onClick={handleOpenEmail} disabled={sendBlocked} style={{ width: '100%', padding: '13px 16px', border: 'none', background: 'none', textAlign: 'left', fontSize: 14, fontWeight: 600, color: '#374151', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10, fontFamily: 'inherit' }}>
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#475569" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
                     Email
                   </button>
@@ -2060,32 +2061,9 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
       )}
 
       {/* PDF Preview modal */}
-      {(pdfOpen || showEmailModal) && (() => {
-        const selectedClient = [...clients, ...extraClients].find(c => c.id === form.client_id)
-        const pdfData = {
-          ...(invoice || {}),
-          invoice_number: form.invoice_number,
-          issue_date:     form.issue_date,
-          due_date:       form.due_date,
-          notes:          form.notes,
-          vat_enabled:    form.vat_enabled,
-          vat_rate:       form.vat_enabled ? 15 : 0,
-          subtotal,
-          vat_amount:     vatAmount,
-          total,
-          amount_paid:    Number(form.amount_paid) || 0,
-          status:         form.status,
-          payment_date:   form.payment_date,
-          client_name:    selectedClient?.name || '',
-          client_company: selectedClient?.company_name || '',
-          client_email:   selectedClient?.email || '',
-          client_phone:   selectedClient?.phone || '',
-          client_address: selectedClient?.address || '',
-          items:          lineItems.filter(li => (li.item_name || '').trim()),
-          payments:       invoicePayments,
-          banking_details_snapshot: bankingSnapshot,
-          show_banking_details: showBankingDetails,
-        }
+      {(pdfOpen || showEmailModal) && verifiedDoc && (() => {
+        const selectedClient = [...clients, ...extraClients].find(c => c.id === verifiedDoc.header.client_id)
+        const pdfData = buildPdfData(verifiedDoc)
         return (
           <>
             <PdfPreviewModal
@@ -2105,7 +2083,7 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
               configuredMessage={fillMessageTemplate(settings?.email_invoice_message, {
                 clientName:    selectedClient?.company_name || selectedClient?.name || '',
                 invoiceNumber: pdfData.invoice_number || '',
-                amount:        fmt(total),
+                amount:        fmt(pdfData.total),
                 dueDate:       pdfData.due_date || '',
                 businessName:  settings?.business_name || '',
               })}
@@ -2121,11 +2099,12 @@ function InvoiceForm({ invoice, clients, catalog, settings, onBack, onSaved, onD
                   const patch = { sent_from_app: true }
                   if (form.status === 'draft') patch.status = 'sent'
                   if (!invoice?.sent_at) patch.sent_at = new Date().toISOString()
-                  await supabase
+                  const { error: sentErr } = await supabase
                     .from('invoices')
                     .update(patch)
                     .eq('id', invId)
                     .eq('user_id', user.id)
+                  if (sentErr) { setErrors({ _global: `The invoice was sent, but its status could not be updated: ${sentErr.message}` }); return }
                   if (patch.status) setField('status', patch.status)
                   onSaved({ id: invId, ...patch })
                 }
@@ -2290,10 +2269,9 @@ function RecurringForm({ recurringInvoice, clients, catalog, settings, onBack, o
 
   const selectedClient = [...clients, ...extraClients].find(c => c.id === form.client_id)
 
-  const grossTotal = lineItems.reduce((s, li) => s + (Number(li.quantity) || 0) * (Number(li.unit_price) || 0), 0)
-  const subtotal   = form.vat_enabled ? grossTotal / 1.15 : grossTotal
-  const vatAmount  = form.vat_enabled ? grossTotal - subtotal : 0
-  const total      = grossTotal
+  const { gross: grossTotal, total, subtotal, vatAmount } = computeTotals(normalizeItems(lineItems), {
+    vatEnabled: form.vat_enabled, discountsOn: false, discountType: null, discountValue: 0,
+  })
 
   function setField(k, v) { setForm(p => ({ ...p, [k]: v })) }
 
@@ -2315,10 +2293,12 @@ function RecurringForm({ recurringInvoice, clients, catalog, settings, onBack, o
     if (!form.client_id)      errs.client_id      = 'Select a client.'
     if (!form.next_send_date) errs.next_send_date  = 'Required.'
     if (!lineItems.some(li => (li.item_name || '').trim())) errs.items = 'Add at least one line item.'
+    else if (findUnnamedPricedLines(lineItems).length > 0) errs.items = 'Some lines have a price or description but no item name. Name them or remove them — unnamed lines are not saved.'
     return errs
   }
 
   async function handleSave() {
+    if (saving) return
     const errs = validate()
     if (Object.keys(errs).length) { setErrors(errs); return }
 
@@ -2331,15 +2311,7 @@ function RecurringForm({ recurringInvoice, clients, catalog, settings, onBack, o
     setSaving(true)
     setErrors({})
 
-    const items = lineItems
-      .filter(li => (li.item_name || '').trim())
-      .map(li => ({
-        item_name:   li.item_name,
-        description: li.description || null,
-        quantity:    Number(li.quantity) || 1,
-        unit_price:  Number(li.unit_price) || 0,
-        line_total:  (Number(li.quantity) || 1) * (Number(li.unit_price) || 0),
-      }))
+    const items = normalizeItems(lineItems)
 
     const payload = {
       client_id:      form.client_id || null,
@@ -2391,54 +2363,54 @@ function RecurringForm({ recurringInvoice, clients, catalog, settings, onBack, o
           const subtotalAmt = form.vat_enabled ? lineTotal / 1.15 : lineTotal
           const vatAmt      = form.vat_enabled ? lineTotal - subtotalAmt : 0
 
-          // ── 4. Insert the first invoice ───────────────────────────────────
-          const { data: inv, error: invErr } = await supabase
-            .from('invoices')
-            .insert({
-              invoice_number:       invoiceNumber,
-              client_id:            form.client_id || null,
-              issue_date:           issueDate,
-              due_date:             dueDate,
-              notes:                form.notes || null,
-              vat_enabled:          form.vat_enabled,
-              vat_rate:             form.vat_enabled ? 15 : 0,
-              subtotal:             subtotalAmt,
-              vat_amount:           vatAmt,
-              total:                lineTotal,
-              amount_paid:          0,
-              status:               'draft',
-              from_recurring:       true,
-              notification_dismissed: false,
-              banking_details_snapshot: showBankingDetails ? createBankingSnapshot(bankingList.find(b => b.id === bankingDetailId)) : null,
-              show_banking_details: showBankingDetails,
-              user_id:              user.id,
+          // ── 4. Create the first invoice + its lines in ONE transaction ────
+          // If this fails the schedule row inserted above is rolled back too, so
+          // a retry can't leave a duplicate schedule behind.
+          try {
+            await saveDocument(supabase, 'invoice', {
+              id: null,
+              userId: user.id,
+              header: {
+                invoice_number:       invoiceNumber,
+                client_id:            form.client_id || null,
+                issue_date:           issueDate,
+                due_date:             dueDate,
+                notes:                form.notes || null,
+                vat_enabled:          form.vat_enabled,
+                vat_rate:             form.vat_enabled ? 15 : 0,
+                subtotal:             subtotalAmt,
+                vat_amount:           vatAmt,
+                total:                lineTotal,
+                amount_paid:          0,
+                status:               'draft',
+                discount_value:       0,
+                discount_type:        null,
+                from_recurring:       true,
+                notification_dismissed: false,
+                banking_details_snapshot: showBankingDetails ? createBankingSnapshot(bankingList.find(b => b.id === bankingDetailId)) : null,
+                show_banking_details: showBankingDetails,
+              },
+              items,
             })
-            .select()
-            .single()
-          if (invErr) throw new Error(invErr.message)
-
-          // ── 5. Insert invoice_items ───────────────────────────────────────
-          if (items.length > 0) {
-            const { error: itemsErr } = await supabase
-              .from('invoice_items')
-              .insert(items.map(li => ({
-                invoice_id:  inv.id,
-                item_name:   li.item_name,
-                description: li.description,
-                quantity:    li.quantity,
-                unit_price:  li.unit_price,
-                line_total:  li.line_total,
-              })))
-            if (itemsErr) throw new Error(itemsErr.message)
+          } catch (firstInvErr) {
+            const { error: rollbackErr } = await supabase
+              .from('recurring_invoices').delete().eq('id', recurring.id).eq('user_id', user.id)
+            throw new Error(
+              `The first invoice could not be created, so the recurring schedule was not saved. ${firstInvErr.message}` +
+              (rollbackErr ? ` (Cleanup of the schedule also failed: ${rollbackErr.message} — check Recurring Invoices for a stray entry.)` : '')
+            )
           }
 
           // ── 6. Advance next_send_date and set last_sent_date ──────────────
           const nextSendDate = calcNextSendDate(issueDate, form.interval)
-          await supabase
+          const { error: advanceErr } = await supabase
             .from('recurring_invoices')
             .update({ next_send_date: nextSendDate, last_sent_date: issueDate })
             .eq('id', recurring.id)
             .eq('user_id', user.id)
+          if (advanceErr) {
+            setToast({ message: `The first invoice was created, but the schedule's next date could not be advanced (${advanceErr.message}). Edit the schedule to fix it, otherwise a duplicate invoice may be created.`, type: 'error' })
+          }
 
           // ── 7. Refresh notification banners immediately ───────────────────
           refreshNotifications()
@@ -3039,27 +3011,26 @@ function ReminderModal({ invoice, clients, settings, onClose, onReminderSent }) 
       })
 
       // Build a PDF of the invoice to attach to the reminder
-      let pdfBuffer
-      try {
-        const [{ data: itemsData }, invoicePayments] = await Promise.all([
-          supabase.from('invoice_items').select('*').eq('invoice_id', invoice.id),
-          getPayments(supabase, invoice.id),
-        ])
-
-        const pdfData = {
-          ...invoice,
-          client_name:    client?.name || '',
-          client_company: client?.company_name || '',
-          client_email:   client?.email || '',
-          client_phone:   client?.phone || '',
-          client_address: client?.address || '',
-          items:          itemsData ?? [],
-          payments:       invoicePayments,
-        }
-        pdfBuffer = await buildPdfBuffer(pdfData, settings, 'INVOICE')
-      } catch (_) {
-        pdfBuffer = undefined
+      // Built from freshly loaded stored data. A reminder is a send action, so an
+      // invoice whose lines don't match its total blocks it entirely.
+      const [fresh, invoicePayments] = await Promise.all([
+        loadDocument(supabase, 'invoice', invoice.id),
+        getPayments(supabase, invoice.id),
+      ])
+      if (!checkIntegrity(fresh.header, fresh.items).ok || fresh.items.length === 0) {
+        throw new Error("This invoice's line items don't match its total — some lines may be missing. Open the invoice and check it before sending a reminder.")
       }
+      const pdfData = {
+        ...fresh.header,
+        client_name:    client?.name || '',
+        client_company: client?.company_name || '',
+        client_email:   client?.email || '',
+        client_phone:   client?.phone || '',
+        client_address: client?.address || '',
+        items:          fresh.items,
+        payments:       invoicePayments,
+      }
+      const pdfBuffer = await buildPdfBuffer(pdfData, settings, 'INVOICE')
 
       const { data: { user: authUser } } = await supabase.auth.getUser()
 
@@ -3571,12 +3542,9 @@ export default function Invoices() {
   useEffect(() => {
     const openId = location.state?.openId
     if (!openId || loading) return
-    Promise.all([
-      supabase.from('invoices').select('*').eq('id', openId).single(),
-      supabase.from('invoice_items').select('*').eq('invoice_id', openId),
-    ]).then(([{ data: invData }, { data: itemsData }]) => {
-      if (invData) { setEditing({ ...invData, items: itemsData ?? [] }); setView('form') }
-    })
+    loadDocument(supabase, 'invoice', openId).then(({ header, items }) => {
+      setEditing({ ...header, items }); setView('form')
+    }).catch(e => setToast({ message: e.message, type: 'error' }))
   }, [location.state?.openId, loading])
 
   // ── Regular invoice handlers ──────────────────────────────────────────────
@@ -3605,11 +3573,12 @@ export default function Invoices() {
   }, [location.pathname]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function openEdit(inv) {
-    const [{ data: invData }, { data: itemsData }] = await Promise.all([
-      supabase.from('invoices').select('*').eq('id', inv.id).single(),
-      supabase.from('invoice_items').select('*').eq('invoice_id', inv.id),
-    ])
-    if (invData) { setEditing({ ...invData, items: itemsData ?? [] }); setView('form') }
+    try {
+      const { header, items } = await loadDocument(supabase, 'invoice', inv.id)
+      setEditing({ ...header, items }); setView('form')
+    } catch (e) {
+      setToast({ message: e.message, type: 'error' })
+    }
   }
 
   function handleBack() { setView('list'); setEditing(null) }
@@ -3617,11 +3586,12 @@ export default function Invoices() {
   async function handleSaved(savedInv) {
     await load()
     setToast({ message: 'Invoice saved.', type: 'success' })
-    const [{ data: invData }, { data: itemsData }] = await Promise.all([
-      supabase.from('invoices').select('*').eq('id', savedInv.id).single(),
-      supabase.from('invoice_items').select('*').eq('invoice_id', savedInv.id),
-    ])
-    if (invData) setEditing({ ...invData, items: itemsData ?? [] })
+    try {
+      const { header, items } = await loadDocument(supabase, 'invoice', savedInv.id)
+      setEditing({ ...header, items })
+    } catch (e) {
+      setToast({ message: e.message, type: 'error' })
+    }
   }
 
   function handleDeleted() {
@@ -3693,14 +3663,14 @@ export default function Invoices() {
       // Build a PDF of the now-paid invoice (with PAID watermark) to attach
       let pdfBuffer
       try {
-        const [{ data: itemsData }, invoicePayments] = await Promise.all([
-          supabase.from('invoice_items').select('*').eq('invoice_id', inv.id),
+        const [fresh, invoicePayments] = await Promise.all([
+          loadDocument(supabase, 'invoice', inv.id),
           getPayments(supabase, inv.id),
         ])
-
+        if (!checkIntegrity(fresh.header, fresh.items).ok) throw new Error("the invoice's lines don't match its total")
         const pdfData = {
-          ...inv,
-          amount_paid:    inv.total,
+          ...fresh.header,
+          amount_paid:    fresh.header.total,
           status:         'paid',
           payment_date:   paymentDate || todayStr(),
           client_name:    client?.name || '',
@@ -3708,12 +3678,13 @@ export default function Invoices() {
           client_email:   client?.email || '',
           client_phone:   client?.phone || '',
           client_address: client?.address || '',
-          items:          itemsData ?? [],
+          items:          fresh.items,
           payments:       invoicePayments,
         }
         pdfBuffer = await buildPdfBuffer(pdfData, settings, 'INVOICE')
-      } catch (_) {
+      } catch (pdfErr) {
         pdfBuffer = undefined
+        setToast({ message: `The payment confirmation email is being sent without the PDF attachment: ${pdfErr.message}`, type: 'error' })
       }
 
       const { data: { user: authUser } } = await supabase.auth.getUser()
@@ -3728,8 +3699,8 @@ export default function Invoices() {
         pdfBase64:   pdfBuffer ? arrayBufferToBase64(pdfBuffer) : null,
         pdfFilename: `Invoice-${inv.invoice_number || 'paid'}.pdf`,
       })
-    } catch (_) {
-      // Non-fatal — the invoice has already been marked as paid.
+    } catch (e) {
+      setToast({ message: `The invoice was marked as paid, but the confirmation email could not be sent: ${e.message}`, type: 'error' })
     } finally {
       setSendingPaymentEmailList(false)
     }
@@ -3775,24 +3746,25 @@ export default function Invoices() {
 
       let pdfBuffer
       try {
-        const [{ data: itemsData }, invoicePayments] = await Promise.all([
-          supabase.from('invoice_items').select('*').eq('invoice_id', inv.id),
+        const [fresh, invoicePayments] = await Promise.all([
+          loadDocument(supabase, 'invoice', inv.id),
           getPayments(supabase, inv.id),
         ])
-
+        if (!checkIntegrity(fresh.header, fresh.items).ok) throw new Error("the invoice's lines don't match its total")
         const pdfData = {
-          ...inv,
+          ...fresh.header,
           client_name:    client?.name || '',
           client_company: client?.company_name || '',
           client_email:   client?.email || '',
           client_phone:   client?.phone || '',
           client_address: client?.address || '',
-          items:          itemsData ?? [],
+          items:          fresh.items,
           payments:       invoicePayments,
         }
         pdfBuffer = await buildPdfBuffer(pdfData, settings, 'INVOICE')
-      } catch (_) {
+      } catch (pdfErr) {
         pdfBuffer = undefined
+        setToast({ message: `The payment confirmation email is being sent without the PDF attachment: ${pdfErr.message}`, type: 'error' })
       }
 
       const { data: { user: authUser } } = await supabase.auth.getUser()
@@ -3807,8 +3779,8 @@ export default function Invoices() {
         pdfBase64:   pdfBuffer ? arrayBufferToBase64(pdfBuffer) : null,
         pdfFilename: `Invoice-${inv.invoice_number || 'paid'}.pdf`,
       })
-    } catch (_) {
-      // Non-fatal — the payment has already been recorded.
+    } catch (e) {
+      setToast({ message: `The payment was recorded, but the confirmation email could not be sent: ${e.message}`, type: 'error' })
     } finally {
       setSendingThankYouEmailList(false)
     }

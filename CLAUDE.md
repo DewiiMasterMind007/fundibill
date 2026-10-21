@@ -445,6 +445,10 @@ RLS: `"Users can manage their own banking details" FOR ALL USING (auth.uid() = u
 │       ├── payments.js         — recordPayment, deletePayment, getPayments, getBalanceDue —
 │       │                          partial-payments data layer, keeps invoices.amount_paid/
 │       │                          status in sync with the payments table. See Section 6.
+│       ├── documentSave.js     — saveDocument / loadDocument / checkIntegrity / normalizeItems /
+│       │                          computeTotals — the ONLY way quotes and invoices (header + line
+│       │                          items) are written or re-read. See Section 10 "Document save &
+│       │                          send rules" and Known Issue #16.
 │       └── bankingDetails.js   — getBankingDetails, addBankingDetail, updateBankingDetail,
 │                                   deleteBankingDetail, setDefaultBankingDetail,
 │                                   createBankingSnapshot — multiple-banking-accounts data
@@ -537,9 +541,13 @@ RLS: `"Users can manage their own banking details" FOR ALL USING (auth.uid() = u
 │       ├── add_invoice_sent_at.sql       — sent_at column on invoices (manual-send
 │       │                                    timestamp, parallels auto_sent_at). Must be run
 │       │                                    manually — see Known Issue #14.
-│       └── drop_prefix_column_defaults.sql — drops stale Postgres-level DEFAULT 'EST'/'INV'
-│                                            on profiles.estimate_prefix/invoice_prefix. Must be
-│                                            run manually — see Known Issue #15.
+│       ├── drop_prefix_column_defaults.sql — drops stale Postgres-level DEFAULT 'EST'/'INV'
+│       │                                    on profiles.estimate_prefix/invoice_prefix. Must be
+│       │                                    run manually — see Known Issue #15.
+│       └── add_atomic_document_save.sql  — sort_order on estimate_items/invoice_items +
+│                                            save_estimate_with_items / save_invoice_with_items
+│                                            (atomic, verified saves). Must be run manually, BEFORE
+│                                            the matching app build — see Known Issue #16.
 │
 ├── assets/icon.ico             — App icon for Electron installer / taskbar
 ├── public/
@@ -1040,6 +1048,8 @@ If this trigger is added, `AuthCallback.jsx`'s own upsert becomes a harmless no-
 
 15. **`profiles.invoice_prefix`/`estimate_prefix` had stale Postgres-level defaults — resolved:** every new signup got `estimate_prefix` silently pre-filled to `'EST'` (and `invoice_prefix` to `'INV'`) by a column-level `DEFAULT` in Postgres, left over from before quotes were renamed from "Estimates" to "Quotes" in the UI — so Settings showed an already-filled-in "EST" prefix field instead of an empty one with a placeholder hint, even on a brand-new account. `supabase/migrations/drop_prefix_column_defaults.sql` must be run manually to drop those defaults for future signups; existing profiles' already-stored prefix values (including any inherited 'EST'/'INV') are untouched — this only changes what a *new* row gets when the app doesn't explicitly set these columns. Settings' own form-merge logic (`src/pages/Settings.jsx`) was also independently pre-filling the input value from `DEFAULTS.invoice_prefix`/`DEFAULTS.estimate_prefix` whenever the profile field was empty — fixed to leave it genuinely empty (the field's existing `placeholder="INV-"`/`"QT-"` already handled the visual hint; the live number-preview text below the field, and every actual number-generation call site, still fall back to `'INV-'`/`'QT-'` when the field is empty — only the editable input's pre-filled *value* changed). Also fixed in the same pass: `src/pages/Estimates.jsx`'s own number-generation fallback was `'EST-'`, inconsistent with Settings' `'QT-'` default (a real bug, not just terminology) — now `'QT-'`.
 
+16. **Quote/invoice line items silently lost on save — resolved (`fix-line-items`):** a client's quote with 9+ lines was emailed with every line on the PDF, but `estimate_items` held only 3 rows (the stale originals) while `estimates.total/subtotal` held the full new amount — so the list (reads `estimates.total`) showed the right figure and the detail view (reads the item rows) showed 3 lines and a smaller total. **Root cause:** `EstimateForm.handleSave` / `InvoiceForm.handleSave` saved a document as three separate, non-transactional requests — header `update`, items `delete`, items `insert` — so a failure on the 2nd/3rd step left the new header on top of the old lines. Compounding it, `ensureSaved()` skipped saving entirely once the document had an id, and the PDF/email/WhatsApp output was built from in-memory form state, so a send could go out with lines that were never persisted. Read-side truncation and races were ruled out (no limit/pagination anywhere; saves are guarded by `saving`). The exact failing sub-step could not be proven from code alone (check `supabase/diagnostics/inspect_item_tables.sql` for RLS/trigger/constraint causes) — the fix makes the question moot. **Fix:** atomic RPCs + `src/utils/documentSave.js` + `prepareForSend()` gate + integrity banner (rules in Section 10 "Document save & send rules"); `handleConvert` (quote → invoice) rebuilt on the same helpers (it previously ignored errors on three of its five writes); `RecurringForm`'s first-invoice creation is atomic and rolls the new schedule back if it fails; `process-recurring-invoices` uses `save_invoice_with_items` so it can no longer create item-less invoices (and no longer leaves an orphan on retry). **Manual steps:** run `supabase/migrations/add_atomic_document_save.sql` in the SQL Editor *before* using the new build; redeploy `process-recurring-invoices` (`supabase functions deploy process-recurring-invoices --no-verify-jwt`). Existing damaged documents are NOT auto-fixed — list them with `supabase/diagnostics/find_damaged_documents.sql` (read-only) and repair by hand.
+
 ---
 
 ## 10. CODING RULES & PATTERNS
@@ -1065,6 +1075,16 @@ If this trigger is added, `AuthCallback.jsx`'s own upsert becomes a harmless no-
 ### Email
 - HTTPS logo URLs only in email HTML — filter out `data:` and local paths before generating templates
 - Use `PLAIN_TEXT_FOOTER` from `emailTemplates.js` as plain-text fallback footer
+
+### Document save & send rules (quotes and invoices)
+These exist because of Known Issue #16 (a quote went out with 9 lines while the database kept 3). Do not bypass them.
+- **Never write `estimates`/`invoices` together with their `*_items` rows by hand** (insert header, delete items, insert items). Always call `saveDocument(supabase, 'estimate' | 'invoice', { id, userId, header, items })` from `src/utils/documentSave.js`. It calls the Postgres function `save_estimate_with_items` / `save_invoice_with_items` (one transaction; raises `ITEM_COUNT_MISMATCH` / `TOTAL_MISMATCH` and rolls back if the stored lines don't match the stored total) and then re-reads the stored document to confirm the item count and totals. It throws on any problem and never returns a half-saved result.
+- **Header totals must come from the lines being saved.** Build `items` with `normalizeItems(lineItems)` (named lines only) and totals with `computeTotals(items, …)`. Unnamed lines that carry a price/description are a validation error (`findUnnamedPricedLines`), not silently dropped.
+- **Send / share / PDF only through `prepareForSend()`** (in `EstimateForm` and `InvoiceForm`). It blocks if the integrity banner is showing, validates, saves first when the form is new or changed (dirty snapshot), then `loadDocument()`s the stored document, re-checks `checkIntegrity()`, and only then sets `verifiedDoc`. The PDF preview, `SendEmailModal`, WhatsApp share and downloads are built from `verifiedDoc` (fresh DB data) via `buildPdfData()` — **never from in-memory `lineItems`/form state**. Server-side PDFs (`api/generate-invoice-pdf.js`) and the recurring cron read from the DB and refuse an invoice with no lines.
+- **Integrity banner:** `<IntegrityBanner>` shows on quote/invoice detail when `checkIntegrity(header, items)` fails (stored subtotal/total differs from the lines by more than R0.01, or zero lines with a non-zero total). While it shows, PDF / email / WhatsApp / reminder actions are disabled. Saving such a document asks for confirmation first because it replaces the only surviving total.
+- **Always load line items through `loadDocument()`** (ordered by `sort_order`, throws on error). Never `.select('*')` an items table and ignore `error` — that is what turned a failed read into "no lines".
+- **No swallowed errors on document writes:** every Supabase call that touches estimates/invoices/items/payments checks `error` and surfaces it (toast or `errors._global`). Email-after-payment flows may continue past a PDF problem but must say so.
+- Line order is `sort_order` (0-based submitted order). Rows saved before the migration have NULL `sort_order` and sort last.
 
 ### Date Arithmetic
 - Always guard against invalid dates with `isNaN(d.getTime())` when using `addDays()` or `calcNextSendDate()`
